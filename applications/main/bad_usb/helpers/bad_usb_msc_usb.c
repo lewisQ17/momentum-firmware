@@ -454,13 +454,16 @@ static struct usb_string_descriptor* create_string_descriptor(const char* str) {
     if(!str) return NULL;
 
     size_t len = strlen(str);
+    // bLength is a uint8: len*2+2 wraps for names of 127+ chars (a USB string
+    // descriptor maxes at 126 chars anyway). Clamp so the length byte stays valid.
+    if(len > 126) len = 126;
     struct usb_string_descriptor* desc = malloc(len * 2 + 2);
     if(!desc) return NULL;
 
-    desc->bLength = len * 2 + 2;
+    desc->bLength = (uint8_t)(len * 2 + 2);
     desc->bDescriptorType = USB_DTYPE_STRING;
     for(size_t i = 0; i < len; i++) {
-        desc->wString[i] = str[i];
+        desc->wString[i] = (uint8_t)str[i];
     }
     return desc;
 }

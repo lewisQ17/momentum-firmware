@@ -715,14 +715,17 @@ EmvError emv_poller_read_afl(EmvPoller* instance, bool bruteforce_sfi, uint16_t*
             uint8_t sfi = afl->data[i] >> 3;
             uint8_t record_start = afl->data[i + 1];
             uint8_t record_end = afl->data[i + 2];
-            // Iterate through all records in file
-            for(uint8_t record = record_start; record <= record_end; ++record) {
-                if((sfi <= 3) && (record <= 5))
+            // Iterate through all records in file. record is uint16_t: a card
+            // supplying record_end == 0xFF with a uint8 counter would wrap 255->0
+            // and loop forever. The mask guard also requires sfi >= 2, or
+            // (sfi - 2) * 8 underflows into an out-of-range bit of the uint16 mask.
+            for(uint16_t record = record_start; record <= record_end; ++record) {
+                if((sfi >= 2) && (sfi <= 3) && (record <= 5))
                     FURI_BIT_SET(
                         *readed_mask,
                         record + ((sfi - 2) * 8)); //black magic: mask 0003333300022222
 
-                error = emv_poller_read_sfi_record(instance, sfi, record);
+                error = emv_poller_read_sfi_record(instance, sfi, (uint8_t)record);
                 if(error != EmvErrorNone) break;
 
                 if(!emv_decode_response_tlv(

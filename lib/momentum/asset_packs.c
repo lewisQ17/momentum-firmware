@@ -4,6 +4,7 @@
 
 #include <assets_icons.h>
 #include <core/dangerous_defines.h>
+#include <core/memmgr_heap.h>
 #include <furi_hal.h>
 #include <gui/icon_i.h>
 #include <storage/storage.h>
@@ -39,6 +40,51 @@ typedef struct {
     int32_t frame_count;
 } FURI_PACKED AnimatedIconMetaFile;
 
+// Validation shared by the pack loaders and the loose-icon loaders below. Pack
+// files live on the SD card and are untrusted: a truncated or crafted file must
+// never crash the GUI (or boot, since asset_packs_init runs at loader startup).
+
+// No built-in icon exceeds 128x64, and the canvas icon decode buffer is exactly
+// 128*64/8 bytes (gui/canvas_i.h ICON_DECOMPRESSOR_BUFFER_SIZE). Reject anything
+// larger so a crafted header can't make the draw path read past that buffer.
+#define ASSET_PACKS_ICON_MAX_W 128
+#define ASSET_PACKS_ICON_MAX_H 64
+
+// Upper bound for one frame blob, checked BEFORE allocating (furi malloc aborts on
+// OOM). Largest valid frame is 1 + 16 * 64 = 1025 B uncompressed; a compressed
+// frame is not larger than that plus a small header/overhead.
+#define ASSET_PACKS_ICON_MAX_FRAME_SIZE 2048
+
+// Upper bound for one .u8f font file, checked BEFORE allocating (furi malloc
+// aborts on OOM). Real pack fonts are a few KB.
+#define ASSET_PACKS_FONT_MAX_SIZE (32 * 1024)
+
+static bool asset_packs_icon_dims_valid(int32_t width, int32_t height) {
+    return width > 0 && height > 0 && width <= ASSET_PACKS_ICON_MAX_W &&
+           height <= ASSET_PACKS_ICON_MAX_H;
+}
+
+// Verify a frame blob is at least as large as what the draw path reads from it.
+// Uncompressed (byte 0 == 0): compress_icon_decode points the canvas straight at
+// frame+1 and it reads ((w+7)/8)*h raw XBM bytes. Compressed (byte 0 != 0): a
+// 4-byte CompressHeader whose bytes 2-3 (LE) hold the compressed payload size;
+// the heatshrink decoder reads 4 + that many bytes. Either way the file must
+// contain those bytes or the decode path reads past the malloc'd frame buffer.
+static bool asset_packs_icon_frame_valid(
+    const uint8_t* frame,
+    uint64_t frame_size,
+    int32_t width,
+    int32_t height) {
+    if(frame_size < 1) return false;
+    if(frame[0] == 0) {
+        uint32_t need = 1u + (uint32_t)((width + 7) / 8) * (uint32_t)height;
+        return frame_size >= need;
+    }
+    if(frame_size < 4) return false;
+    uint32_t compressed = (uint32_t)frame[2] | ((uint32_t)frame[3] << 8);
+    return frame_size >= 4u + compressed;
+}
+
 static void
     load_icon_animated(const Icon* original, const char* name, FuriString* path, File* file) {
     const char* pack = momentum_settings.asset_pack;
@@ -48,10 +94,14 @@ static void
         bool ok = storage_file_read(file, &meta, sizeof(meta)) == sizeof(meta);
         storage_file_close(file);
 
-        // frame_count comes straight from an asset-pack meta file. Bound it (as
-        // animation_storage.c does) so a crafted/huge value can't wrap the malloc
-        // size and overflow the frames[] array.
-        if(ok && (meta.frame_count <= 0 || meta.frame_count > 256)) {
+        // Meta values come straight from an asset-pack file. Bound them so a
+        // crafted value can't crash later:
+        //  - frame_count 1..255 (icon.frame_count is uint8_t; 256 wraps to 0 and
+        //    icon_animation does `frame % frame_count`), also keeps the malloc sane
+        //  - frame_rate 1..255 (icon_animation divides by it; uint8_t)
+        //  - dimensions within what the canvas decode buffer can hold
+        if(ok && (meta.frame_count <= 0 || meta.frame_count > 255 || meta.frame_rate < 1 ||
+                  meta.frame_rate > 255 || !asset_packs_icon_dims_valid(meta.width, meta.height))) {
             ok = false;
         }
         bool loaded = false;
@@ -64,8 +114,15 @@ static void
                 if(storage_file_open(
                        file, furi_string_get_cstr(path), FSAM_READ, FSOM_OPEN_EXISTING)) {
                     uint64_t frame_size = storage_file_size(file);
-                    swap->frames[i] = malloc(frame_size);
-                    ok = storage_file_read(file, swap->frames[i], frame_size) == frame_size;
+                    if(frame_size > ASSET_PACKS_ICON_MAX_FRAME_SIZE) {
+                        swap->frames[i] = NULL; // freed in the unwind below
+                        ok = false;
+                    } else {
+                        swap->frames[i] = malloc(frame_size);
+                        ok = storage_file_read(file, swap->frames[i], frame_size) == frame_size &&
+                             asset_packs_icon_frame_valid(
+                                 swap->frames[i], frame_size, meta.width, meta.height);
+                    }
                     storage_file_close(file);
                     if(ok) continue;
                 } else {
@@ -124,12 +181,21 @@ static void
         // underflow frame_size into a huge malloc, so treat it as no frame data
         // and let the read guard below reject it (keeping the built-in icon).
         uint64_t file_size = storage_file_size(file);
-        uint64_t frame_size = (file_size >= sizeof(header)) ? (file_size - sizeof(header)) : 0;
+        // Also cap the size BEFORE allocating: furi malloc aborts on OOM, so a huge
+        // garbage file would otherwise crash boot (asset_packs_init runs at startup).
+        if(file_size < sizeof(header) ||
+           file_size - sizeof(header) > ASSET_PACKS_ICON_MAX_FRAME_SIZE) {
+            asset_packs_failed_icons++;
+            storage_file_close(file);
+            return;
+        }
+        uint64_t frame_size = file_size - sizeof(header);
         StaticIconSwap* swap = malloc(sizeof(StaticIconSwap) + frame_size);
 
-        if(file_size >= sizeof(header) &&
-           storage_file_read(file, &header, sizeof(header)) == sizeof(header) &&
-           storage_file_read(file, swap->frame, frame_size) == frame_size) {
+        if(frame_size > 0 && storage_file_read(file, &header, sizeof(header)) == sizeof(header) &&
+           storage_file_read(file, swap->frame, frame_size) == frame_size &&
+           asset_packs_icon_dims_valid(header.width, header.height) &&
+           asset_packs_icon_frame_valid(swap->frame, frame_size, header.width, header.height)) {
             FURI_CONST_ASSIGN(swap->icon.width, header.width);
             FURI_CONST_ASSIGN(swap->icon.height, header.height);
             FURI_CONST_ASSIGN(swap->icon.frame_count, 1);
@@ -171,9 +237,17 @@ static void load_font(Font font, const char* name, FuriString* path, File* file)
     furi_string_printf(path, FONTS_FMT, momentum_settings.asset_pack, name);
     if(storage_file_open(file, furi_string_get_cstr(path), FSAM_READ, FSOM_OPEN_EXISTING)) {
         uint64_t size = storage_file_size(file);
+        // Check size BEFORE allocating: furi malloc aborts on OOM, so a huge or
+        // garbage font file would otherwise crash boot. Skip the override instead.
+        if(size <= U8G2_FONT_DATA_STRUCT_SIZE || size > ASSET_PACKS_FONT_MAX_SIZE ||
+           memmgr_heap_get_max_free_block() < size + 1024) {
+            asset_packs_failed_icons++;
+            storage_file_close(file);
+            return;
+        }
         uint8_t* swap = malloc(size);
 
-        if(size > U8G2_FONT_DATA_STRUCT_SIZE && storage_file_read(file, swap, size) == size) {
+        if(storage_file_read(file, swap, size) == size) {
             asset_packs->fonts[font] = swap;
             CanvasFontParameters* params = malloc(sizeof(CanvasFontParameters));
             // See lib/u8g2/u8g2_font.c
@@ -184,6 +258,7 @@ static void load_font(Font font, const char* name, FuriString* path, File* file)
             asset_packs->font_params[font] = params;
         } else {
             free(swap);
+            asset_packs_failed_icons++;
         }
     }
     storage_file_close(file);
@@ -291,46 +366,9 @@ const Icon* asset_packs_swap_icon(const Icon* requested) {
 // heap-owned by the CALLER and must be released with asset_packs_icon_free();
 // it is never placed in the swap list, so asset_packs_free() never touches it.
 //
-// Unlike the pack loaders above, these validate dimensions and frame sizes: the
+// Like the pack loaders above, these validate dimensions and frame sizes: the
 // path can point at any file the user browsed to, so the data is untrusted.
 // ---------------------------------------------------------------------------
-
-// No built-in icon exceeds 128x64, and the canvas icon decode buffer is exactly
-// 128*64/8 bytes (gui/canvas_i.h ICON_DECOMPRESSOR_BUFFER_SIZE). Reject anything
-// larger so a crafted header can't make the draw path read past that buffer.
-#define ASSET_PACKS_ICON_MAX_W 128
-#define ASSET_PACKS_ICON_MAX_H 64
-
-// Upper bound for one frame blob, checked BEFORE allocating (furi malloc aborts on
-// OOM). Largest valid frame is 1 + 16 * 64 = 1025 B uncompressed; a compressed
-// frame is not larger than that plus a small header/overhead.
-#define ASSET_PACKS_ICON_MAX_FRAME_SIZE 2048
-
-static bool asset_packs_icon_dims_valid(int32_t width, int32_t height) {
-    return width > 0 && height > 0 && width <= ASSET_PACKS_ICON_MAX_W &&
-           height <= ASSET_PACKS_ICON_MAX_H;
-}
-
-// Verify a frame blob is at least as large as what the draw path reads from it.
-// Uncompressed (byte 0 == 0): compress_icon_decode points the canvas straight at
-// frame+1 and it reads ((w+7)/8)*h raw XBM bytes. Compressed (byte 0 != 0): a
-// 4-byte CompressHeader whose bytes 2-3 (LE) hold the compressed payload size;
-// the heatshrink decoder reads 4 + that many bytes. Either way the file must
-// contain those bytes or the decode path reads past the malloc'd frame buffer.
-static bool asset_packs_icon_frame_valid(
-    const uint8_t* frame,
-    uint64_t frame_size,
-    int32_t width,
-    int32_t height) {
-    if(frame_size < 1) return false;
-    if(frame[0] == 0) {
-        uint32_t need = 1u + (uint32_t)((width + 7) / 8) * (uint32_t)height;
-        return frame_size >= need;
-    }
-    if(frame_size < 4) return false;
-    uint32_t compressed = (uint32_t)frame[2] | ((uint32_t)frame[3] << 8);
-    return frame_size >= 4u + compressed;
-}
 
 static Icon* asset_packs_load_static_file(File* file, const char* path) {
     if(!storage_file_open(file, path, FSAM_READ, FSOM_OPEN_EXISTING)) {

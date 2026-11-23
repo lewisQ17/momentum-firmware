@@ -50,10 +50,19 @@ bool subghz_scene_save_success_on_event(void* context, SceneManagerEvent event) 
                 subghz->idx_menu_chosen = 0;
                 subghz_txrx_set_rx_callback(subghz->txrx, NULL, subghz);
 
-                if(subghz_file_encoder_worker_is_running(subghz->decode_raw_file_worker_encoder)) {
-                    subghz_file_encoder_worker_stop(subghz->decode_raw_file_worker_encoder);
+                // The worker may already have been freed earlier in the RAW flow,
+                // leaving the pointer non-NULL only when one is live. Guard it the
+                // same way the Back handler does, or is_running/stop/free run on a
+                // stale/NULL worker.
+                if(subghz->decode_raw_file_worker_encoder) {
+                    if(subghz_file_encoder_worker_is_running(
+                           subghz->decode_raw_file_worker_encoder)) {
+                        subghz_file_encoder_worker_stop(
+                            subghz->decode_raw_file_worker_encoder);
+                    }
+                    subghz_file_encoder_worker_free(subghz->decode_raw_file_worker_encoder);
+                    subghz->decode_raw_file_worker_encoder = NULL;
                 }
-                subghz_file_encoder_worker_free(subghz->decode_raw_file_worker_encoder);
 
                 subghz->state_notifications = SubGhzNotificationStateIDLE;
                 subghz_rx_key_state_set(subghz, SubGhzRxKeyStateIDLE);

@@ -4,6 +4,8 @@ void gpio_scene_input_monitor_on_enter(void* context) {
     furi_assert(context);
     GpioApp* app = context;
     gpio_items_configure_all_input(app->gpio_items, GpioPullDown);
+    // Prime the pin mask so the first frame shows live values, not stale/zero ones.
+    gpio_input_monitor_sample(app->gpio_input_monitor);
     view_dispatcher_switch_to_view(app->view_dispatcher, GpioAppViewInputMonitor);
 }
 

@@ -260,6 +260,12 @@ static int32_t ducky_fnc_msc_mount(BadUsbScript* bad_usb, const char* line, int3
     if(line[0] == '\0') {
         return ducky_error(bad_usb, "MASS_STORAGE_MOUNT needs a path");
     }
+    // Mass storage is a USB-only function: under the BLE HID interface there is
+    // no USB HID instance to drop, so mounting leaves hid_inst NULL and a later
+    // release_all / key press dereferences it. Refuse instead of crashing.
+    if(*bad_usb->interface != BadUsbHidInterfaceUsb) {
+        return ducky_error(bad_usb, "MASS_STORAGE needs USB");
+    }
     if(bad_usb_msc_mount(bad_usb, line)) {
         return 0;
     }

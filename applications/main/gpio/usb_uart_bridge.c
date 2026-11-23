@@ -407,7 +407,13 @@ static int32_t usb_uart_worker(void* context) {
                 usb_uart->cfg.baudrate = usb_uart->cfg_new.baudrate;
             }
             if(usb_uart->cfg.flow_pins != usb_uart->cfg_new.flow_pins) {
-                if(usb_uart->cfg.flow_pins != 0) {
+                // flow_pins index 3 is PC0/PC1 (pins 16,15) — the same pins LPUART
+                // uses. uart_ch was already updated above, so if LPUART now owns
+                // them, serial_init just muxed them as AF; releasing them to Analog
+                // here would silently kill the just-started LPUART.
+                bool lpuart_owns_pins = (usb_uart->cfg.flow_pins == 3) &&
+                                        (usb_uart->cfg.uart_ch == FuriHalSerialIdLpuart);
+                if(usb_uart->cfg.flow_pins != 0 && !lpuart_owns_pins) {
                     furi_hal_gpio_init_simple(
                         flow_pins[usb_uart->cfg.flow_pins - 1][0], GpioModeAnalog);
                     furi_hal_gpio_init_simple(

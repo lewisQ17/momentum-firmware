@@ -413,6 +413,16 @@ void bad_usb_msc_umount(BadUsbScript* bad_usb) {
     bad_usb_hid_start(bad_usb);
 }
 
+// Stop/disconnect while a volume is mounted: eject it so the host drive does not
+// linger, HID is restored (hid_inst valid again for release_all) and a re-run does
+// not silently type into a dead HID. Returns true if a volume was unmounted; the
+// caller then waits in NotConnected until HID re-enumerates (WorkerEvtConnect).
+static bool bad_usb_stop_msc(BadUsbScript* bad_usb) {
+    if(!bad_usb_msc_is_mounted(bad_usb)) return false;
+    bad_usb_msc_umount(bad_usb);
+    return true;
+}
+
 static bool ducky_script_preload(BadUsbScript* bad_usb, File* script_file) {
     uint8_t ret = 0;
     uint32_t line_len = 0;
@@ -691,10 +701,12 @@ static int32_t bad_usb_worker(void* context) {
                 if(flags & WorkerEvtEnd) {
                     break;
                 } else if(flags & WorkerEvtStartStop) {
-                    worker_state = BadUsbStateIdle; // Stop executing script
+                    worker_state = bad_usb_stop_msc(bad_usb) ? BadUsbStateNotConnected :
+                                                               BadUsbStateIdle; // Stop
                     bad_usb->hid->release_all(bad_usb->hid_inst);
                 } else if(flags & WorkerEvtDisconnect) {
                     worker_state = BadUsbStateNotConnected; // Disconnected
+                    bad_usb_stop_msc(bad_usb);
                     bad_usb->hid->release_all(bad_usb->hid_inst);
                 } else if(flags & WorkerEvtPauseResume) {
                     pause_state = BadUsbStateRunning;
@@ -754,6 +766,7 @@ static int32_t bad_usb_worker(void* context) {
                     worker_state = BadUsbStateRunning;
                 } else if(flags & WorkerEvtDisconnect) {
                     worker_state = BadUsbStateNotConnected; // Disconnected
+                    bad_usb_stop_msc(bad_usb);
                     bad_usb->hid->release_all(bad_usb->hid_inst);
                 }
                 bad_usb->st.state = worker_state;
@@ -770,12 +783,14 @@ static int32_t bad_usb_worker(void* context) {
                 if(flags & WorkerEvtEnd) {
                     break;
                 } else if(flags & WorkerEvtStartStop) {
-                    worker_state = BadUsbStateIdle; // Stop executing script
+                    worker_state = bad_usb_stop_msc(bad_usb) ? BadUsbStateNotConnected :
+                                                               BadUsbStateIdle; // Stop
                     bad_usb->st.state = worker_state;
                     bad_usb->hid->release_all(bad_usb->hid_inst);
                 } else if(flags & WorkerEvtDisconnect) {
                     worker_state = BadUsbStateNotConnected; // Disconnected
                     bad_usb->st.state = worker_state;
+                    bad_usb_stop_msc(bad_usb);
                     bad_usb->hid->release_all(bad_usb->hid_inst);
                 } else if(flags & WorkerEvtPauseResume) {
                     if(pause_state == BadUsbStateRunning) {
@@ -807,10 +822,12 @@ static int32_t bad_usb_worker(void* context) {
                 if(flags & WorkerEvtEnd) {
                     break;
                 } else if(flags & WorkerEvtStartStop) {
-                    worker_state = BadUsbStateIdle; // Stop executing script
+                    worker_state = bad_usb_stop_msc(bad_usb) ? BadUsbStateNotConnected :
+                                                               BadUsbStateIdle; // Stop
                     bad_usb->hid->release_all(bad_usb->hid_inst);
                 } else if(flags & WorkerEvtDisconnect) {
                     worker_state = BadUsbStateNotConnected; // Disconnected
+                    bad_usb_stop_msc(bad_usb);
                     bad_usb->hid->release_all(bad_usb->hid_inst);
                 } else if(flags & WorkerEvtPauseResume) {
                     pause_state = BadUsbStateStringDelay;

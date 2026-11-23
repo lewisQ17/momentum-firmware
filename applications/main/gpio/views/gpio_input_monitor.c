@@ -10,6 +10,9 @@ struct GpioInputMonitor {
 
 typedef struct {
     GPIOItems* gpio_items;
+    // Last sampled pin levels (bit i = pin i). The draw callback renders from this
+    // so the view only redraws when a pin actually changed.
+    uint32_t mask;
 } GpioInputMonitorModel;
 
 static void gpio_input_monitor_draw_callback(Canvas* canvas, void* _model) {
@@ -30,7 +33,7 @@ static void gpio_input_monitor_draw_callback(Canvas* canvas, void* _model) {
             sizeof(text),
             "%s: %c",
             gpio_items_get_pin_name(model->gpio_items, i),
-            gpio_items_read_pin(model->gpio_items, i) ? 'H' : 'L');
+            ((model->mask >> i) & 1U) ? 'H' : 'L');
         canvas_draw_str(canvas, x, y, text);
     }
 }
@@ -65,8 +68,36 @@ View* gpio_input_monitor_get_view(GpioInputMonitor* gpio_input_monitor) {
     return gpio_input_monitor->view;
 }
 
+static uint32_t gpio_input_monitor_read_mask(GPIOItems* gpio_items) {
+    uint32_t mask = 0;
+    const uint8_t count = gpio_items_get_count(gpio_items);
+    for(uint8_t i = 0; i < count && i < 32; i++) {
+        if(gpio_items_read_pin(gpio_items, i)) mask |= (1UL << i);
+    }
+    return mask;
+}
+
+// Only requests a redraw when a pin level changed since the last sample.
 void gpio_input_monitor_update(GpioInputMonitor* gpio_input_monitor) {
     furi_assert(gpio_input_monitor);
+    bool changed = false;
     with_view_model(
-        gpio_input_monitor->view, GpioInputMonitorModel * model, { UNUSED(model); }, true);
+        gpio_input_monitor->view,
+        GpioInputMonitorModel * model,
+        {
+            const uint32_t mask = gpio_input_monitor_read_mask(model->gpio_items);
+            changed = (mask != model->mask);
+            model->mask = mask;
+        },
+        changed);
+}
+
+void gpio_input_monitor_sample(GpioInputMonitor* gpio_input_monitor) {
+    furi_assert(gpio_input_monitor);
+    // Prime the mask without requesting a redraw; the view switch draws the first frame.
+    with_view_model(
+        gpio_input_monitor->view,
+        GpioInputMonitorModel * model,
+        { model->mask = gpio_input_monitor_read_mask(model->gpio_items); },
+        false);
 }

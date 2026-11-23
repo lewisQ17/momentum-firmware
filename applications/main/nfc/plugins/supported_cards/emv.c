@@ -26,6 +26,7 @@
 #include <bit_lib.h>
 #include <datetime.h>
 #include <locale/locale.h>
+#include <momentum/momentum.h>
 
 #define TAG "EMV"
 
@@ -88,6 +89,22 @@ static bool emv_parse(const NfcDevice* device, FuriString* parsed_data) {
             // Cut padding 'F' from card number
             size_t end = furi_string_search_rchar(pan, 'F');
             if(end) furi_string_left(pan, end);
+
+            // Honour the "Mask PAN" privacy setting here too (emv_render.c already
+            // does); otherwise this parser screen still showed the full number.
+            if(momentum_settings.nfc_mask_pan) {
+                size_t size = furi_string_size(pan);
+                size_t total_digits = 0;
+                for(size_t i = 0; i < size; i++) {
+                    if(furi_string_get_char(pan, i) != ' ') total_digits++;
+                }
+                size_t to_mask = (total_digits > 4) ? (total_digits - 4) : 0;
+                size_t seen = 0;
+                for(size_t i = 0; i < size; i++) {
+                    if(furi_string_get_char(pan, i) == ' ') continue;
+                    if(++seen <= to_mask) furi_string_set_char(pan, i, '*');
+                }
+            }
             furi_string_cat_printf(pan, "\n");
             furi_string_cat(parsed_data, pan);
 

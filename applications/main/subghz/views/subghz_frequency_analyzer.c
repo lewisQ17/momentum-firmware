@@ -44,8 +44,6 @@ typedef struct {
     uint32_t frequency_to_save;
     float rssi;
     uint32_t history_frequency[MAX_HISTORY];
-    uint8_t history_frequency_rx_count[MAX_HISTORY];
-    float history_rssi[MAX_HISTORY]; // Peak RSSI (dBm) per history frequency
     bool signal;
     float rssi_last;
     float trigger;
@@ -363,33 +361,17 @@ void subghz_frequency_analyzer_pair_callback(
                 for(size_t i = 0; i < MAX_HISTORY; i++) {
                     if(model->history_frequency[i] == normal_frequency) {
                         in_array = true;
-                        if(model->history_frequency[i] > 0) {
-                            if(model->history_frequency_rx_count[i] == 0) {
-                                model->history_frequency_rx_count[i]++;
-                            }
-                            model->history_frequency_rx_count[i]++;
-                        }
                         if(i > 0) {
                             size_t offset = 0;
-                            uint8_t temp_rx_count = model->history_frequency_rx_count[i];
-                            float temp_rssi = model->history_rssi[i];
 
                             for(size_t j = MAX_HISTORY - 1; j > 0; j--) {
                                 if(j == i) {
                                     offset++;
                                 }
                                 model->history_frequency[j] = model->history_frequency[j - offset];
-                                model->history_frequency_rx_count[j] =
-                                    model->history_frequency_rx_count[j - offset];
-                                model->history_rssi[j] = model->history_rssi[j - offset];
                             }
                             model->history_frequency[0] = normal_frequency;
-                            model->history_frequency_rx_count[0] = temp_rx_count;
-                            model->history_rssi[0] = temp_rssi;
                         }
-
-                        // Record the latest peak RSSI (dBm) for this frequency
-                        model->history_rssi[0] = instance->rssi_last;
 
                         break;
                     }
@@ -400,16 +382,6 @@ void subghz_frequency_analyzer_pair_callback(
                     model->history_frequency[2] = model->history_frequency[1];
                     model->history_frequency[1] = model->history_frequency[0];
                     model->history_frequency[0] = normal_frequency;
-
-                    model->history_frequency_rx_count[3] = model->history_frequency_rx_count[2];
-                    model->history_frequency_rx_count[2] = model->history_frequency_rx_count[1];
-                    model->history_frequency_rx_count[1] = model->history_frequency_rx_count[0];
-                    model->history_frequency_rx_count[0] = 0;
-
-                    model->history_rssi[3] = model->history_rssi[2];
-                    model->history_rssi[2] = model->history_rssi[1];
-                    model->history_rssi[1] = model->history_rssi[0];
-                    model->history_rssi[0] = instance->rssi_last;
                 }
 
                 if(max_index < MAX_HISTORY) {
@@ -491,14 +463,6 @@ void subghz_frequency_analyzer_enter(void* context) {
             model->history_frequency[2] = 0;
             model->history_frequency[1] = 0;
             model->history_frequency[0] = 0;
-            model->history_frequency_rx_count[3] = 0;
-            model->history_frequency_rx_count[2] = 0;
-            model->history_frequency_rx_count[1] = 0;
-            model->history_frequency_rx_count[0] = 0;
-            model->history_rssi[3] = 0;
-            model->history_rssi[2] = 0;
-            model->history_rssi[1] = 0;
-            model->history_rssi[0] = 0;
             model->frequency_to_save = 0;
             model->trigger = RSSI_MIN;
             model->is_ext_radio =

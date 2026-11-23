@@ -266,6 +266,10 @@ bool scsi_cmd_tx_data(SCSISession* scsi, uint8_t* data, uint32_t* len, uint32_t 
         if(!scsi->read_10.count) {
             scsi->tx_done = true;
         }
+        // A CBW length that rounds down to zero blocks (not a 512 multiple, or a
+        // zero-block remainder) would otherwise loop emitting zero-length packets.
+        // Take the short-tx path to the CSW instead.
+        if(!blocks) return false;
         return result;
     }; break;
     default: {

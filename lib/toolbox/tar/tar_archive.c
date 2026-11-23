@@ -355,7 +355,14 @@ static bool archive_extract_current_file(TarArchive* archive, const char* dst_pa
 
         while(!mtar_eof_data(tar)) {
             int32_t readcnt = mtar_read_data(tar, readbuf, FILE_BLOCK_SIZE);
-            if(!readcnt || !storage_file_write(out_file, readbuf, readcnt)) {
+            // mtar_read_data returns a NEGATIVE error code (e.g. MTAR_EREADFAIL)
+            // on a short/corrupt/truncated archive. The old check only rejected 0,
+            // so a negative count was cast to a huge size_t and storage_file_write
+            // streamed ~4 GB of heap past the 10 KB buffer into the output file.
+            // Treat <=0 as failure and require the full block to be written (a
+            // short write, e.g. disk full, is no longer silently accepted).
+            if(readcnt <= 0 ||
+               storage_file_write(out_file, readbuf, (size_t)readcnt) != (size_t)readcnt) {
                 success = false;
                 break;
             }
