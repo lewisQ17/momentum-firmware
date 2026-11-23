@@ -642,7 +642,7 @@ static void subghz_protocol_somfy_telis_check_remote_controller(SubGhzBlockGener
  * @param btn Button number, 4 bit
  */
 static const char* subghz_protocol_somfy_telis_get_name_button(uint8_t btn) {
-    const char* name_btn[16] = {
+    static const char* const name_btn[16] = {
         "Unknown",
         "My",
         "Up",

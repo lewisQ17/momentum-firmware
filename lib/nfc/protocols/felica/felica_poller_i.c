@@ -291,6 +291,17 @@ FelicaError felica_poller_list_system_code(
     // at least 1 system code + the count being 0x01
 
     // error is known to be FelicaErrorNone here
-    *response_ptr = (FelicaListSystemCodeCommandResponse*)bit_buffer_get_data(instance->rx_buffer);
+    FelicaListSystemCodeCommandResponse* response =
+        (FelicaListSystemCodeCommandResponse*)bit_buffer_get_data(instance->rx_buffer);
+    // The card controls system_count: 0 would trap simple_array_init's
+    // furi_check(count > 0) (DoS reset), and a value larger than the received
+    // bytes makes the caller read past the fixed rx buffer (heap over-read that
+    // leaks into the saved .nfc file). Require the frame to actually carry the
+    // claimed system_code[] array (header + 1 count byte + 2 bytes per code).
+    if(response->system_count < 1 ||
+       rx_len < sizeof(FelicaCommandHeaderRaw) + 1 + (size_t)response->system_count * 2) {
+        return FelicaErrorProtocol;
+    }
+    *response_ptr = response;
     return error;
 }

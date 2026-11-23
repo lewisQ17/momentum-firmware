@@ -776,7 +776,7 @@ static void subghz_protocol_somfy_keytis_check_remote_controller(SubGhzBlockGene
  * @param btn Button number, 4 bit
  */
 static const char* subghz_protocol_somfy_keytis_get_name_button(uint8_t btn) {
-    const char* name_btn[0x10] = {
+    static const char* const name_btn[0x10] = {
         "Unknown",
         "0x01",
         "0x02",

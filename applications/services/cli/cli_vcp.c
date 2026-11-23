@@ -292,7 +292,14 @@ static void cli_vcp_internal_event_happened(FuriEventLoopObject* object, void* c
     }
     }
 
-    if(cli_vcp->events_lost) {
+    // Only resync once the queue has drained, so the DTR state we read reflects
+    // the FINAL line state and not a stale event still waiting behind us. A failed
+    // put implies a full queue, so more events are guaranteed to follow and the
+    // last one handled will see count == 0. Resyncing early let an older queued
+    // Disconnected/Connected undo the resync, stranding is_connected out of sync
+    // with DTR (no shell + no CLI until the host toggles DTR again).
+    if(cli_vcp->events_lost &&
+       furi_message_queue_get_count(cli_vcp->internal_evt_queue) == 0) {
         cli_vcp->events_lost = false;
         FURI_LOG_W(TAG, "Events were dropped, resyncing");
         cli_vcp_resync(cli_vcp);

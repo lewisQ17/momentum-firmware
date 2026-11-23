@@ -202,6 +202,17 @@ NfcCommand felica_poller_state_handler_auth_internal(FelicaPoller* instance) {
             instance, sizeof(blocks), blocks, FELICA_SERVICE_RO_ACCESS, &rx_resp);
         if(error != FelicaErrorNone || rx_resp->SF1 != 0 || rx_resp->SF2 != 0) break;
 
+        // The card controls block_count. felica_check_mac reads block_count*16
+        // bytes from rx_resp->data and derives the MAC offset as (block_count-1)*16
+        // in a uint8_t. We asked for exactly 3 blocks, so reject anything else and
+        // confirm the frame actually carries them before trusting it.
+        if(rx_resp->block_count != sizeof(blocks) ||
+           bit_buffer_get_size_bytes(instance->rx_buffer) <
+               offsetof(FelicaPollerReadCommandResponse, data) +
+                   (size_t)sizeof(blocks) * FELICA_DATA_BLOCK_SIZE) {
+            break;
+        }
+
         if(felica_check_mac(
                &instance->auth.des_context,
                instance->auth.session_key.data,

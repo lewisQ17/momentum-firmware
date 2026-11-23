@@ -33,10 +33,11 @@ static const uint8_t u2f_nfc_version[] = {'U', '2', 'F', '_', 'V', '2'};
 #define U2F_NFC_MAX_CHUNK 240U
 
 // Heap buffer holding the normalized request and, in-place, the U2F response
-// (body + SW). Realistic Register responses (~570 B with the 365 B stock cert)
-// fit comfortably in the minimum size; larger user certificates grow the buffer
-// (see u2f_nfc_start) up to U2F_NFC_MAX_CERT_SIZE.
-#define U2F_NFC_BUF_SIZE 2048U
+// (body + SW). A Register response is ~570 B with the 365 B stock cert, so 1 KB
+// has comfortable margin; larger user certificates grow the buffer (see
+// u2f_nfc_start) to cert_size + U2F_NFC_REGISTER_OVERHEAD, up to
+// U2F_NFC_MAX_CERT_SIZE, and the Register guard refuses anything bigger.
+#define U2F_NFC_BUF_SIZE 1024U
 
 // Register response = 67 B header + 65 B key handle + cert + <=72 B signature + 2 B SW.
 // Margin included.
@@ -321,7 +322,10 @@ U2fNfc* u2f_nfc_start(U2fData* u2f_inst) {
     if(cert_size > U2F_NFC_MAX_CERT_SIZE) cert_size = 0; // Register will be refused
     u2f_nfc->buf_size = MAX(U2F_NFC_BUF_SIZE, cert_size + U2F_NFC_REGISTER_OVERHEAD);
     u2f_nfc->buf = malloc(u2f_nfc->buf_size);
-    u2f_nfc->tx = bit_buffer_alloc(U2F_NFC_BUF_SIZE);
+    // tx only ever holds one outbound chunk (<= U2F_NFC_MAX_CHUNK) plus 2 B SW;
+    // the ISO-DEP listener buffer is 256 B, so there is no point sizing it to the
+    // whole working buffer. Saves ~1.8 KB of heap for the life of the session.
+    u2f_nfc->tx = bit_buffer_alloc(U2F_NFC_MAX_CHUNK + 16);
     u2f_nfc->resp_len = 0;
     u2f_nfc->resp_sent = 0;
     u2f_nfc->selected = false;

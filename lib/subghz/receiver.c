@@ -39,8 +39,11 @@ SubGhzReceiver* subghz_receiver_alloc_init(SubGhzEnvironment* environment) {
         }
     }
 
-    instance->active_slots = malloc(
-        SubGhzReceiverSlotArray_size(instance->slots) * sizeof(SubGhzProtocolEncoderBase*));
+    // malloc(0) traps on this firmware's allocator, so guard the (pathological)
+    // empty-registry case; active_count stays 0 so active_slots is never read.
+    size_t slot_count = SubGhzReceiverSlotArray_size(instance->slots);
+    instance->active_slots =
+        slot_count ? malloc(slot_count * sizeof(SubGhzProtocolEncoderBase*)) : NULL;
     instance->active_count = 0;
     instance->filter = (SubGhzProtocolFlag)0;
     instance->ignore_filter = (SubGhzProtocolFilter)0;

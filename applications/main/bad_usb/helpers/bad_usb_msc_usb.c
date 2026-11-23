@@ -24,7 +24,11 @@
 
 // must be SCSI_BLOCK_SIZE aligned
 // larger than 0x10000 exceeds size_t, storage_file_* ops fail
-#define USB_MSC_BUF_MAX (0x10000UL - SCSI_BLOCK_SIZE)
+// Cap the lazily-grown transfer buffer at 16 KB: the read/write state machine
+// already loops over cbw.len in buf_clamp-sized pieces, so a smaller cap only
+// means a few more storage ops per large host transfer (minor throughput cost)
+// while cutting peak heap from ~63.5 KB to 16 KB.
+#define USB_MSC_BUF_MAX (0x4000UL)
 
 static usbd_respond usb_ep_config(usbd_device* dev, uint8_t cfg);
 static usbd_respond usb_control(usbd_device* dev, usbd_ctlreq* req, usbd_rqc_callback* callback);

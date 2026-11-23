@@ -1,9 +1,6 @@
 #include "../momentum_app.h"
 #include <furi_hal_power.h>
 
-#define MEMINFO_REFRESH_EVENT   (0)
-#define MEMINFO_REFRESH_PERIOD  (1000)
-
 static void momentum_app_scene_misc_meminfo_update(MomentumApp* app) {
     Widget* widget = app->widget;
     widget_reset(widget);

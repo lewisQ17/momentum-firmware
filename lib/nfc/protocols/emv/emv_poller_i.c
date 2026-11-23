@@ -834,7 +834,12 @@ EmvError emv_poller_read_log_entry(EmvPoller* instance) {
 
     instance->data->emv_application.saving_trans_list = true;
     error = emv_poller_get_log_format(instance);
-    if(error != EmvErrorNone) return error;
+    if(error != EmvErrorNone) {
+        // Don't leave the flag set on the early-out, or a later ATC/other tag
+        // would be routed into the transaction-log array (emv_poller_i.c:99).
+        instance->data->emv_application.saving_trans_list = false;
+        return error;
+    }
 
     FURI_LOG_D(TAG, "Read Transaction logs");
 

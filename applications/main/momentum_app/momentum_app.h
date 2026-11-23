@@ -90,7 +90,6 @@ typedef struct {
     uint32_t dolphin_xp;
     uint32_t dolphin_angry;
     FuriString* version_tag;
-    FuriTimer* meminfo_timer;
 
     bool save_mainmenu_apps;
     bool save_desktop;
