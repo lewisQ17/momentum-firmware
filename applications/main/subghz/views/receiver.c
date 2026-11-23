@@ -92,17 +92,19 @@ void subghz_view_receiver_set_mode(
 
 void subghz_receiver_rssi(SubGhzViewReceiver* instance, float rssi) {
     furi_assert(instance);
+    bool changed = false;
     with_view_model(
         instance->view,
         SubGhzViewReceiverModel * model,
         {
-            if(rssi < SUBGHZ_RAW_THRESHOLD_MIN) {
-                model->u_rssi = 0;
-            } else {
-                model->u_rssi = (uint8_t)(rssi - SUBGHZ_RAW_THRESHOLD_MIN);
+            uint8_t v = 0;
+            if(rssi >= SUBGHZ_RAW_THRESHOLD_MIN) {
+                v = (uint8_t)(rssi - SUBGHZ_RAW_THRESHOLD_MIN);
             }
+            changed = (model->u_rssi != v);
+            model->u_rssi = v;
         },
-        true);
+        changed); // skip pixel-identical redraws on the 100 ms tick
 }
 
 void subghz_view_receiver_set_lock(SubGhzViewReceiver* subghz_receiver, bool lock) {

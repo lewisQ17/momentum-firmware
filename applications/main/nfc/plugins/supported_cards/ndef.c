@@ -596,9 +596,16 @@ bool ndef_parse_record(
     size_t len,
     NdefTnf tnf,
     const char* type,
-    uint8_t type_len);
+    uint8_t type_len,
+    bool smart_poster);
 bool ndef_parse_message(Ndef* ndef, size_t pos, size_t len, size_t message_num, bool smart_poster);
 size_t ndef_parse_tlv(Ndef* ndef, size_t pos, size_t len, size_t already_parsed);
+
+// Exact type compare; strncmp(s, type, type_len) matched empty/prefix types (e.g. "" or "S" as "Sp")
+static bool ndef_type_is(const char* s, const char* type, uint8_t type_len) {
+    size_t n = strlen(s);
+    return type_len == n && memcmp(type, s, n) == 0;
+}
 
 bool ndef_parse_record(
     Ndef* ndef,
@@ -606,7 +613,8 @@ bool ndef_parse_record(
     size_t len,
     NdefTnf tnf,
     const char* type,
-    uint8_t type_len) {
+    uint8_t type_len,
+    bool smart_poster) {
     FURI_LOG_D(TAG, "payload type: %.*s len: %hu pos: %zu", type_len, type, len, pos);
     if(!len) {
         furi_string_cat(ndef->output, "Empty\n");
@@ -615,12 +623,13 @@ bool ndef_parse_record(
 
     switch(tnf) {
     case NdefTnfWellKnownType:
-        if(strncmp("Sp", type, type_len) == 0) {
+        // SmartPoster inside a SmartPoster is not allowed by the spec; this also caps recursion depth
+        if(!smart_poster && ndef_type_is("Sp", type, type_len)) {
             furi_string_cat(ndef->output, "SmartPoster\nContained records below\n\n");
             return ndef_parse_message(ndef, pos, len, 0, true);
-        } else if(strncmp("U", type, type_len) == 0) {
+        } else if(ndef_type_is("U", type, type_len)) {
             return ndef_parse_uri(ndef, pos, len);
-        } else if(strncmp("T", type, type_len) == 0) {
+        } else if(ndef_type_is("T", type, type_len)) {
             return ndef_parse_text(ndef, pos, len);
         }
         // Dump data without parsing
@@ -630,11 +639,11 @@ bool ndef_parse_record(
         return true;
 
     case NdefTnfMediaType:
-        if(strncmp("application/vnd.bluetooth.ep.oob", type, type_len) == 0) {
+        if(ndef_type_is("application/vnd.bluetooth.ep.oob", type, type_len)) {
             return ndef_parse_bt(ndef, pos, len);
-        } else if(strncmp("text/vcard", type, type_len) == 0) {
+        } else if(ndef_type_is("text/vcard", type, type_len)) {
             return ndef_parse_vcard(ndef, pos, len);
-        } else if(strncmp("application/vnd.wfa.wsc", type, type_len) == 0) {
+        } else if(ndef_type_is("application/vnd.wfa.wsc", type, type_len)) {
             return ndef_parse_wifi(ndef, pos, len);
         }
         // Dump data without parsing
@@ -738,7 +747,8 @@ bool ndef_parse_message(Ndef* ndef, size_t pos, size_t len, size_t message_num, 
         } else {
             furi_string_cat_printf(ndef->output, "\e*> M%zu-R%zu: ", message_num, record_num);
         }
-        if(!ndef_parse_record(ndef, pos, payload_len, flags_tnf.type_name_format, type, type_len)) {
+        if(!ndef_parse_record(
+               ndef, pos, payload_len, flags_tnf.type_name_format, type, type_len, smart_poster)) {
             if(type_was_allocated) free(type);
             return false;
         }

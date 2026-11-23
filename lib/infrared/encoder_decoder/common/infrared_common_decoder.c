@@ -249,8 +249,10 @@ InfraredMessage*
                 message = infrared_common_decoder_check_ready(decoder);
                 if(message) {
                     continue;
-                } else if(decoder->protocol->databit_len[0] == decoder->databit_cnt) {
-                    /* error: can't decode largest protocol - begin decoding from start */
+                } else {
+                    /* error: Ready but no valid message (e.g. Pioneer checksum fail at a shorter
+                     * length) - always restart, else the long space stays in timings[0] and the
+                     * decoder stalls until timings[] overflows */
                     decoder->state = InfraredCommonDecoderStateWaitPreamble;
                 }
             } else if(status == InfraredStatusError) {

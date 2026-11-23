@@ -355,23 +355,17 @@ bool subghz_history_add_to_history(
 void subghz_history_remove_duplicates(SubGhzHistory* instance) {
     furi_assert(instance);
 
-    SubGhzHistoryItemArray_it_t it;
-    SubGhzHistoryItemArray_it_last(it, instance->history->data);
-    while(!SubGhzHistoryItemArray_end_p(it)) {
-        SubGhzHistoryItem* i = SubGhzHistoryItemArray_ref(it);
-
-        SubGhzHistoryItemArray_it_t jt;
-        SubGhzHistoryItemArray_it_set(jt, it);
-        SubGhzHistoryItemArray_previous(jt);
-        while(!SubGhzHistoryItemArray_end_p(jt)) {
-            SubGhzHistoryItem* j = SubGhzHistoryItemArray_ref(jt);
-
-            if(j->hash_data == i->hash_data && j->protocol == i->protocol) {
-                subghz_history_delete_item(instance, jt->index);
+    // Index-based walk: deleting shifts later elements, so re-fetch pointers each step
+    for(int32_t i = (int32_t)SubGhzHistoryItemArray_size(instance->history->data) - 1; i > 0;
+        i--) {
+        for(int32_t j = i - 1; j >= 0; j--) {
+            SubGhzHistoryItem* it_i = SubGhzHistoryItemArray_get(instance->history->data, i);
+            SubGhzHistoryItem* it_j = SubGhzHistoryItemArray_get(instance->history->data, j);
+            if(it_j->hash_data == it_i->hash_data && it_j->protocol == it_i->protocol) {
+                subghz_history_delete_item(instance, j);
+                i--; // element i shifted down to i-1
             }
-            SubGhzHistoryItemArray_previous(jt);
         }
-        SubGhzHistoryItemArray_previous(it);
     }
 }
 

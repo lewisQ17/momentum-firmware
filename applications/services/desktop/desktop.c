@@ -176,12 +176,6 @@ static bool desktop_back_event_callback(void* context) {
     return scene_manager_handle_back_event(desktop->scene_manager);
 }
 
-static void desktop_tick_event_callback(void* context) {
-    furi_assert(context);
-    Desktop* app = context;
-    scene_manager_handle_tick_event(app->scene_manager);
-}
-
 static void desktop_auto_lock_callback(const void* value, void* context) {
     furi_assert(value);
     furi_assert(context);
@@ -288,8 +282,6 @@ static Desktop* desktop_alloc(void) {
 
     view_dispatcher_attach_to_gui(
         desktop->view_dispatcher, desktop->gui, ViewDispatcherTypeDesktop);
-    view_dispatcher_set_tick_event_callback(
-        desktop->view_dispatcher, desktop_tick_event_callback, 500);
 
     view_dispatcher_set_event_callback_context(desktop->view_dispatcher, desktop);
     view_dispatcher_set_custom_event_callback(

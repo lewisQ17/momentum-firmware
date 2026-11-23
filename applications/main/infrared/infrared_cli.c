@@ -169,9 +169,10 @@ static bool infrared_cli_parse_message(const char* str, InfraredSignal* signal) 
 static bool infrared_cli_parse_raw(const char* str, InfraredSignal* signal) {
     char frequency_str[INFRARED_CLI_BUF_SIZE];
     char duty_cycle_str[INFRARED_CLI_BUF_SIZE];
-    int parsed = sscanf(str, "RAW F:%9s DC:%9s", frequency_str, duty_cycle_str);
+    int consumed = 0;
+    int parsed = sscanf(str, "RAW F:%9s DC:%9s%n", frequency_str, duty_cycle_str, &consumed);
 
-    if(parsed != 2) {
+    if(parsed != 2 || consumed <= 0) {
         return false;
     }
 
@@ -182,7 +183,8 @@ static bool infrared_cli_parse_raw(const char* str, InfraredSignal* signal) {
         return false;
     float duty_cycle = duty_cycle_u32 / 100.0f;
 
-    str += strlen(frequency_str) + strlen(duty_cycle_str) + INFRARED_CLI_BUF_SIZE;
+    // Use the real consumed length - sscanf spaces match any amount of whitespace
+    str += consumed;
 
     uint32_t* timings = malloc(sizeof(uint32_t) * MAX_TIMINGS_AMOUNT);
     size_t timings_size = 0;

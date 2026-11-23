@@ -48,6 +48,13 @@ uint32_t ducky_get_command_len(const char* line) {
     return first_space ? (first_space - line) : 0;
 }
 
+const char* ducky_get_arg(const char* line) {
+    // Points at the text after the first space, or at "" when the line has no
+    // argument (never past the NUL terminator).
+    const char* first_space = strchr(line, ' ');
+    return first_space ? (first_space + 1) : (line + strlen(line));
+}
+
 bool ducky_is_line_end(const char chr) {
     return (chr == ' ') || (chr == '\0') || (chr == '\r') || (chr == '\n');
 }
@@ -98,12 +105,16 @@ bool ducky_numpad_press(BadUsbScript* bad_usb, const char num) {
 }
 
 bool ducky_altchar(BadUsbScript* bad_usb, const char* charcode) {
-    uint8_t i = 0;
+    size_t i = 0;
     bool state = false;
 
     bad_usb->hid->kb_press(bad_usb->hid_inst, KEY_MOD_LEFT_ALT);
 
     while(!ducky_is_line_end(charcode[i])) {
+        if(i >= 8) { // ALT codes are at most 5 digits; also stops runaway lines
+            state = false;
+            break;
+        }
         state = ducky_numpad_press(bad_usb, charcode[i]);
         if(state == false) break;
         i++;
@@ -238,10 +249,11 @@ static bool ducky_set_usb_id(BadUsbScript* bad_usb, const char* line) {
         usb_hid_cfg->manuf[0] = '\0';
         usb_hid_cfg->product[0] = '\0';
 
-        uint8_t id_len = ducky_get_command_len(line);
-        if(!ducky_is_line_end(line[id_len + 1])) {
+        // Manufacturer/product follow the first space after "VID:PID", if any
+        const char* rest = strchr(line, ' ');
+        if(rest && !ducky_is_line_end(rest[1])) {
             sscanf(
-                &line[id_len + 1],
+                rest + 1,
                 "%31[^\r\n:]:%31[^\r\n]",
                 usb_hid_cfg->manuf,
                 usb_hid_cfg->product);
@@ -455,13 +467,17 @@ static bool ducky_script_preload(BadUsbScript* bad_usb, File* script_file) {
         BadUsbHidInterface interface = *bad_usb->interface;
         // Look for ID/BLE_ID/BT_ID command on first line
         if(strncmp(line_tmp, ducky_cmd_id, strlen(ducky_cmd_id)) == 0) {
-            if(ducky_set_usb_id(bad_usb, &line_tmp[strlen(ducky_cmd_id) + 1])) {
+            // A bare "ID" line has no argument: don't step past the NUL
+            const char* id_arg = line_tmp[strlen(ducky_cmd_id)] ?
+                                     &line_tmp[strlen(ducky_cmd_id) + 1] :
+                                     "";
+            if(ducky_set_usb_id(bad_usb, id_arg)) {
                 interface = BadUsbHidInterfaceUsb;
             }
         } else if(
             strncmp(line_tmp, ducky_cmd_ble_id, strlen(ducky_cmd_ble_id)) == 0 ||
             strncmp(line_tmp, ducky_cmd_bt_id, strlen(ducky_cmd_bt_id)) == 0) {
-            if(ducky_set_ble_id(bad_usb, &line_tmp[ducky_get_command_len(line_tmp) + 1])) {
+            if(ducky_set_ble_id(bad_usb, ducky_get_arg(line_tmp))) {
                 interface = BadUsbHidInterfaceBle;
             }
         }
@@ -482,6 +498,13 @@ static bool ducky_script_preload(BadUsbScript* bad_usb, File* script_file) {
     return true;
 }
 
+// Saturating delay + defdelay: a negative return value would be read as a script
+// state code (NEXT_LINE / WAIT_FOR_BTN / error), so never exceed INT32_MAX.
+static int32_t ducky_delay_sum(int32_t delay_val, uint32_t defdelay) {
+    uint64_t sum = (uint64_t)(uint32_t)delay_val + defdelay;
+    return (sum > (uint64_t)INT32_MAX) ? INT32_MAX : (int32_t)sum;
+}
+
 static int32_t ducky_script_execute_next(BadUsbScript* bad_usb, File* script_file) {
     int32_t delay_val = 0;
 
@@ -499,7 +522,7 @@ static int32_t ducky_script_execute_next(BadUsbScript* bad_usb, File* script_fil
             FURI_LOG_E(WORKER_TAG, "Unknown command at line %zu", bad_usb->st.line_cur - 1U);
             return SCRIPT_STATE_ERROR;
         } else {
-            return delay_val + bad_usb->defdelay;
+            return ducky_delay_sum(delay_val, bad_usb->defdelay);
         }
     }
 
@@ -538,7 +561,7 @@ static int32_t ducky_script_execute_next(BadUsbScript* bad_usb, File* script_fil
                     FURI_LOG_E(WORKER_TAG, "Unknown command at line %zu", bad_usb->st.line_cur);
                     return SCRIPT_STATE_ERROR;
                 } else {
-                    return delay_val + bad_usb->defdelay;
+                    return ducky_delay_sum(delay_val, bad_usb->defdelay);
                 }
             } else {
                 furi_string_push_back(bad_usb->line, bad_usb->file_buf[i]);
@@ -667,6 +690,7 @@ static int32_t bad_usb_worker(void* context) {
                 bad_usb->stringdelay = 0;
                 bad_usb->defstringdelay = 0;
                 bad_usb->repeat_cnt = 0;
+                bad_usb->key_hold_nb = 0;
                 bad_usb->file_end = false;
                 storage_file_seek(script_file, 0, true);
                 // extra time for PC to recognize Flipper as keyboard
@@ -866,13 +890,13 @@ static int32_t bad_usb_worker(void* context) {
     }
 
     // A payload may end mid-mount; tear the volume down first. umount restores
-    // HID, so the deinit below always has a valid hid_inst.
+    // HID. hid_inst is still NULL if the script file failed to open (preload
+    // never ran), so the teardown below goes through the NULL-checked helper.
     if(bad_usb_msc_is_mounted(bad_usb)) {
         bad_usb_msc_umount(bad_usb);
     }
 
-    bad_usb->hid->set_state_callback(bad_usb->hid_inst, NULL, NULL);
-    bad_usb->hid->deinit(bad_usb->hid_inst);
+    bad_usb_hid_stop(bad_usb);
 
     storage_file_close(script_file);
     storage_file_free(script_file);

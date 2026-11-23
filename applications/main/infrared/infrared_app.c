@@ -602,6 +602,10 @@ int32_t infrared_app(void* p) {
                                          "Failed to load\n\"%s\"";
 
                 infrared_show_error_message(infrared, format, file_path);
+                // Undo settings applied at start (TX pin / OTG) and free the app
+                infrared_set_tx_pin(infrared, FuriHalInfraredTxPinInternal);
+                infrared_enable_otg(infrared, false);
+                infrared_free(infrared);
                 return -1;
             }
 

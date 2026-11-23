@@ -163,10 +163,17 @@ bool subghz_scene_receiver_info_on_event(void* context, SceneManagerEvent event)
             if(!subghz_tx_start(
                    subghz,
                    subghz_history_get_raw_data(subghz->history, subghz->idx_menu_chosen))) {
-                subghz_txrx_rx_start(subghz->txrx);
-                subghz_txrx_hopper_unpause(subghz->txrx);
-                subghz->state_notifications = SubGhzNotificationStateRx;
                 subghz_block_generic_global.endless_tx = false;
+                // In a DecodeRAW session no live RX must run (same guard as the TxWait tick)
+                if(!scene_manager_has_previous_scene(
+                       subghz->scene_manager, SubGhzSceneDecodeRAW)) {
+                    subghz_txrx_rx_start(subghz->txrx);
+                    subghz_txrx_hopper_unpause(subghz->txrx);
+                    subghz->state_notifications = SubGhzNotificationStateRx;
+                } else {
+                    subghz_txrx_hopper_unpause(subghz->txrx);
+                    subghz->state_notifications = SubGhzNotificationStateIDLE;
+                }
             }
             return true;
         } else if(event.event == SubGhzCustomEventSceneReceiverInfoTxStop) {

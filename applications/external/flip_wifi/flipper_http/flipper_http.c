@@ -328,7 +328,6 @@ void flipper_http_free(FlipperHTTP *fhttp)
     // If this instance is the active instance, clear the static pointer.
     if (active_fhttp == fhttp)
     {
-        free(active_fhttp);
         active_fhttp = NULL;
     }
 

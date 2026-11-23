@@ -427,6 +427,24 @@ static void variable_item_list_scroll_timer_callback(void* context) {
         true);
 }
 
+// Scroll timer only runs while the view is shown (same pattern as menu.c)
+static void variable_item_list_enter(void* context) {
+    furi_assert(context);
+    VariableItemList* variable_item_list = context;
+    with_view_model(
+        variable_item_list->view,
+        VariableItemListModel * model,
+        { model->scroll_counter = 0; },
+        false);
+    furi_timer_start(variable_item_list->scroll_timer, 333);
+}
+
+static void variable_item_list_exit(void* context) {
+    furi_assert(context);
+    VariableItemList* variable_item_list = context;
+    furi_timer_stop(variable_item_list->scroll_timer);
+}
+
 void variable_item_list_locked_timer_callback(void* context) {
     furi_assert(context);
     VariableItemList* variable_item_list = context;
@@ -446,6 +464,8 @@ VariableItemList* variable_item_list_alloc(void) {
         variable_item_list->view, ViewModelTypeLocking, sizeof(VariableItemListModel));
     view_set_draw_callback(variable_item_list->view, variable_item_list_draw_callback);
     view_set_input_callback(variable_item_list->view, variable_item_list_input_callback);
+    view_set_enter_callback(variable_item_list->view, variable_item_list_enter);
+    view_set_exit_callback(variable_item_list->view, variable_item_list_exit);
 
     variable_item_list->locked_timer = furi_timer_alloc(
         variable_item_list_locked_timer_callback, FuriTimerTypeOnce, variable_item_list);
@@ -463,7 +483,6 @@ VariableItemList* variable_item_list_alloc(void) {
         true);
     variable_item_list->scroll_timer = furi_timer_alloc(
         variable_item_list_scroll_timer_callback, FuriTimerTypePeriodic, variable_item_list);
-    furi_timer_start(variable_item_list->scroll_timer, 333);
 
     return variable_item_list;
 }

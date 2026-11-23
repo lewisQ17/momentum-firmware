@@ -257,7 +257,7 @@ bool protocol_gallagher_write_data(ProtocolGallagher* protocol, void* data) {
         for(uint8_t i = 0; i < (32 * 3); i++) {
             encoded_data_reversed[i / 32] =
                 (encoded_data_reversed[i / 32] << 1) |
-                (bit_lib_get_bit(protocol->encoded_data, ((32 * 3) - i)) & 1);
+                (bit_lib_get_bit(protocol->encoded_data, ((32 * 3) - 1 - i)) & 1);
         }
         request->em4305.word[5] = encoded_data_reversed[2];
         request->em4305.word[6] = encoded_data_reversed[1];

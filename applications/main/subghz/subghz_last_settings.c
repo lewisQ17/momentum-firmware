@@ -168,7 +168,9 @@ void subghz_last_settings_load(SubGhzLastSettings* instance, size_t preset_count
                    fff_data_file, SUBGHZ_LAST_SETTING_FIELD_TX_POWER, &tx_power, 1)) {
                 flipper_format_rewind(fff_data_file);
             }
-            instance->tx_power = (uint8_t)(tx_power & 0xFF);
+            // Valid indices are 0-8 (tx_pa_table / tx_power_text); reject corrupt file values
+            if(tx_power > 8) tx_power = 0;
+            instance->tx_power = (uint8_t)tx_power;
         } while(0);
     } else {
         FURI_LOG_E(TAG, "Error open file %s", SUBGHZ_LAST_SETTINGS_PATH);

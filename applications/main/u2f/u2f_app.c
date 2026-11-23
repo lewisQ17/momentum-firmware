@@ -16,12 +16,6 @@ static bool u2f_app_back_event_callback(void* context) {
     return scene_manager_handle_back_event(app->scene_manager);
 }
 
-static void u2f_app_tick_event_callback(void* context) {
-    furi_assert(context);
-    U2fApp* app = context;
-    scene_manager_handle_tick_event(app->scene_manager);
-}
-
 U2fApp* u2f_app_alloc(void) {
     U2fApp* app = malloc(sizeof(U2fApp));
 
@@ -31,8 +25,6 @@ U2fApp* u2f_app_alloc(void) {
     app->view_dispatcher = view_dispatcher_alloc();
     app->scene_manager = scene_manager_alloc(&u2f_scene_handlers, app);
     view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
-    view_dispatcher_set_tick_event_callback(
-        app->view_dispatcher, u2f_app_tick_event_callback, 500);
 
     view_dispatcher_set_custom_event_callback(app->view_dispatcher, u2f_app_custom_event_callback);
     view_dispatcher_set_navigation_event_callback(

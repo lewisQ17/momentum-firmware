@@ -112,6 +112,8 @@ bool subghz_scene_save_name_on_event(void* context, SceneManagerEvent event) {
     } else if(event.type == SceneManagerEventTypeCustom) {
         if(event.event == SubGhzCustomEventSceneSaveName) {
             if(strcmp(subghz->file_name_tmp, "") != 0) {
+                // Keep the directory so a failed save can restore file_path (else retry doubles "/name.sub")
+                FuriString* dir = furi_string_alloc_set(subghz->file_path);
                 furi_string_cat_printf(
                     subghz->file_path,
                     "/%s%s",
@@ -119,6 +121,8 @@ bool subghz_scene_save_name_on_event(void* context, SceneManagerEvent event) {
                     SUBGHZ_APP_FILENAME_EXTENSION);
                 if(subghz_path_is_file(subghz->file_path_tmp)) {
                     if(!subghz_rename_file(subghz)) {
+                        furi_string_set(subghz->file_path, dir);
+                        furi_string_free(dir);
                         return false;
                     }
                 } else {
@@ -127,6 +131,8 @@ bool subghz_scene_save_name_on_event(void* context, SceneManagerEvent event) {
                            subghz,
                            subghz_txrx_get_fff_data(subghz->txrx),
                            furi_string_get_cstr(subghz->file_path))) {
+                        furi_string_set(subghz->file_path, dir);
+                        furi_string_free(dir);
                         return true;
                     }
 #else
@@ -134,11 +140,14 @@ bool subghz_scene_save_name_on_event(void* context, SceneManagerEvent event) {
                            subghz,
                            subghz_history_get_raw_data(subghz->history, subghz->idx_menu_chosen),
                            furi_string_get_cstr(subghz->file_path))) {
+                        furi_string_set(subghz->file_path, dir);
+                        furi_string_free(dir);
                         return true;
                     }
 #endif
                 }
 
+                furi_string_free(dir);
 #ifdef SUBGHZ_ADD_MANUALLY
                 subghz_file_name_clear(subghz);
 #else

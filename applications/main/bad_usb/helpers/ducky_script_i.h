@@ -61,6 +61,9 @@ uint16_t ducky_get_keycode(BadUsbScript* bad_usb, const char* param, bool accept
 
 uint32_t ducky_get_command_len(const char* line);
 
+// Argument text after the command word; "" when the line has none.
+const char* ducky_get_arg(const char* line);
+
 bool ducky_is_line_end(const char chr);
 
 uint16_t ducky_get_next_modifier_keycode_by_name(const char** param);

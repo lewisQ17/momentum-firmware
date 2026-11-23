@@ -60,7 +60,7 @@ ProtocolInstaFob* protocol_insta_fob_alloc(void) {
 }
 
 void protocol_insta_fob_free(ProtocolInstaFob* protocol) {
-    free(protocol->debug_string);
+    furi_string_free(protocol->debug_string);
     free(protocol);
 }
 

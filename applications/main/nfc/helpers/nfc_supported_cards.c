@@ -147,14 +147,15 @@ static const NfcSupportedCardsPlugin* nfc_supported_cards_get_next_plugin(
 
         const size_t suffix_len = strlen(NFC_SUPPORTED_CARDS_PLUGIN_SUFFIX);
         const size_t file_name_len = strlen(instance->file_name);
-        if(file_name_len <= suffix_len) break;
+        // Skip (not stop at) stray entries so later plugins are still enumerated
+        if(file_name_len <= suffix_len) continue;
 
         size_t suffix_start_pos = file_name_len - suffix_len;
         if(memcmp(
                &instance->file_name[suffix_start_pos],
                NFC_SUPPORTED_CARDS_PLUGIN_SUFFIX,
                suffix_len) != 0) //-V1051
-            break;
+            continue;
 
         // Trim suffix from file_name to save memory. The suffix will be concatenated on plugin load.
         instance->file_name[suffix_start_pos] = '\0';

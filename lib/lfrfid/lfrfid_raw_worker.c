@@ -266,12 +266,18 @@ static int32_t lfrfid_raw_emulate_worker_thread(void* thread_context) {
         }
     } while(false);
 
-    furi_hal_rfid_tim_emulate_dma_start(
-        data->emulate_buffer_arr,
-        data->emulate_buffer_ccr,
-        EMULATE_BUFFER_SIZE,
-        rfid_emulate_dma_isr,
-        &data->ctx);
+    // Only start DMA on a valid file: the buffers are uninitialised heap otherwise.
+    // Start and stop are gated by the same flag (stop disables the TIM2 bus, which furi_checks).
+    bool dma_started = false;
+    if(file_valid) {
+        furi_hal_rfid_tim_emulate_dma_start(
+            data->emulate_buffer_arr,
+            data->emulate_buffer_ccr,
+            EMULATE_BUFFER_SIZE,
+            rfid_emulate_dma_isr,
+            &data->ctx);
+        dma_started = true;
+    }
 
     if(!file_valid && worker->emulate_callback != NULL) {
         // message file_error to worker
@@ -326,7 +332,7 @@ static int32_t lfrfid_raw_emulate_worker_thread(void* thread_context) {
         }
     }
 
-    furi_hal_rfid_tim_emulate_dma_stop();
+    if(dma_started) furi_hal_rfid_tim_emulate_dma_stop();
 
     if(!file_valid) {
         const uint32_t available_flags = (1 << LFRFIDRawWorkerEventStop);

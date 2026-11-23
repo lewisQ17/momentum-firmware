@@ -11,13 +11,20 @@ typedef struct {
     int32_t param;
 } DuckyCmd;
 
+// Text after the next space, or NULL if there is none (never past the NUL).
+static const char* ducky_next_arg(const char* line) {
+    const char* sp = strchr(line, ' ');
+    return sp ? sp + 1 : NULL;
+}
+
 static int32_t ducky_fnc_delay(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     uint32_t delay_val = 0;
     bool state = ducky_get_number(line, &delay_val);
-    if((state) && (delay_val > 0)) {
+    // Values above INT32_MAX would wrap negative and be read as script-state codes
+    if((state) && (delay_val > 0) && (delay_val <= INT32_MAX)) {
         return (int32_t)delay_val;
     }
 
@@ -27,18 +34,20 @@ static int32_t ducky_fnc_delay(BadUsbScript* bad_usb, const char* line, int32_t 
 static int32_t ducky_fnc_defdelay(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
-    bool state = ducky_get_number(line, &bad_usb->defdelay);
-    if(!state) {
+    line = ducky_get_arg(line);
+    uint32_t defdelay = 0;
+    bool state = ducky_get_number(line, &defdelay);
+    if(!state || defdelay > INT32_MAX) { // keep delay + defdelay non-negative
         return ducky_error(bad_usb, "Invalid number %s", line);
     }
+    bad_usb->defdelay = defdelay;
     return 0;
 }
 
 static int32_t ducky_fnc_strdelay(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     bool state = ducky_get_number(line, &bad_usb->stringdelay);
     if(!state) {
         return ducky_error(bad_usb, "Invalid number %s", line);
@@ -49,7 +58,7 @@ static int32_t ducky_fnc_strdelay(BadUsbScript* bad_usb, const char* line, int32
 static int32_t ducky_fnc_defstrdelay(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     bool state = ducky_get_number(line, &bad_usb->defstringdelay);
     if(!state) {
         return ducky_error(bad_usb, "Invalid number %s", line);
@@ -58,7 +67,7 @@ static int32_t ducky_fnc_defstrdelay(BadUsbScript* bad_usb, const char* line, in
 }
 
 static int32_t ducky_fnc_string(BadUsbScript* bad_usb, const char* line, int32_t param) {
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     furi_string_set_str(bad_usb->string_print, line);
     if(param == 1) {
         furi_string_cat(bad_usb->string_print, "\n");
@@ -80,7 +89,7 @@ static int32_t ducky_fnc_string(BadUsbScript* bad_usb, const char* line, int32_t
 static int32_t ducky_fnc_repeat(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     bool state = ducky_get_number(line, &bad_usb->repeat_cnt);
     if((!state) || (bad_usb->repeat_cnt == 0)) {
         return ducky_error(bad_usb, "Invalid number %s", line);
@@ -91,7 +100,10 @@ static int32_t ducky_fnc_repeat(BadUsbScript* bad_usb, const char* line, int32_t
 static int32_t ducky_fnc_sysrq(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
+    if(line[0] == '\0') {
+        return ducky_error(bad_usb, "SYSRQ needs a key");
+    }
     uint16_t key = ducky_get_keycode(bad_usb, line, false);
     bad_usb->hid->kb_press(bad_usb->hid_inst, KEY_MOD_LEFT_ALT | HID_KEYBOARD_PRINT_SCREEN);
     bad_usb->hid->kb_press(bad_usb->hid_inst, key);
@@ -102,7 +114,7 @@ static int32_t ducky_fnc_sysrq(BadUsbScript* bad_usb, const char* line, int32_t 
 static int32_t ducky_fnc_altchar(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     ducky_numlock_on(bad_usb);
     bool state = ducky_altchar(bad_usb, line);
     if(!state) {
@@ -114,7 +126,7 @@ static int32_t ducky_fnc_altchar(BadUsbScript* bad_usb, const char* line, int32_
 static int32_t ducky_fnc_altstring(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     ducky_numlock_on(bad_usb);
     bool state = ducky_altstring(bad_usb, line);
     if(!state) {
@@ -125,7 +137,7 @@ static int32_t ducky_fnc_altstring(BadUsbScript* bad_usb, const char* line, int3
 
 static int32_t ducky_fnc_hold(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
 
     if(bad_usb->key_hold_nb > (HID_KB_MAX_KEYS - 1)) {
         return ducky_error(bad_usb, "Too many keys are held");
@@ -153,7 +165,7 @@ static int32_t ducky_fnc_hold(BadUsbScript* bad_usb, const char* line, int32_t p
 
 static int32_t ducky_fnc_release(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
 
     if(bad_usb->key_hold_nb == 0) {
         return ducky_error(bad_usb, "No keys are held");
@@ -182,7 +194,7 @@ static int32_t ducky_fnc_release(BadUsbScript* bad_usb, const char* line, int32_
 static int32_t ducky_fnc_media(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     uint16_t key = ducky_get_media_keycode_by_name(line);
     if(key == HID_CONSUMER_UNASSIGNED) {
         return ducky_error(bad_usb, "No keycode defined for %s", line);
@@ -195,7 +207,7 @@ static int32_t ducky_fnc_media(BadUsbScript* bad_usb, const char* line, int32_t 
 static int32_t ducky_fnc_globe(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     uint16_t key = ducky_get_keycode(bad_usb, line, false);
     if(key == HID_KEYBOARD_NONE) {
         return ducky_error(bad_usb, "No keycode defined for %s", line);
@@ -219,7 +231,10 @@ static int32_t ducky_fnc_waitforbutton(BadUsbScript* bad_usb, const char* line, 
 static int32_t ducky_fnc_mouse_scroll(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[strcspn(line, " ") + 1];
+    line = ducky_next_arg(line);
+    if(!line) {
+        return ducky_error(bad_usb, "MOUSE_SCROLL needs a number");
+    }
     int32_t mouse_scroll_dist = 0;
 
     if(strint_to_int32(line, NULL, &mouse_scroll_dist, 10) != StrintParseNoError) {
@@ -234,7 +249,10 @@ static int32_t ducky_fnc_mouse_scroll(BadUsbScript* bad_usb, const char* line, i
 static int32_t ducky_fnc_mouse_move(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[strcspn(line, " ") + 1];
+    line = ducky_next_arg(line);
+    if(!line) {
+        return ducky_error(bad_usb, "MOUSE_MOVE needs x and y");
+    }
     int32_t mouse_move_x = 0;
     int32_t mouse_move_y = 0;
 
@@ -242,7 +260,10 @@ static int32_t ducky_fnc_mouse_move(BadUsbScript* bad_usb, const char* line, int
         return ducky_error(bad_usb, "Invalid Number %s", line);
     }
 
-    line = &line[strcspn(line, " ") + 1];
+    line = ducky_next_arg(line);
+    if(!line) {
+        return ducky_error(bad_usb, "MOUSE_MOVE needs x and y");
+    }
 
     if(strint_to_int32(line, NULL, &mouse_move_y, 10) != StrintParseNoError) {
         return ducky_error(bad_usb, "Invalid Number %s", line);
@@ -256,7 +277,7 @@ static int32_t ducky_fnc_mouse_move(BadUsbScript* bad_usb, const char* line, int
 static int32_t ducky_fnc_msc_mount(BadUsbScript* bad_usb, const char* line, int32_t param) {
     UNUSED(param);
 
-    line = &line[ducky_get_command_len(line) + 1];
+    line = ducky_get_arg(line);
     if(line[0] == '\0') {
         return ducky_error(bad_usb, "MASS_STORAGE_MOUNT needs a path");
     }

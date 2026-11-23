@@ -556,6 +556,24 @@ static void game_switch_to_view(FlipWorldApp *app)
     }
     loader_switch_to_view(app, "Starting Game..", game_fetch, game_parse, 5, callback_to_submenu, FlipWorldViewLoader);
 }
+// lobby ids come from the server: reject anything that could escape the lobbies directory
+// or break out of the JSON payload / URL they get interpolated into.
+static bool lobby_name_is_safe(const char *name)
+{
+    if (!name || name[0] == '\0' || strstr(name, "..") != NULL)
+    {
+        return false;
+    }
+    for (; *name; name++)
+    {
+        if (*name == '/' || *name == '\\' || *name == '"' || (unsigned char)*name < 0x20)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool game_start_ws(FlipperHTTP *fhttp, char *lobby_name)
 {
     if (!fhttp)
@@ -566,6 +584,11 @@ bool game_start_ws(FlipperHTTP *fhttp, char *lobby_name)
     if (!lobby_name || strlen(lobby_name) == 0)
     {
         FURI_LOG_E(TAG, "Lobby name is NULL or empty");
+        return false;
+    }
+    if (!lobby_name_is_safe(lobby_name))
+    {
+        FURI_LOG_E(TAG, "Unsafe lobby name");
         return false;
     }
     fhttp->state = IDLE; // ensure it's set to IDLE for the next request
@@ -800,6 +823,11 @@ bool game_fetch_lobby(FlipperHTTP *fhttp, const char *lobby_name)
         FURI_LOG_E(TAG, "Lobby name is NULL or empty");
         return false;
     }
+    if (!lobby_name_is_safe(lobby_name))
+    {
+        FURI_LOG_E(TAG, "Unsafe lobby name");
+        return false;
+    }
     char lobby_type[4];
     snprintf(lobby_type, sizeof(lobby_type), game_mode_index == 0 ? "pve" : "pvp");
     char username[64];
@@ -837,6 +865,11 @@ bool game_join_lobby(FlipperHTTP *fhttp, const char *lobby_name)
     if (!lobby_name || strlen(lobby_name) == 0)
     {
         FURI_LOG_E(TAG, "Lobby name is NULL or empty");
+        return false;
+    }
+    if (!lobby_name_is_safe(lobby_name))
+    {
+        FURI_LOG_E(TAG, "Unsafe lobby name");
         return false;
     }
     char lobby_type[4];

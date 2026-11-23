@@ -13,12 +13,6 @@ static bool archive_back_event_callback(void* context) {
     return scene_manager_handle_back_event(archive->scene_manager);
 }
 
-static void archive_tick_event_callback(void* context) {
-    furi_assert(context);
-    ArchiveApp* archive = context;
-    scene_manager_handle_tick_event(archive->scene_manager);
-}
-
 static ArchiveApp* archive_alloc(void) {
     ArchiveApp* archive = malloc(sizeof(ArchiveApp));
 
@@ -34,7 +28,6 @@ static ArchiveApp* archive_alloc(void) {
     view_dispatcher_set_event_callback_context(view_dispatcher, archive);
     view_dispatcher_set_custom_event_callback(view_dispatcher, archive_custom_event_callback);
     view_dispatcher_set_navigation_event_callback(view_dispatcher, archive_back_event_callback);
-    view_dispatcher_set_tick_event_callback(view_dispatcher, archive_tick_event_callback, 100);
 
     archive->dialogs = furi_record_open(RECORD_DIALOGS);
 

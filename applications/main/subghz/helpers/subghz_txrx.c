@@ -127,6 +127,8 @@ uint8_t*
 #define PRESET_POWER_OFFSET_AM 7
 #define TX_PATABLE_OFFSET_AM   8
 #define TX_PATABLE_COUNT       17
+    // Guard against out-of-range values indexing past tx_pa_table
+    if(tx_power > 8) tx_power = 0;
 
     //I had to skip the +10dBM and -6dBm Values, use only ones AM/FM have in common.
     //Highest Value is 12dBm for AM, 10 for FM. So Menu needs to reflect that.

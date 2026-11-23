@@ -158,8 +158,9 @@ InfraredErrorCode infrared_brute_force_calculate_messages_ex(
                 } else if(ignore_unknown_buttons) {
                     continue;
                 } else {
+                    // SD-card DB may contain names the scene doesn't register - skip, don't crash
                     FURI_LOG_E(TAG, "Unknown signal name: %s", furi_string_get_cstr(signal_name));
-                    furi_crash("Unknown signal name");
+                    continue;
                 }
             }
             SignalPositionArray_push_back(record->signals, signal_start);

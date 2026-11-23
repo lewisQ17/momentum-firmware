@@ -26,8 +26,33 @@ void desktop_scene_lock_menu_callback(DesktopEvent event, void* context) {
     view_dispatcher_send_custom_event(desktop->view_dispatcher, event);
 }
 
+// Polls the PIN-setup result. Only armed while this scene is active (see on_enter/on_exit),
+// so the desktop thread does not wake every 500 ms for its whole uptime.
+static void desktop_scene_lock_menu_tick_callback(void* context) {
+    Desktop* desktop = (Desktop*)context;
+    CheckPin check_pin_changed =
+        scene_manager_get_scene_state(desktop->scene_manager, DesktopSceneLockMenu);
+    if(check_pin_changed != CheckPinNo && desktop_pin_code_is_set()) {
+        desktop_lock_menu_set_pin_state(desktop->lock_menu, true);
+        scene_manager_set_scene_state(desktop->scene_manager, DesktopSceneLockMenu, CheckPinNo);
+        desktop_lock(desktop, true);
+        if(check_pin_changed == CheckPinLockOff) {
+            Power* power = furi_record_open(RECORD_POWER);
+            furi_delay_ms(500);
+            power_off(power);
+            furi_record_close(RECORD_POWER);
+        }
+    }
+}
+
 void desktop_scene_lock_menu_on_enter(void* context) {
     Desktop* desktop = (Desktop*)context;
+
+    furi_event_loop_tick_set(
+        view_dispatcher_get_event_loop(desktop->view_dispatcher),
+        500,
+        desktop_scene_lock_menu_tick_callback,
+        desktop);
 
     scene_manager_set_scene_state(desktop->scene_manager, DesktopSceneLockMenu, CheckPinNo);
     desktop_lock_menu_set_callback(desktop->lock_menu, desktop_scene_lock_menu_callback, desktop);
@@ -60,22 +85,7 @@ bool desktop_scene_lock_menu_on_event(void* context, SceneManagerEvent event) {
     Desktop* desktop = (Desktop*)context;
     bool consumed = false;
 
-    if(event.type == SceneManagerEventTypeTick) {
-        CheckPin check_pin_changed =
-            scene_manager_get_scene_state(desktop->scene_manager, DesktopSceneLockMenu);
-        if(check_pin_changed != CheckPinNo && desktop_pin_code_is_set()) {
-            desktop_lock_menu_set_pin_state(desktop->lock_menu, true);
-            scene_manager_set_scene_state(
-                desktop->scene_manager, DesktopSceneLockMenu, CheckPinNo);
-            desktop_lock(desktop, true);
-            if(check_pin_changed == CheckPinLockOff) {
-                Power* power = furi_record_open(RECORD_POWER);
-                furi_delay_ms(500);
-                power_off(power);
-                furi_record_close(RECORD_POWER);
-            }
-        }
-    } else if(event.type == SceneManagerEventTypeCustom) {
+    if(event.type == SceneManagerEventTypeCustom) {
         switch(event.event) {
         case DesktopLockMenuEventSettings:
             desktop_scene_lock_menu_save_settings(desktop);
@@ -143,6 +153,9 @@ bool desktop_scene_lock_menu_on_event(void* context, SceneManagerEvent event) {
 
 void desktop_scene_lock_menu_on_exit(void* context) {
     Desktop* desktop = (Desktop*)context;
+    // Disarm the PIN-poll tick (no callback + interval 0 = wait forever)
+    furi_event_loop_tick_set(
+        view_dispatcher_get_event_loop(desktop->view_dispatcher), 0, NULL, NULL);
     desktop_scene_lock_menu_save_settings(desktop);
 
     gui_set_hide_statusbar(desktop->gui, false);
