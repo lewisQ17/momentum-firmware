@@ -89,8 +89,10 @@ SubRemLoadSubState subrem_sub_preset_load(
         } else if(!subghz_txrx_radio_device_is_frequency_valid(txrx, temp_data32)) {
             FURI_LOG_E(TAG, "Frequency not supported on chosen radio module");
             break;
+        } else {
+            // Only on a successful read; temp_data32 still holds the header version otherwise
+            sub_preset->freq_preset.frequency = temp_data32;
         }
-        sub_preset->freq_preset.frequency = temp_data32;
 
         //Load preset
         ret = SubRemLoadSubStateErrorMod;

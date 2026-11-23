@@ -154,8 +154,11 @@ NfcCommand passy_reader_send(PassyReader* passy_reader) {
     }
 
     if(use_secure_messaging) {
-        passy_secure_messaging_unwrap_rapdu(
-            passy_reader->secure_messaging, passy_reader->rx_buffer);
+        if(!passy_secure_messaging_unwrap_rapdu(
+               passy_reader->secure_messaging, passy_reader->rx_buffer)) {
+            FURI_LOG_W(TAG, "Secure messaging unwrap failed");
+            return NfcCommandStop;
+        }
     }
 
     return ret;
@@ -244,8 +247,9 @@ NfcCommand passy_reader_external_authenticate(PassyReader* passy_reader) {
     const uint8_t* data = bit_buffer_get_data(passy_reader->rx_buffer);
     size_t length = bit_buffer_get_size_bytes(passy_reader->rx_buffer);
     // A short card response makes length-2-8 underflow to a huge value -> OOB
-    // mac pointer and an out-of-bounds passy_mac() read. Require the minimum.
-    if(length < 2 + 8) return NfcCommandStop;
+    // mac pointer and an out-of-bounds passy_mac() read. A genuine card returns exactly
+    // 32 bytes of ciphertext + 8 byte MAC + SW, which also bounds decrypted[32] below.
+    if(length != 32 + 8 + 2) return NfcCommandStop;
     const uint8_t* mac = data + length - 2 - 8;
     uint8_t calculated_mac[8];
     passy_mac(secure_messaging->KMAC, (uint8_t*)data, length - 8 - 2, calculated_mac, false);
@@ -400,6 +404,20 @@ NfcCommand passy_reader_read_dg1(PassyReader* passy_reader) {
     return ret;
 }
 
+// passy_furi_string_filename_safe() lets '/' and '.' through, so sanitise just the
+// user-typed passport number (keeps '..' and path separators out of the saved filename).
+static void passy_safe_passport_number(FuriString* out, const char* in) {
+    furi_string_reset(out);
+    for(; *in; in++) {
+        char c = *in;
+        if((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+           c == '_' || c == '-') {
+            furi_string_push_back(out, c);
+        }
+    }
+    if(furi_string_empty(out)) furi_string_set(out, "unknown");
+}
+
 NfcCommand passy_reader_read_dg2_or_dg7(PassyReader* passy_reader) {
     NfcCommand ret = NfcCommandContinue;
     Passy* passy = passy_reader->passy;
@@ -446,14 +464,29 @@ NfcCommand passy_reader_read_dg2_or_dg7(PassyReader* passy_reader) {
         start = 0;
     }
 
+    FuriString* safe_number = furi_string_alloc();
+    passy_safe_passport_number(safe_number, passy->passport_number);
     furi_string_printf(
-        path, "%s/%s-%s%s", STORAGE_APP_DATA_PATH_PREFIX, passy->passport_number, dg_type, dg_ext);
+        path,
+        "%s/%s-%s%s",
+        STORAGE_APP_DATA_PATH_PREFIX,
+        furi_string_get_cstr(safe_number),
+        dg_type,
+        dg_ext);
+    furi_string_free(safe_number);
     passy_furi_string_filename_safe(path);
     FURI_LOG_I(TAG, "Writing offset %d to %s", start, furi_string_get_cstr(path));
 
     Storage* storage = furi_record_open(RECORD_STORAGE);
     Stream* stream = file_stream_alloc(storage);
-    file_stream_open(stream, furi_string_get_cstr(path), FSAM_WRITE, FSOM_OPEN_ALWAYS);
+    if(!file_stream_open(stream, furi_string_get_cstr(path), FSAM_WRITE, FSOM_OPEN_ALWAYS)) {
+        FURI_LOG_E(TAG, "Failed to open %s", furi_string_get_cstr(path));
+        stream_free(stream);
+        furi_record_close(RECORD_STORAGE);
+        furi_string_free(path);
+        view_dispatcher_send_custom_event(passy->view_dispatcher, PassyCustomEventReaderError);
+        return NfcCommandStop;
+    }
 
     uint8_t chunk[PASSY_READER_DG2_CHUNK_SIZE];
     passy->offset = start;
@@ -474,6 +507,7 @@ NfcCommand passy_reader_read_dg2_or_dg7(PassyReader* passy_reader) {
     } while(passy->offset < body_size);
 
     file_stream_close(stream);
+    stream_free(stream);
     furi_record_close(RECORD_STORAGE);
     furi_string_free(path);
 
@@ -498,14 +532,28 @@ NfcCommand passy_reader_read_dg_generic(PassyReader* passy_reader) {
     FURI_LOG_I(TAG, "DG%d length: %d", dg_number, body_size);
 
     FuriString* path = furi_string_alloc();
+    FuriString* safe_number = furi_string_alloc();
+    passy_safe_passport_number(safe_number, passy->passport_number);
     furi_string_printf(
-        path, "%s/%s-DG%d.bin", STORAGE_APP_DATA_PATH_PREFIX, passy->passport_number, dg_number);
+        path,
+        "%s/%s-DG%d.bin",
+        STORAGE_APP_DATA_PATH_PREFIX,
+        furi_string_get_cstr(safe_number),
+        dg_number);
+    furi_string_free(safe_number);
     passy_furi_string_filename_safe(path);
     FURI_LOG_I(TAG, "Writing to %s", furi_string_get_cstr(path));
 
     Storage* storage = furi_record_open(RECORD_STORAGE);
     Stream* stream = file_stream_alloc(storage);
-    file_stream_open(stream, furi_string_get_cstr(path), FSAM_WRITE, FSOM_OPEN_ALWAYS);
+    if(!file_stream_open(stream, furi_string_get_cstr(path), FSAM_WRITE, FSOM_OPEN_ALWAYS)) {
+        FURI_LOG_E(TAG, "Failed to open %s", furi_string_get_cstr(path));
+        stream_free(stream);
+        furi_record_close(RECORD_STORAGE);
+        furi_string_free(path);
+        view_dispatcher_send_custom_event(passy->view_dispatcher, PassyCustomEventReaderError);
+        return NfcCommandStop;
+    }
 
     stream_write(stream, header, sizeof(header));
 
@@ -527,6 +575,7 @@ NfcCommand passy_reader_read_dg_generic(PassyReader* passy_reader) {
     } while(passy->offset < body_size);
 
     file_stream_close(stream);
+    stream_free(stream);
     furi_record_close(RECORD_STORAGE);
     furi_string_free(path);
 

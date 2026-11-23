@@ -300,6 +300,8 @@ static bool picopass_device_load_data(PicopassDevice* dev, FuriString* path, boo
     PicopassPacs* pacs = &dev->dev_data.pacs;
     FuriString* temp_str;
     temp_str = furi_string_alloc();
+    // Allocated up front so every exit path of the do-block below frees it
+    FuriString* block_str = furi_string_alloc();
     bool deprecated_version = false;
 
     if(dev->loading_cb) {
@@ -319,7 +321,6 @@ static bool picopass_device_load_data(PicopassDevice* dev, FuriString* path, boo
             break;
         }
 
-        FuriString* block_str = furi_string_alloc();
         // Parse header blocks
         bool block_read = true;
         for(size_t i = 0; i < 6; i++) {
@@ -407,6 +408,7 @@ static bool picopass_device_load_data(PicopassDevice* dev, FuriString* path, boo
     }
 
     furi_string_free(temp_str);
+    furi_string_free(block_str);
     flipper_format_free(file);
 
     return parsed;

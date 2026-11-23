@@ -59,6 +59,10 @@ static void uart_parse_esp(void* context, char* line) {
         return;
     }
 
+    // malloc'd buffers: make a missing ssid/bssid token fail validation deterministically
+    ap.ssid[0] = '\0';
+    ap.bssid[0] = '\0';
+
     char* token = strtok(line, ",");
     int i = 0;
     bool isAp = false;
@@ -76,7 +80,8 @@ static void uart_parse_esp(void* context, char* line) {
         case 1:
             if(isAp && isValid) {
                 removeSpaces(token);
-                strcpy(ap.ssid, token);
+                // strlcpy: token is UART-supplied and may exceed the 33-byte buffer
+                strlcpy(ap.ssid, token, MAX_SSID_LENGTH + 1);
             } else if(!isAp && isValid) {
                 strncpy(pkt.recievedMac, token, 18);
                 pkt.recievedMac[18] = '\0';
@@ -84,7 +89,7 @@ static void uart_parse_esp(void* context, char* line) {
             break;
         case 2:
             if(isAp && isValid) {
-                strcpy(ap.bssid, token);
+                strlcpy(ap.bssid, token, MAX_BSSID_LENGTH + 1);
             } else if(!isAp && isValid) {
                 strncpy(pkt.sentMac, token, 18);
                 pkt.sentMac[18] = '\0';
@@ -110,10 +115,6 @@ static void uart_parse_esp(void* context, char* line) {
         // free the packet
         free(pkt.recievedMac);
         free(pkt.sentMac);
-
-        if(ctx->view_state == NO_APS) {
-            ctx->view_state = NORMAL;
-        }
 
         // check if values are valid
         // bssid needs an ":"
@@ -143,6 +144,7 @@ static void uart_parse_esp(void* context, char* line) {
 
         // check if ap is already in the list otherwise add it but update the rssi
         bool found = false;
+        bool added = false;
         for(size_t i = 0; i < ctx->access_points_count; i++) {
             if(strcmp(ctx->access_points[i].bssid, ap.bssid) == 0) {
                 found = true;
@@ -153,7 +155,8 @@ static void uart_parse_esp(void* context, char* line) {
                 ctx->access_points[i].latitude = ap.latitude;
                 ctx->access_points[i].longitude = ap.longitude;
 
-                if(strcmp(ctx->active_access_point.bssid, ap.bssid) == 0) {
+                if(ctx->active_access_point.bssid &&
+                   strcmp(ctx->active_access_point.bssid, ap.bssid) == 0) {
                     ctx->active_access_point.rssi = ap.rssi;
                     ctx->active_access_point.channel = ap.channel;
                     ctx->active_access_point.datetime = ap.datetime;
@@ -175,14 +178,24 @@ static void uart_parse_esp(void* context, char* line) {
                memmgr_get_free_heap() > WARDRIVER_MIN_FREE_HEAP) {
                 memcpy(&ctx->access_points[ctx->access_points_count], &ap, sizeof(AccessPoint));
                 ctx->access_points_count++;
+                added = true;
             } else {
                 free(ap.ssid);
                 free(ap.bssid);
             }
         }
 
-        sort_access_points(ctx);
-        set_index_from_access_points(ctx);
+        // Only a newly appended AP can change the order; sorting on every line
+        // is O(n^2) and starves the UART stream buffer.
+        if(added) {
+            sort_access_points(ctx);
+            set_index_from_access_points(ctx);
+        }
+
+        // switch away from the "No APs" screen only once an AP actually exists
+        if(ctx->view_state == NO_APS && ctx->access_points_count > 0) {
+            ctx->view_state = NORMAL;
+        }
     } else {
         // it is a packet so screw the ap
         free(ap.ssid);
@@ -291,6 +304,10 @@ static int32_t uart_worker_esp(void* context) {
                                 {
                                     ctx->rx_buf_esp[rx_offset++] = *(line_current++);
                                 }
+                            }
+                            if(rx_offset >= RX_BUF_SIZE - 1) {
+                                // buffer full without a newline: drop it, else the worker wedges
+                                rx_offset = 0;
                             }
                             break; // go back to receiving bytes from the serial stream
                         }
@@ -415,6 +432,10 @@ static int32_t uart_worker_gps(void* context) {
                                 {
                                     ctx->rx_buf_gps[rx_offset++] = *(line_current++);
                                 }
+                            }
+                            if(rx_offset >= RX_BUF_SIZE - 1) {
+                                // buffer full without a newline: drop it, else the worker wedges
+                                rx_offset = 0;
                             }
                             break; // go back to receiving bytes from the serial stream
                         }

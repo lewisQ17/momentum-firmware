@@ -234,52 +234,76 @@ void passy_secure_messaging_wrap_apdu(SecureMessaging* secure_messaging, BitBuff
     bit_buffer_append_byte(tx_buffer, 0x00); // Le
 }
 
-void passy_secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer) {
+bool passy_secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer) {
     passy_secure_messaging_increment_context(secure_messaging);
 
     size_t length = bit_buffer_get_size_bytes(rx_buffer);
     const uint8_t* data = bit_buffer_get_data(rx_buffer);
-    uint8_t status_word[2];
-    uint8_t* mac = NULL;
-    uint8_t* encrypted = NULL;
-    uint8_t encrypted_len = 0;
+    // The caller guarantees length >= 2, but don't rely on it for the unsigned math below
+    if(length < 2) return false;
+    uint8_t status_word[2] = {0, 0};
+    bool have_sw = false;
+    const uint8_t* mac = NULL;
+    const uint8_t* encrypted = NULL;
+    size_t encrypted_len = 0;
 
-    // Look for mac
-    uint8_t i = 0;
-    do {
+    // Walk the card TLVs (everything before the trailing SW1 SW2). size_t cursor and
+    // per-field bounds checks so a crafted chain can neither wrap nor leave the frame.
+    size_t i = 0;
+    const size_t body = length - 2;
+    while(i + 2 <= body) {
         uint8_t type = data[i++];
         uint8_t len = data[i++];
+        if(len > body - i) {
+            FURI_LOG_W(TAG, "SM: TLV %02x overruns frame", type);
+            return false;
+        }
         switch(type) {
         case 0x87:
-            // Encrypted data always starts with a 0x01
-            encrypted = (uint8_t*)data + i + 1;
+            // Encrypted data always starts with a 0x01, followed by whole 3DES blocks
+            if(len < 9 || (len - 1) % 8 != 0) {
+                FURI_LOG_W(TAG, "SM: invalid 87 length %u", len);
+                return false;
+            }
+            encrypted = data + i + 1;
             encrypted_len = len - 1;
             break;
         case 0x8E:
-            mac = (uint8_t*)data + i;
+            if(len != 8) {
+                FURI_LOG_W(TAG, "SM: invalid 8E length %u", len);
+                return false;
+            }
+            mac = data + i;
             break;
         case 0x99:
+            if(len != 2) {
+                FURI_LOG_W(TAG, "SM: invalid 99 length %u", len);
+                return false;
+            }
             status_word[0] = data[i + 0];
             status_word[1] = data[i + 1];
+            have_sw = true;
             break;
         default:
             FURI_LOG_W(TAG, "Unknown type %02x", type);
             break;
         }
         i += len;
-    } while(i < length - 2);
-
-    // encrypted_len (= card TLV len - 1) is attacker-controlled: len == 0 wraps it
-    // to 255, and a large value overflows K[] at the memcpy below or reads
-    // `encrypted` past the received frame. Reject before building K.
-    if(encrypted &&
-       (encrypted_len == 0 || encrypted_len > SECURE_MESSAGING_MAX_SIZE - 16 ||
-        (size_t)(encrypted - data) + encrypted_len > length)) {
-        FURI_LOG_W(TAG, "SM: invalid encrypted length %u", encrypted_len);
-        return;
     }
 
-    if(mac) {
+    // MAC and SW are mandatory; never accept a response whose MAC was not verified
+    if(!mac || !have_sw) {
+        FURI_LOG_W(TAG, "SM: missing MAC or status word");
+        return false;
+    }
+
+    // Bound encrypted_len so K[] below cannot overflow
+    if(encrypted && encrypted_len > SECURE_MESSAGING_MAX_SIZE - 16) {
+        FURI_LOG_W(TAG, "SM: invalid encrypted length %u", (unsigned)encrypted_len);
+        return false;
+    }
+
+    {
         uint8_t K[SECURE_MESSAGING_MAX_SIZE];
         memset(K, 0, sizeof(K));
         uint8_t K_index = 0;
@@ -293,7 +317,6 @@ void passy_secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitB
             K_index += encrypted_len;
         }
 
-        // Assume the status word is always present
         K[K_index++] = 0x99;
         K[K_index++] = 0x02;
         memcpy(K + K_index, status_word, 2);
@@ -306,24 +329,29 @@ void passy_secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitB
         passy_mac(secure_messaging->KSmac, K, K_index, calculated_mac, true);
         if(memcmp(mac, calculated_mac, sizeof(calculated_mac)) != 0) {
             FURI_LOG_W(TAG, "Invalid MAC");
-            return;
+            return false;
         }
     }
 
     uint8_t decrypted[SECURE_MESSAGING_MAX_SIZE];
-    uint8_t decrypted_len = encrypted_len;
+    size_t decrypted_len = encrypted_len;
     if(encrypted) {
         if(encrypted_len > sizeof(decrypted)) {
             FURI_LOG_W(TAG, "secure_messaging_unwrap_rapdu encrypted length too large to handle");
-            return;
+            return false;
         }
         uint8_t iv[8];
         memset(iv, 0, sizeof(iv));
         mbedtls_des3_context ctx;
         mbedtls_des3_init(&ctx);
         mbedtls_des3_set2key_dec(&ctx, secure_messaging->KSenc);
-        mbedtls_des3_crypt_cbc(&ctx, MBEDTLS_DES_DECRYPT, encrypted_len, iv, encrypted, decrypted);
+        int des_ret = mbedtls_des3_crypt_cbc(
+            &ctx, MBEDTLS_DES_DECRYPT, encrypted_len, iv, encrypted, decrypted);
         mbedtls_des3_free(&ctx);
+        if(des_ret != 0) {
+            FURI_LOG_W(TAG, "SM: 3DES decrypt failed %d", des_ret);
+            return false;
+        }
 
         // Remove padding
         do {
@@ -337,4 +365,5 @@ void passy_secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitB
     }
 
     bit_buffer_append_bytes(rx_buffer, status_word, 2);
+    return true;
 }

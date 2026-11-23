@@ -428,6 +428,16 @@ FuriString *flipper_http_load_from_file(char *file_path)
 
     size_t file_size = storage_file_size(file);
 
+    // malloc(0) is a hard furi_check crash; an empty file has nothing to return.
+    if (file_size == 0)
+    {
+        FURI_LOG_E(HTTP_TAG, "File is empty.");
+        storage_file_close(file);
+        storage_file_free(file);
+        furi_record_close(RECORD_STORAGE);
+        return NULL;
+    }
+
     // final memory check
     if (memmgr_heap_get_max_free_block() < file_size)
     {
@@ -534,6 +544,16 @@ FuriString *flipper_http_load_from_file_with_limit(char *file_path, size_t limit
     if (file_size > limit)
     {
         FURI_LOG_E(HTTP_TAG, "File size exceeds limit: %d > %d", file_size, limit);
+        storage_file_close(file);
+        storage_file_free(file);
+        furi_record_close(RECORD_STORAGE);
+        return NULL;
+    }
+
+    // malloc(0) is a hard furi_check crash; an empty file has nothing to return.
+    if (file_size == 0)
+    {
+        FURI_LOG_E(HTTP_TAG, "File is empty.");
         storage_file_close(file);
         storage_file_free(file);
         furi_record_close(RECORD_STORAGE);

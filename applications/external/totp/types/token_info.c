@@ -38,6 +38,8 @@ bool token_info_set_secret(
     size_t plain_secret_size;
     if(plain_token_secret_encoding == PlainTokenSecretEncodingBase32) {
         plain_secret_size = ESTIMATE_BASE32_PLAIN_LENGTH(token_secret_length);
+        // 1 char cannot encode a byte; malloc(0) would furi_check-crash
+        if(plain_secret_size == 0) return false;
         plain_secret = malloc(plain_secret_size);
         furi_check(plain_secret != NULL);
         plain_secret_length =
@@ -45,6 +47,7 @@ bool token_info_set_secret(
     } else if(plain_token_secret_encoding == PlainTokenSecretEncodingBase64) {
         plain_secret_size = ESTIMATE_BASE64_PLAIN_LENGTH(token_secret_length);
         plain_secret_length = plain_secret_size;
+        if(plain_secret_size == 0) return false;
         plain_secret = malloc(plain_secret_size);
         furi_check(plain_secret != NULL);
         if(Base64_Decode(

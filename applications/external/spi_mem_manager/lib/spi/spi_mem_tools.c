@@ -137,7 +137,7 @@ bool spi_mem_tools_erase_chip(SPIMemChip* chip) {
         if(!spi_mem_tools_trx(SPIMemChipCMDChipErase, NULL, 0, NULL, 0)) break;
         return true;
     } while(0);
-    return true;
+    return false;
 }
 
 bool spi_mem_tools_write_bytes(SPIMemChip* chip, size_t offset, uint8_t* data, size_t block_size) {

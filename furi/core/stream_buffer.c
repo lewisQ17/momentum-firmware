@@ -69,7 +69,8 @@ size_t furi_stream_buffer_send(
     size_t ret;
 
     if(FURI_IS_IRQ_MODE()) {
-        BaseType_t yield;
+        // FreeRTOS only ever writes pdTRUE; without init it stays stack garbage
+        BaseType_t yield = pdFALSE;
         ret = xStreamBufferSendFromISR((StreamBufferHandle_t)stream_buffer, data, length, &yield);
         portYIELD_FROM_ISR(yield);
     } else {
@@ -99,7 +100,8 @@ size_t furi_stream_buffer_receive(
     size_t ret;
 
     if(FURI_IS_IRQ_MODE()) {
-        BaseType_t yield;
+        // FreeRTOS only ever writes pdTRUE; without init it stays stack garbage
+        BaseType_t yield = pdFALSE;
         ret =
             xStreamBufferReceiveFromISR((StreamBufferHandle_t)stream_buffer, data, length, &yield);
         portYIELD_FROM_ISR(yield);

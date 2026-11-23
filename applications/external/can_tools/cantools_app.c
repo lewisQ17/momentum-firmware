@@ -1003,6 +1003,11 @@ static bool dbc_set_active_file(App* app, int index) {
     return dbc_load_file(app, app->dbc_files[index].path);
 }
 
+// returns true only if the whole string was written
+static bool dbc_stream_write_str(Stream* stream, const char* str) {
+    return stream_write_cstring(stream, str) == strlen(str);
+}
+
 static bool dbc_write_file(App* app) {
     if(app->active_dbc_index < 0 || app->active_dbc_index >= app->dbc_file_count) return false;
     if(app->dbc_lossy) {
@@ -1013,22 +1018,33 @@ static bool dbc_write_file(App* app) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     Stream* stream = buffered_file_stream_alloc(storage);
     bool ok = false;
+    bool wr = true;
+    bool opened = false;
     const char* path = app->dbc_files[app->active_dbc_index].path;
 
-    if(!buffered_file_stream_open(stream, path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        FURI_LOG_E(TAG, "Could not open DBC file for write: %s", path);
+    /* write to a temp file and rename on success, so a failed write keeps the original */
+    char tmp_path[sizeof(app->dbc_files[0].path) + 5];
+    int tmp_len = snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+    if(tmp_len < 0 || (size_t)tmp_len >= sizeof(tmp_path)) {
+        FURI_LOG_E(TAG, "DBC path too long: %s", path);
         goto cleanup;
     }
 
+    if(!buffered_file_stream_open(stream, tmp_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+        FURI_LOG_E(TAG, "Could not open DBC file for write: %s", tmp_path);
+        goto cleanup;
+    }
+    opened = true;
+
     if(app->dbc_header && furi_string_size(app->dbc_header) > 0) {
-        stream_write_cstring(stream, furi_string_get_cstr(app->dbc_header));
+        wr &= dbc_stream_write_str(stream, furi_string_get_cstr(app->dbc_header));
         if(furi_string_get_cstr(app->dbc_header)[furi_string_size(app->dbc_header) - 1] != '\n') {
-            stream_write_char(stream, '\n');
+            wr &= stream_write_char(stream, '\n') == 1;
         }
     }
 
     if(app->vehicle_info[0]) {
-        stream_write_format(stream, "%s%s\";\n", DBC_VEHICLE_PREFIX, app->vehicle_info);
+        wr &= stream_write_format(stream, "%s%s\";\n", DBC_VEHICLE_PREFIX, app->vehicle_info) > 0;
     }
 
     bool written[MAX_SIGNALS] = {0};
@@ -1039,8 +1055,8 @@ static bool dbc_write_file(App* app) {
         const char* msg_name = app->signals[i].message_name[0] ? app->signals[i].message_name :
                                                                  app->signals[i].signal_name;
         format_dbc_bo_line(line, can_id, msg_name);
-        stream_write_cstring(stream, furi_string_get_cstr(line));
-        stream_write_char(stream, '\n');
+        wr &= dbc_stream_write_str(stream, furi_string_get_cstr(line));
+        wr &= stream_write_char(stream, '\n') == 1;
 
         for(uint8_t j = i; j < app->signal_count; j++) {
             if(!app->signals[j].used || written[j]) continue;
@@ -1050,22 +1066,33 @@ static bool dbc_write_file(App* app) {
                                         app->signals[j].signal_name;
             if(strcmp(msg_name, other_msg) != 0) continue;
             format_dbc_sg_line(line, &app->signals[j]);
-            stream_write_cstring(stream, furi_string_get_cstr(line));
-            stream_write_char(stream, '\n');
+            wr &= dbc_stream_write_str(stream, furi_string_get_cstr(line));
+            wr &= stream_write_char(stream, '\n') == 1;
             written[j] = true;
         }
     }
     furi_string_free(line);
 
     if(app->dbc_footer && furi_string_size(app->dbc_footer) > 0) {
-        stream_write_cstring(stream, furi_string_get_cstr(app->dbc_footer));
+        wr &= dbc_stream_write_str(stream, furi_string_get_cstr(app->dbc_footer));
     }
 
-    ok = true;
+    /* flush errors only show up on sync/close, so use their results */
+    wr &= buffered_file_stream_sync(stream);
 
 cleanup:
-    buffered_file_stream_close(stream);
+    if(opened) {
+        wr &= buffered_file_stream_close(stream);
+    }
     stream_free(stream);
+    if(opened) {
+        if(wr) {
+            ok = storage_common_rename(storage, tmp_path, path) == FSE_OK;
+        }
+        if(!ok) {
+            storage_simply_remove(storage, tmp_path);
+        }
+    }
     furi_record_close(RECORD_STORAGE);
     if(ok) {
         strlcpy(
@@ -1263,15 +1290,15 @@ static bool decode_extract_raw(
         return true;
     }
 
-    if(start_bit + 1 < bit_length) return false;
+    // DBC @0 (Motorola) sawtooth: start bit is the MSB; after bit 0 of a byte
+    // the next bit is bit 7 of the following byte.
     uint64_t raw = 0;
+    uint16_t pos = start_bit;
     for(uint8_t i = 0; i < bit_length; i++) {
-        int32_t bit_index = (int32_t)start_bit - i;
-        uint8_t byte_index = (uint8_t)(bit_index / 8);
+        uint16_t byte_index = pos / 8;
         if(byte_index >= data_len) return false;
-        uint8_t bit_in_byte = 7U - (bit_index % 8);
-        uint8_t bit = (data[byte_index] >> bit_in_byte) & 0x01;
-        raw = (raw << 1U) | bit;
+        raw = (raw << 1U) | ((data[byte_index] >> (pos % 8)) & 0x01U);
+        pos = (pos % 8 == 0) ? (uint16_t)(pos + 15) : (uint16_t)(pos - 1);
     }
     *out_raw = raw;
     return true;

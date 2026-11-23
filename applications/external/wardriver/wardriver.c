@@ -287,14 +287,16 @@ int32_t wardriver_app() {
                         processing = false;
                     }
                 } else if(event.input.type == InputTypeLong && event.input.key == InputKeyOk) {
-                } else if(event.input.type == InputTypePress && event.input.key == InputKeyDown) {
+                } else if(event.input.type == InputTypePress && event.input.key == InputKeyDown &&
+                           ctx->access_points_count > 0) {
                     ctx->access_points_index--;
                     if(ctx->access_points_index < 0) {
                         ctx->access_points_index = ctx->access_points_count - 1;
                     }
                     ctx->active_access_point = ctx->access_points[ctx->access_points_index];
                     ctx->pressedButton = true;
-                } else if(event.input.type == InputTypePress && event.input.key == InputKeyUp) {
+                } else if(event.input.type == InputTypePress && event.input.key == InputKeyUp &&
+                           ctx->access_points_count > 0) {
                     ctx->access_points_index++;
                     if(ctx->access_points_index >= ctx->access_points_count) {
                         ctx->access_points_index = 0;

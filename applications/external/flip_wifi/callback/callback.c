@@ -318,19 +318,23 @@ bool callback_view_input_callback_saved(InputEvent *event, void *context)
         if (!flipper_http_save_wifi(fhttp, wifi_playlist->ssids[ssid_index], wifi_playlist->passwords[ssid_index]))
         {
             easy_flipper_dialog("[ERROR]", "Failed to save WiFi settings");
+            flipper_http_free(fhttp);
             return false;
         }
 
-        while (!fhttp->last_response || strlen(fhttp->last_response) == 0)
+        // bounded wait: without a (responding) WiFi board this input callback would block the GUI forever
+        uint32_t timeout = 50; // 5 seconds / 100ms iterations
+        while ((!fhttp->last_response || strlen(fhttp->last_response) == 0) && timeout > 0)
         {
             furi_delay_ms(100);
+            timeout--;
         }
 
-        // check success (if [SUCCESS] is in the response)
-        if (strstr(fhttp->last_response, "[SUCCESS]") == NULL)
+        // check success (if [SUCCESS] is in the response); a timeout leaves the response empty and lands here too
+        if (!fhttp->last_response || strstr(fhttp->last_response, "[SUCCESS]") == NULL)
         {
             char response[256];
-            snprintf(response, sizeof(response), "Failed to save WiFi settings:\n%s", fhttp->last_response);
+            snprintf(response, sizeof(response), "Failed to save WiFi settings:\n%s", fhttp->last_response ? fhttp->last_response : "");
             easy_flipper_dialog("[ERROR]", response);
             flipper_http_free(fhttp);
             return false;

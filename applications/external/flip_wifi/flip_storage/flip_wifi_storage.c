@@ -206,6 +206,13 @@ void save_settings(const char *ssid, const char *password)
         size_t file_size = 0;
         uint8_t *buffer = NULL;
 
+        if (file_opened && storage_file_size(file) == 0)
+        {
+            // malloc(0) is a hard furi_check crash; treat an empty (interrupted-write) file like a missing one.
+            storage_file_close(file);
+            file_opened = false;
+        }
+
         if (file_opened)
         {
             // Get the file size

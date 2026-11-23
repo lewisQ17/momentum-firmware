@@ -106,10 +106,7 @@ static void playlist_subghz_need_save_callback(void* context) {
     flipper_format_delete_key(ff, "Repeat");
 
     do {
-        if(!storage_simply_remove(savectx->worker->storage, savectx->file_path)) {
-            FURI_LOG_E(TAG, "Failed to delete subghz file before re-save");
-            break;
-        }
+        // no remove first: FSOM_CREATE_ALWAYS truncates, and a failed open keeps the old file
         stream_seek(ff_stream, 0, StreamOffsetFromStart);
         stream_save_to_file(
             ff_stream, savectx->worker->storage, savectx->file_path, FSOM_CREATE_ALWAYS);

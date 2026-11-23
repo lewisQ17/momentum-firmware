@@ -85,36 +85,39 @@ uint16_t crc16_genibus(const uint8_t* data, size_t length) {
 }
 
 char* _m100_info_helper(M100Module* module, char** info) {
-    if(!uhf_buffer_get_size(module->uart->buffer)) return NULL;
+    size_t size = uhf_buffer_get_size(module->uart->buffer);
+    // frame: BB type cmd PL_H PL_L info_type <info...> checksum 7E => at least 8 bytes
+    if(size < 8) return NULL;
     uint8_t* data = uhf_buffer_get_data(module->uart->buffer);
-    uint16_t payload_len = data[3];
-    payload_len = (payload_len << 8) + data[4];
-    FuriString* temp_str = furi_string_alloc();
-    for(int i = 0; i < payload_len; i++) {
-        furi_string_cat_printf(temp_str, "%c", data[6 + i]);
-    }
-    if(*info == NULL) {
-        *info = (char*)malloc(sizeof(char) * payload_len);
-    } else {
-        for(size_t i = 0; i < strlen(*info); i++) {
-            (*info)[i] = 0;
-        }
-    }
-    memcpy(*info, furi_string_get_cstr(temp_str), payload_len);
-    furi_string_free(temp_str);
+    uint16_t payload_len = (data[3] << 8) | data[4];
+    if(payload_len < 1) return NULL;
+    // info text lies between the info_type byte and checksum+end; never trust PL beyond the buffer
+    size_t n = size - 8;
+    if(n > (size_t)(payload_len - 1)) n = payload_len - 1;
+
+    free(*info);
+    *info = (char*)malloc(n + 1);
+    memcpy(*info, data + 6, n);
+    (*info)[n] = '\0';
     return *info;
 }
 
 char* m100_get_hardware_version(M100Module* module) {
-    setup_and_send_rx(module, (uint8_t*)&CMD_HW_VERSION.cmd[0], CMD_HW_VERSION.length);
+    if(setup_and_send_rx(module, (uint8_t*)&CMD_HW_VERSION.cmd[0], CMD_HW_VERSION.length) !=
+       M100SuccessResponse)
+        return NULL;
     return _m100_info_helper(module, &module->info->hw_version);
 }
 char* m100_get_software_version(M100Module* module) {
-    setup_and_send_rx(module, (uint8_t*)&CMD_SW_VERSION.cmd[0], CMD_SW_VERSION.length);
+    if(setup_and_send_rx(module, (uint8_t*)&CMD_SW_VERSION.cmd[0], CMD_SW_VERSION.length) !=
+       M100SuccessResponse)
+        return NULL;
     return _m100_info_helper(module, &module->info->sw_version);
 }
 char* m100_get_manufacturers(M100Module* module) {
-    setup_and_send_rx(module, (uint8_t*)&CMD_MANUFACTURERS.cmd[0], CMD_MANUFACTURERS.length);
+    if(setup_and_send_rx(module, (uint8_t*)&CMD_MANUFACTURERS.cmd[0], CMD_MANUFACTURERS.length) !=
+       M100SuccessResponse)
+        return NULL;
     return _m100_info_helper(module, &module->info->manufacturer);
 }
 

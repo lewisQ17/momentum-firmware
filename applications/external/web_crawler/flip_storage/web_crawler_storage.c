@@ -214,6 +214,7 @@ bool load_settings(
         furi_record_close(RECORD_STORAGE);
         return false;
     }
+    http_method[http_method_length > 0 ? http_method_length - 1 : 0] = '\0'; // Ensure null-termination
 
     // Load the headers
     size_t headers_length;
@@ -226,6 +227,7 @@ bool load_settings(
         furi_record_close(RECORD_STORAGE);
         return false;
     }
+    headers[headers_length > 0 ? headers_length - 1 : 0] = '\0'; // Ensure null-termination
 
     // Load the payload
     size_t payload_length;
@@ -238,6 +240,7 @@ bool load_settings(
         furi_record_close(RECORD_STORAGE);
         return false;
     }
+    payload[payload_length > 0 ? payload_length - 1 : 0] = '\0'; // Ensure null-termination
 
     storage_file_close(file);
     storage_file_free(file);

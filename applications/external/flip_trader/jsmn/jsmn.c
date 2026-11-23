@@ -487,7 +487,16 @@ char *get_json_value(char *key, char *json_data, uint32_t max_tokens)
             if (jsoneq(json_data, &tokens[i], key) == 0)
             {
                 // We found the key. Now, return the associated value.
+                // tokens has exactly `ret` elements: a match on the last token has no value.
+                if (i + 1 >= ret)
+                {
+                    break; // treated as key-not-found below
+                }
                 int length = tokens[i + 1].end - tokens[i + 1].start;
+                if (length < 0)
+                {
+                    break;
+                }
                 char *value = malloc(length + 1);
                 if (value == NULL)
                 {
@@ -664,6 +673,14 @@ char **get_json_array_values(char *key, char *json_data, uint32_t max_tokens, in
 
     // Allocate memory for the array of values (maximum possible)
     int array_size = tokens[0].size;
+    if (array_size <= 0)
+    {
+        // malloc(0) would crash; an empty array has no values.
+        *num_values = 0;
+        free(tokens);
+        free(array_str);
+        return NULL;
+    }
     char **values = malloc(array_size * sizeof(char *));
     if (values == NULL)
     {

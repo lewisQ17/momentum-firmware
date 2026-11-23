@@ -603,6 +603,8 @@ void mfkey(ProgramState *program_state)
 	{
 		dolphin_deed(DolphinDeedNfcKeyAdd);
 	}
+	// remaining_nonce_array is malloc/realloc'd by nonce_array_alloc; free it before its owner
+	free(nonce_arr->remaining_nonce_array);
 	free(nonce_arr);
 	keys_dict_free(user_dict);
 	free(keyarray);

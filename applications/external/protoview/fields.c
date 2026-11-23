@@ -184,10 +184,13 @@ void field_set_from_field(ProtoViewField* dst, ProtoViewField* src) {
     case FieldTypeStr:
         dst->str = strdup(src->str);
         break;
-    case FieldTypeBytes:
-        dst->bytes = malloc(src->len);
-        memcpy(dst->bytes, src->bytes, dst->len);
+    case FieldTypeBytes: {
+        // len counts nibbles; src->bytes only holds (len+1)/2 bytes.
+        size_t nbytes = (src->len + 1) / 2;
+        dst->bytes = malloc(nbytes ? nbytes : 1);
+        memcpy(dst->bytes, src->bytes, nbytes);
         break;
+    }
     case FieldTypeSignedInt:
         dst->value = src->value;
         break;

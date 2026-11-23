@@ -100,6 +100,8 @@ static bool animation_storage_load_single_manifest_info(
 
     if(!result && manifest_info->name) {
         free((void*)manifest_info->name);
+        // Caller frees the struct via free_storage_animation(); avoid double free
+        manifest_info->name = NULL;
     }
     furi_string_free(read_string);
     flipper_format_free(file);
@@ -281,14 +283,18 @@ static bool animation_storage_cast_align(FuriString* align_str, Align* align) {
 static void animation_storage_free_frames(BubbleAnimation* animation) {
     furi_assert(animation);
 
-    const Icon* icon = &animation->icon_animation;
-    for(int i = 0; i < icon->frame_count; ++i) {
-        if(icon->frames[i]) {
-            free((void*)icon->frames[i]);
+    Icon* icon = (Icon*)&animation->icon_animation;
+    if(icon->frames) {
+        for(int i = 0; i < icon->frame_count; ++i) {
+            if(icon->frames[i]) {
+                free((void*)icon->frames[i]);
+            }
         }
+        free((void*)icon->frames);
     }
-
-    free((void*)icon->frames);
+    // Idempotent: callers on failure paths may free again
+    icon->frames = NULL;
+    FURI_CONST_ASSIGN(icon->frame_count, 0);
 }
 
 static bool animation_storage_load_frames(
@@ -488,11 +494,15 @@ static BubbleAnimation* animation_storage_load_animation(const char* name) {
         if(!flipper_format_read_uint32(ff, "Height", &height, 1)) break;
 
         if(!flipper_format_read_uint32(ff, "Passive frames", &u32value, 1)) break;
+        if(u32value > UINT8_MAX) break; // field is uint8_t, don't silently truncate
         animation->passive_frames = u32value;
         if(!flipper_format_read_uint32(ff, "Active frames", &u32value, 1)) break;
+        if(u32value > UINT8_MAX) break;
         animation->active_frames = u32value;
 
-        uint8_t frames = animation->passive_frames + animation->active_frames;
+        // Wider than uint8 so the sum can't wrap (load_frames and the view use the
+        // untruncated sum, so allocation/count must agree with it)
+        uint16_t frames = (uint16_t)animation->passive_frames + animation->active_frames;
         uint32_t count = 0;
         if(!flipper_format_get_value_count(ff, "Frames order", &count)) break;
         if(count != frames) {
@@ -532,6 +542,7 @@ static BubbleAnimation* animation_storage_load_animation(const char* name) {
     }
 
     if(!success) { //-V547
+        animation_storage_free_frames(animation);
         if(animation->frame_order) {
             free((void*)animation->frame_order);
         }

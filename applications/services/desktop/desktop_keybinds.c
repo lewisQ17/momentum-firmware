@@ -23,6 +23,10 @@
 #define OLD_DESKTOP_KEYBINDS_PATH  DESKTOP_KEYBINDS_PATH_MIGRATE
 #define OLD_MAX_KEYBIND_LENGTH     (64)
 
+// Saved to a temp file first, then renamed over the real one, so a failed write
+// (SD removed/full) doesn't truncate the existing keybinds + sequences.
+#define DESKTOP_KEYBINDS_TMP_PATH DESKTOP_KEYBINDS_PATH ".tmp"
+
 typedef struct {
     char data[OLD_MAX_KEYBIND_LENGTH];
 } OldKeybind;
@@ -43,6 +47,8 @@ void desktop_keybinds_migrate(Desktop* desktop) {
             DesktopKeybinds new;
             for(DesktopKeybindType type = 0; type < DesktopKeybindTypeMAX; type++) {
                 for(DesktopKeybindKey key = 0; key < DesktopKeybindKeyMAX; key++) {
+                    // Legacy file isn't validated for NUL termination; never read past the entry
+                    old[type][key].data[OLD_MAX_KEYBIND_LENGTH - 1] = '\0';
                     FuriString* keybind = furi_string_alloc_set(old[type][key].data);
                     if(furi_string_empty(keybind)) {
                         furi_string_set_str(keybind, "_");
@@ -170,7 +176,8 @@ void desktop_keybinds_save_all(
     FuriString* name = furi_string_alloc();
     FuriString* keys_val = furi_string_alloc();
 
-    if(flipper_format_file_open_always(file, DESKTOP_KEYBINDS_PATH)) {
+    bool ok = false;
+    if(flipper_format_file_open_always(file, DESKTOP_KEYBINDS_TMP_PATH)) {
         for(DesktopKeybindType type = 0; type < DesktopKeybindTypeMAX; type++) {
             for(DesktopKeybindKey key = 0; key < DesktopKeybindKeyMAX; key++) {
                 furi_string_printf(
@@ -217,6 +224,8 @@ void desktop_keybinds_save_all(
                 written++;
             }
         }
+        // Close explicitly so a flush/close failure counts before we replace the real file
+        ok = flipper_format_file_close(file);
     } else {
     fail:
         FURI_LOG_E(TAG, "Failed to save file");
@@ -225,6 +234,16 @@ void desktop_keybinds_save_all(
     furi_string_free(keys_val);
     furi_string_free(name);
     flipper_format_free(file);
+
+    if(ok) {
+        // rename = remove destination + rename; file must be closed (done above)
+        ok = storage_common_rename(
+                 desktop->storage, DESKTOP_KEYBINDS_TMP_PATH, DESKTOP_KEYBINDS_PATH) == FSE_OK;
+        if(!ok) FURI_LOG_E(TAG, "Failed to replace keybinds file");
+    }
+    if(!ok) {
+        storage_common_remove(desktop->storage, DESKTOP_KEYBINDS_TMP_PATH);
+    }
 }
 
 static void desktop_keybind_sequences_init(DesktopKeybindSequences* sequences) {

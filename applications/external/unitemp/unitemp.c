@@ -100,11 +100,12 @@ bool unitemp_settings_load(void* context) {
         app->settings->heat_index = (bool)uint32_value;
         flipper_format_read_uint32(file, "otg_auto_on", &uint32_value, 1);
         app->settings->otg_auto_on = (bool)uint32_value;
-        flipper_format_read_uint32(file, "environment_state_led_indication", &uint32_value, 1);
-        app->settings->environment_state_led_indication = (bool)uint32_value;
-        flipper_format_read_uint32(
-            file, "environment_state_sound_and_vibro_indication", &uint32_value, 1);
-        app->settings->environment_state_sound_and_vibro_indication = (bool)uint32_value;
+        // assign only on success so old files without these keys keep the defaults
+        if(flipper_format_read_uint32(file, "environment_state_led_indication", &uint32_value, 1))
+            app->settings->environment_state_led_indication = (bool)uint32_value;
+        if(flipper_format_read_uint32(
+               file, "environment_state_sound_and_vibro_indication", &uint32_value, 1))
+            app->settings->environment_state_sound_and_vibro_indication = (bool)uint32_value;
         result = true;
     } while(0);
 
@@ -140,6 +141,13 @@ bool unitemp_settings_save(void* context) {
         if(!flipper_format_write_uint32(file, "heat_index", &buff, 1)) break;
         buff = app->settings->otg_auto_on;
         if(!flipper_format_write_uint32(file, "otg_auto_on", &buff, 1)) break;
+        buff = app->settings->environment_state_led_indication;
+        if(!flipper_format_write_uint32(file, "environment_state_led_indication", &buff, 1))
+            break;
+        buff = app->settings->environment_state_sound_and_vibro_indication;
+        if(!flipper_format_write_uint32(
+               file, "environment_state_sound_and_vibro_indication", &buff, 1))
+            break;
 
         result = true;
     } while(0);

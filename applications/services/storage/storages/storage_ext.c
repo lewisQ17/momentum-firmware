@@ -592,6 +592,8 @@ static bool storage_ext_dir_read(
     SDDir* file_data = storage_get_storage_file_data(file, storage);
 
     SDFileInfo _fileinfo;
+    // FatFs leaves this untouched on error; don't copy stack garbage to the caller
+    memset(&_fileinfo, 0, sizeof(_fileinfo));
     file->internal_error_id = f_readdir(file_data, &_fileinfo);
     file->error_id = storage_ext_parse_error(file->internal_error_id);
 
@@ -606,7 +608,8 @@ static bool storage_ext_dir_read(
         snprintf(name, name_length, "%s", _fileinfo.fname);
     }
 
-    if(_fileinfo.fname[0] == 0) {
+    // Only map end-of-dir (FR_OK + empty name); keep real errors intact
+    if(file->error_id == FSE_OK && _fileinfo.fname[0] == 0) {
         file->error_id = FSE_NOT_EXIST;
     }
 
@@ -626,6 +629,7 @@ static bool storage_ext_dir_rewind(void* ctx, File* file) {
 static FS_Error storage_ext_common_stat(void* ctx, const char* path, FileInfo* fileinfo) {
     StorageData* storage = ctx;
     SDFileInfo _fileinfo;
+    memset(&_fileinfo, 0, sizeof(_fileinfo)); // untouched by FatFs on error
     char* drive_path = storage_ext_drive_path(storage, path);
     SDError result = f_stat(drive_path, &_fileinfo);
     free(drive_path);

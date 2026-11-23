@@ -41,6 +41,55 @@ typedef struct {
     FuriMutex* mutex;
 } HexEditor;
 
+// Max data bytes kept per line. string_offset is a uint8_t, so a line (plus its
+// terminator) must stay <= 256 bytes anyway; this also bounds heap use on
+// newline-free files, where stream_read_line would copy the whole file.
+#define HEX_LINE_MAX_DATA 255
+
+// Like stream_read_line, but drops everything past HEX_LINE_MAX_DATA bytes of a
+// line. The stream is still left just after the line's '\n', which the Up/edit
+// logic relies on. A truncated line ends in a synthetic '\n' (never editable).
+static bool hex_read_line(Stream* stream, FuriString* str_result) {
+    furi_string_reset(str_result);
+    uint8_t buffer[32];
+    bool truncated = false;
+
+    do {
+        uint16_t bytes_were_read = stream_read(stream, buffer, sizeof(buffer));
+        if(bytes_were_read == 0) break;
+
+        bool result = false;
+        bool error = false;
+        for(uint16_t i = 0; i < bytes_were_read; i++) {
+            if(buffer[i] == '\n') {
+                if(!stream_seek(stream, i - bytes_were_read + 1, StreamOffsetFromCurrent)) {
+                    error = true;
+                    break;
+                }
+                furi_string_push_back(str_result, buffer[i]);
+                result = true;
+                break;
+            } else if(buffer[i] == '\r') {
+                // Ignore
+            } else if(furi_string_size(str_result) < HEX_LINE_MAX_DATA) {
+                furi_string_push_back(str_result, buffer[i]);
+            } else {
+                truncated = true;
+            }
+        }
+
+        if(result || error) {
+            // a real newline already terminates the string
+            truncated = false;
+            break;
+        }
+    } while(true);
+
+    if(truncated) furi_string_push_back(str_result, '\n');
+
+    return furi_string_size(str_result) != 0;
+}
+
 static void draw_callback(Canvas* canvas, void* ctx) {
     HexEditor* hex_editor = ctx;
 
@@ -199,7 +248,7 @@ int32_t hex_editor_app(void* p) {
         if(!hex_editor_open_file(hex_editor, furi_string_get_cstr(file_path))) break;
 
         furi_mutex_acquire(hex_editor->mutex, FuriWaitForever);
-        bool has_line = stream_read_line(hex_editor->model->stream, hex_editor->buffer);
+        bool has_line = hex_read_line(hex_editor->model->stream, hex_editor->buffer);
         furi_mutex_release(hex_editor->mutex);
         if(!has_line) {
             FURI_LOG_T(TAG, "No keys left in dict");
@@ -242,7 +291,7 @@ int32_t hex_editor_app(void* p) {
                     }
                     if(event.key == InputKeyDown) {
                         hex_editor->model->string_offset = 0;
-                        if(!stream_read_line(hex_editor->model->stream, hex_editor->buffer)) {
+                        if(!hex_read_line(hex_editor->model->stream, hex_editor->buffer)) {
                             FURI_LOG_T(TAG, "No keys left in dict");
                         }
                     }
@@ -270,7 +319,7 @@ int32_t hex_editor_app(void* p) {
                             }
                         }
 
-                        if(!stream_read_line(hex_editor->model->stream, hex_editor->buffer)) {
+                        if(!hex_read_line(hex_editor->model->stream, hex_editor->buffer)) {
                             FURI_LOG_T(TAG, "No keys left in dict");
                             furi_mutex_release(hex_editor->mutex);
                             break;
@@ -351,7 +400,7 @@ int32_t hex_editor_app(void* p) {
                             }
                         }
 
-                        if(!stream_read_line(hex_editor->model->stream, hex_editor->buffer)) {
+                        if(!hex_read_line(hex_editor->model->stream, hex_editor->buffer)) {
                             FURI_LOG_T(TAG, "No keys left in dict");
                             furi_mutex_release(hex_editor->mutex);
                             break;

@@ -6,14 +6,15 @@
 
 static char asn1_log[PASSY_WORKER_MAX_BUFFER_SIZE];
 int passy_print_struct_callback(const void* buffer, size_t size, void* app_key) {
-    if(app_key) {
-        char* str = (char*)app_key;
-        size_t next = strlen(str);
-        strncpy(str + next, buffer, size);
-    } else {
-        uint8_t next = strlen(asn1_log);
-        strncpy(asn1_log + next, buffer, size);
-    }
+    PassyPrintBuf* pb = app_key;
+    char* dst = pb ? pb->buf : asn1_log;
+    size_t cap = pb ? pb->cap : sizeof(asn1_log);
+    size_t used = strnlen(dst, cap);
+    // Silently truncate (debug text only) but return 0 so the print keeps going
+    if(used + 1 >= cap) return 0;
+    size_t n = MIN(size, cap - 1 - used);
+    memcpy(dst + used, buffer, n);
+    dst[used + n] = '\0';
     return 0;
 }
 

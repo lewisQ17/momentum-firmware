@@ -7,8 +7,8 @@
 
 #define CUSTOM_INJECT_SET_MAX      24U
 
-static char cancommander_custom_inject_set_labels[CUSTOM_INJECT_SET_MAX][32];
-static char cancommander_custom_inject_set_paths[CUSTOM_INJECT_SET_MAX][160];
+// heap-allocated only while this scene is active (was ~4.6 KB of .bss for the whole app lifetime)
+static char (*cancommander_custom_inject_set_paths)[160] = NULL;
 static uint8_t cancommander_custom_inject_set_count = 0U;
 
 static void cancommander_scene_custom_inject_load_slots_menu_callback(void* context, uint32_t index) {
@@ -55,7 +55,7 @@ static void cancommander_scene_custom_inject_load_slots_start(App* app) {
     }
 }
 
-static void cancommander_scene_custom_inject_set_list_scan_dir(const char* dir_path) {
+static void cancommander_scene_custom_inject_set_list_scan_dir(App* app, const char* dir_path) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* dir = storage_file_alloc(storage);
     if(!storage_dir_open(dir, dir_path)) {
@@ -91,11 +91,12 @@ static void cancommander_scene_custom_inject_set_list_scan_dir(const char* dir_p
             is_new ? strlen(APP_SMART_INJECT_PROFILE_EXT) :
                      strlen(APP_SMART_INJECT_PROFILE_LEGACY_EXT);
         size_t label_len = len - suffix_len;
-        if(label_len >= sizeof(cancommander_custom_inject_set_labels[idx])) {
-            label_len = sizeof(cancommander_custom_inject_set_labels[idx]) - 1U;
+        char label[32];
+        if(label_len >= sizeof(label)) {
+            label_len = sizeof(label) - 1U;
         }
-        memcpy(cancommander_custom_inject_set_labels[idx], entry_name, label_len);
-        cancommander_custom_inject_set_labels[idx][label_len] = '\0';
+        memcpy(label, entry_name, label_len);
+        label[label_len] = '\0';
 
         FlipperFormat* ff = flipper_format_file_alloc(storage);
         FuriString* file_type = furi_string_alloc();
@@ -109,13 +110,7 @@ static void cancommander_scene_custom_inject_set_list_scan_dir(const char* dir_p
                     flipper_format_read_string(ff, "name", name_value)) {
                     const char* display_name = furi_string_get_cstr(name_value);
                     if(display_name && display_name[0] != '\0') {
-                        strncpy(
-                            cancommander_custom_inject_set_labels[idx],
-                            display_name,
-                            sizeof(cancommander_custom_inject_set_labels[idx]) - 1U);
-                        cancommander_custom_inject_set_labels[idx]
-                                                            [sizeof(cancommander_custom_inject_set_labels[idx]) - 1U] =
-                                                                '\0';
+                        strlcpy(label, display_name, sizeof(label));
                     }
                 }
             }
@@ -130,6 +125,13 @@ static void cancommander_scene_custom_inject_set_list_scan_dir(const char* dir_p
             flipper_format_free(ff);
         }
 
+        // Submenu copies the label, so no label table is needed
+        submenu_add_item(
+            app->submenu,
+            label,
+            idx,
+            cancommander_scene_custom_inject_load_slots_menu_callback,
+            app);
         cancommander_custom_inject_set_count++;
     }
 
@@ -138,19 +140,25 @@ static void cancommander_scene_custom_inject_set_list_scan_dir(const char* dir_p
     furi_record_close(RECORD_STORAGE);
 }
 
-static void cancommander_scene_custom_inject_set_list_scan(void) {
+static void cancommander_scene_custom_inject_set_list_scan(App* app) {
     cancommander_custom_inject_set_count = 0U;
-    cancommander_scene_custom_inject_set_list_scan_dir(APP_SMART_INJECT_PROFILE_DIR);
-    cancommander_scene_custom_inject_set_list_scan_dir(APP_SMART_INJECT_PROFILE_LEGACY_DIR);
+    cancommander_scene_custom_inject_set_list_scan_dir(app, APP_SMART_INJECT_PROFILE_DIR);
+    cancommander_scene_custom_inject_set_list_scan_dir(app, APP_SMART_INJECT_PROFILE_LEGACY_DIR);
 }
 
 void cancommander_scene_custom_inject_load_slots_menu_on_enter(void* context) {
     App* app = context;
 
-    cancommander_scene_custom_inject_set_list_scan();
-
     submenu_reset(app->submenu);
     submenu_set_header(app->submenu, "Load Injection Profile");
+
+    // table only lives while this scene is active; freed in on_exit
+    free(cancommander_custom_inject_set_paths);
+    cancommander_custom_inject_set_paths = malloc(sizeof(*cancommander_custom_inject_set_paths) * CUSTOM_INJECT_SET_MAX);
+    cancommander_custom_inject_set_count = 0U;
+    if(cancommander_custom_inject_set_paths) {
+        cancommander_scene_custom_inject_set_list_scan(app);
+    }
 
     if(cancommander_custom_inject_set_count == 0U) {
         submenu_add_item(
@@ -159,15 +167,6 @@ void cancommander_scene_custom_inject_load_slots_menu_on_enter(void* context) {
             0xFFU,
             cancommander_scene_custom_inject_load_slots_menu_callback,
             app);
-    } else {
-        for(uint8_t i = 0U; i < cancommander_custom_inject_set_count; i++) {
-            submenu_add_item(
-                app->submenu,
-                cancommander_custom_inject_set_labels[i],
-                i,
-                cancommander_scene_custom_inject_load_slots_menu_callback,
-                app);
-        }
     }
 
     submenu_set_selected_item(
@@ -187,8 +186,8 @@ bool cancommander_scene_custom_inject_load_slots_menu_on_event(void* context, Sc
     scene_manager_set_scene_state(
         app->scene_manager, cancommander_scene_custom_inject_load_slots_menu, event.event);
 
-    if(
-        cancommander_custom_inject_set_count == 0U || event.event >= cancommander_custom_inject_set_count) {
+    if(!cancommander_custom_inject_set_paths || cancommander_custom_inject_set_count == 0U ||
+       event.event >= cancommander_custom_inject_set_count) {
         return true;
     }
 
@@ -209,4 +208,7 @@ bool cancommander_scene_custom_inject_load_slots_menu_on_event(void* context, Sc
 void cancommander_scene_custom_inject_load_slots_menu_on_exit(void* context) {
     App* app = context;
     submenu_reset(app->submenu);
+    free(cancommander_custom_inject_set_paths);
+    cancommander_custom_inject_set_paths = NULL;
+    cancommander_custom_inject_set_count = 0U;
 }

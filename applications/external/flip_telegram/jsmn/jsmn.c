@@ -453,7 +453,14 @@ char *get_json_value(const char *key, const char *json_data)
     {
         jsmn_parser parser;
         jsmn_init(&parser);
-        uint32_t max_tokens = json_token_count(json_data);
+        // malloc(0) is a hard furi_check crash and a negative (error) count would wrap as uint32_t.
+        int token_count = json_token_count(json_data);
+        if (token_count <= 0)
+        {
+            FURI_LOG_E("JSMM.H", "No JSON tokens found.");
+            return NULL;
+        }
+        uint32_t max_tokens = (uint32_t)token_count;
         if (!jsmn_memory_check(max_tokens))
         {
             FURI_LOG_E("JSMM.H", "Insufficient memory for JSON tokens.");
@@ -490,7 +497,16 @@ char *get_json_value(const char *key, const char *json_data)
             if (jsoneq(json_data, &tokens[i], key) == 0)
             {
                 // We found the key. Now, return the associated value.
+                // tokens has exactly `ret` elements: a match on the last token has no value.
+                if (i + 1 >= ret)
+                {
+                    break; // treated as key-not-found below
+                }
                 int length = tokens[i + 1].end - tokens[i + 1].start;
+                if (length < 0)
+                {
+                    break;
+                }
                 char *value = malloc(length + 1);
                 if (value == NULL)
                 {
@@ -519,12 +535,15 @@ char *get_json_value(const char *key, const char *json_data)
     return NULL; // Return NULL if something goes wrong
 }
 
+// Max nesting depth skip_token will recurse into; real data nests 2-3 levels, so this only
+// stops hostile [[[[...]]]] input from overflowing the small app stack.
+#define JSMN_SKIP_MAX_DEPTH 16
 // Helper function to skip a token and all its descendants.
 // Returns the index of the next token after skipping this one.
 // On error or out of bounds, returns -1.
-static int skip_token(const jsmntok_t *tokens, int start, int total)
+static int skip_token(const jsmntok_t *tokens, int start, int total, int depth)
 {
-    if (start < 0 || start >= total)
+    if (start < 0 || start >= total || depth > JSMN_SKIP_MAX_DEPTH)
         return -1;
 
     int i = start;
@@ -540,7 +559,7 @@ static int skip_token(const jsmntok_t *tokens, int start, int total)
             if (i >= total)
                 return -1;
             // skip value (which could be object/array and must be skipped recursively)
-            i = skip_token(tokens, i, total);
+            i = skip_token(tokens, i, total, depth + 1);
             if (i == -1)
                 return -1;
         }
@@ -553,7 +572,7 @@ static int skip_token(const jsmntok_t *tokens, int start, int total)
         i++; // move to first element
         for (int e = 0; e < elems; e++)
         {
-            i = skip_token(tokens, i, total);
+            i = skip_token(tokens, i, total, depth + 1);
             if (i == -1)
                 return -1;
         }
@@ -576,7 +595,15 @@ char *get_json_array_value(const char *key, uint32_t index, const char *json_dat
         FURI_LOG_E("JSMM.H", "Failed to get array for key: %s", key);
         return NULL;
     }
-    uint32_t max_tokens = json_token_count(array_str);
+    int token_count = json_token_count(array_str);
+    if (token_count <= 0)
+    {
+        // malloc(0) crashes; a negative count would wrap as uint32_t.
+        FURI_LOG_E("JSMM.H", "No JSON tokens found in array.");
+        free(array_str);
+        return NULL;
+    }
+    uint32_t max_tokens = (uint32_t)token_count;
     if (!jsmn_memory_check(max_tokens))
     {
         FURI_LOG_E("JSMM.H", "Insufficient memory for JSON tokens.");
@@ -623,7 +650,7 @@ char *get_json_array_value(const char *key, uint32_t index, const char *json_dat
     int elem_token = 1;
     for (uint32_t i = 0; i < index; i++)
     {
-        elem_token = skip_token(tokens, elem_token, ret);
+        elem_token = skip_token(tokens, elem_token, ret, 0);
         if (elem_token == -1 || elem_token >= ret)
         {
             FURI_LOG_E("JSMM.H", "Error skipping tokens to reach element %lu.", i);
@@ -664,7 +691,15 @@ char **get_json_array_values(const char *key, const char *json_data, int *num_va
         FURI_LOG_E("JSMM.H", "Failed to get array for key: %s", key);
         return NULL;
     }
-    uint32_t max_tokens = json_token_count(array_str);
+    int token_count = json_token_count(array_str);
+    if (token_count <= 0)
+    {
+        // malloc(0) crashes; a negative count would wrap as uint32_t.
+        FURI_LOG_E("JSMM.H", "No JSON tokens found in array.");
+        free(array_str);
+        return NULL;
+    }
+    uint32_t max_tokens = (uint32_t)token_count;
     if (!jsmn_memory_check(max_tokens))
     {
         FURI_LOG_E("JSMM.H", "Insufficient memory for JSON tokens.");
@@ -705,6 +740,14 @@ char **get_json_array_values(const char *key, const char *json_data, int *num_va
 
     // Allocate memory for the array of values (maximum possible)
     int array_size = tokens[0].size;
+    if (array_size <= 0)
+    {
+        // malloc(0) would crash; an empty array has no values.
+        *num_values = 0;
+        free(tokens);
+        free(array_str);
+        return NULL;
+    }
     char **values = malloc(array_size * sizeof(char *));
     if (values == NULL)
     {

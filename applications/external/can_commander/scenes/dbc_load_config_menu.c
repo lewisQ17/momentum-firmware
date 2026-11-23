@@ -7,8 +7,8 @@
 
 #define DBC_CONFIG_MAX      24U
 
-static char cancommander_dbc_config_labels[DBC_CONFIG_MAX][32];
-static char cancommander_dbc_config_paths[DBC_CONFIG_MAX][160];
+// heap-allocated only while this scene is active (was ~4.6 KB of .bss for the whole app lifetime)
+static char (*cancommander_dbc_config_paths)[160] = NULL;
 static uint8_t cancommander_dbc_config_count = 0U;
 
 static void cancommander_scene_dbc_load_config_menu_callback(void* context, uint32_t index) {
@@ -51,7 +51,7 @@ static void cancommander_scene_dbc_load_config_start_decode(App* app) {
     app_action_tool_start(app, CcToolDbcDecode, app->args_dbc_decode, "dbc_decode");
 }
 
-static void cancommander_scene_dbc_config_list_scan_dir(const char* dir_path) {
+static void cancommander_scene_dbc_config_list_scan_dir(App* app, const char* dir_path) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* dir = storage_file_alloc(storage);
     if(!storage_dir_open(dir, dir_path)) {
@@ -86,11 +86,12 @@ static void cancommander_scene_dbc_config_list_scan_dir(const char* dir_path) {
             is_new ? strlen(APP_DBC_DECODE_PROFILE_EXT) :
                      strlen(APP_DBC_DECODE_PROFILE_LEGACY_EXT);
         size_t label_len = len - suffix_len;
-        if(label_len >= sizeof(cancommander_dbc_config_labels[idx])) {
-            label_len = sizeof(cancommander_dbc_config_labels[idx]) - 1U;
+        char label[32];
+        if(label_len >= sizeof(label)) {
+            label_len = sizeof(label) - 1U;
         }
-        memcpy(cancommander_dbc_config_labels[idx], entry_name, label_len);
-        cancommander_dbc_config_labels[idx][label_len] = '\0';
+        memcpy(label, entry_name, label_len);
+        label[label_len] = '\0';
 
         FlipperFormat* ff = flipper_format_file_alloc(storage);
         FuriString* file_type = furi_string_alloc();
@@ -104,12 +105,7 @@ static void cancommander_scene_dbc_config_list_scan_dir(const char* dir_path) {
                     flipper_format_read_string(ff, "name", name_value)) {
                     const char* display_name = furi_string_get_cstr(name_value);
                     if(display_name && display_name[0] != '\0') {
-                        strncpy(
-                            cancommander_dbc_config_labels[idx],
-                            display_name,
-                            sizeof(cancommander_dbc_config_labels[idx]) - 1U);
-                        cancommander_dbc_config_labels[idx]
-                                                    [sizeof(cancommander_dbc_config_labels[idx]) - 1U] = '\0';
+                        strlcpy(label, display_name, sizeof(label));
                     }
                 }
             }
@@ -124,6 +120,13 @@ static void cancommander_scene_dbc_config_list_scan_dir(const char* dir_path) {
             flipper_format_free(ff);
         }
 
+        // Submenu copies the label, so no label table is needed
+        submenu_add_item(
+            app->submenu,
+            label,
+            idx,
+            cancommander_scene_dbc_load_config_menu_callback,
+            app);
         cancommander_dbc_config_count++;
     }
 
@@ -132,19 +135,25 @@ static void cancommander_scene_dbc_config_list_scan_dir(const char* dir_path) {
     furi_record_close(RECORD_STORAGE);
 }
 
-static void cancommander_scene_dbc_config_list_scan(void) {
+static void cancommander_scene_dbc_config_list_scan(App* app) {
     cancommander_dbc_config_count = 0U;
-    cancommander_scene_dbc_config_list_scan_dir(APP_DBC_DECODE_PROFILE_DIR);
-    cancommander_scene_dbc_config_list_scan_dir(APP_DBC_DECODE_PROFILE_LEGACY_DIR);
+    cancommander_scene_dbc_config_list_scan_dir(app, APP_DBC_DECODE_PROFILE_DIR);
+    cancommander_scene_dbc_config_list_scan_dir(app, APP_DBC_DECODE_PROFILE_LEGACY_DIR);
 }
 
 void cancommander_scene_dbc_load_config_menu_on_enter(void* context) {
     App* app = context;
 
-    cancommander_scene_dbc_config_list_scan();
-
     submenu_reset(app->submenu);
     submenu_set_header(app->submenu, "Load DBC Profile");
+
+    // table only lives while this scene is active; freed in on_exit
+    free(cancommander_dbc_config_paths);
+    cancommander_dbc_config_paths = malloc(sizeof(*cancommander_dbc_config_paths) * DBC_CONFIG_MAX);
+    cancommander_dbc_config_count = 0U;
+    if(cancommander_dbc_config_paths) {
+        cancommander_scene_dbc_config_list_scan(app);
+    }
 
     if(cancommander_dbc_config_count == 0U) {
         submenu_add_item(
@@ -153,15 +162,6 @@ void cancommander_scene_dbc_load_config_menu_on_enter(void* context) {
             0xFFU,
             cancommander_scene_dbc_load_config_menu_callback,
             app);
-    } else {
-        for(uint8_t i = 0U; i < cancommander_dbc_config_count; i++) {
-            submenu_add_item(
-                app->submenu,
-                cancommander_dbc_config_labels[i],
-                i,
-                cancommander_scene_dbc_load_config_menu_callback,
-                app);
-        }
     }
 
     submenu_set_selected_item(
@@ -180,7 +180,8 @@ bool cancommander_scene_dbc_load_config_menu_on_event(void* context, SceneManage
     scene_manager_set_scene_state(
         app->scene_manager, cancommander_scene_dbc_load_config_menu, event.event);
 
-    if(cancommander_dbc_config_count == 0U || event.event >= cancommander_dbc_config_count) {
+    if(!cancommander_dbc_config_paths || cancommander_dbc_config_count == 0U ||
+       event.event >= cancommander_dbc_config_count) {
         return true;
     }
 
@@ -201,4 +202,7 @@ bool cancommander_scene_dbc_load_config_menu_on_event(void* context, SceneManage
 void cancommander_scene_dbc_load_config_menu_on_exit(void* context) {
     App* app = context;
     submenu_reset(app->submenu);
+    free(cancommander_dbc_config_paths);
+    cancommander_dbc_config_paths = NULL;
+    cancommander_dbc_config_count = 0U;
 }

@@ -163,7 +163,10 @@ static bool spi_mem_worker_write_block_by_page(
     size_t page_size) {
     for(size_t i = 0; i < block_size; i += page_size) {
         if(!spi_mem_worker_await_chip_busy(worker)) return false;
-        if(!spi_mem_tools_write_bytes(worker->chip_info, offset, data, page_size)) return false;
+        // last block may end mid-page: don't program stale buffer bytes past the data
+        size_t chunk = block_size - i;
+        if(chunk > page_size) chunk = page_size;
+        if(!spi_mem_tools_write_bytes(worker->chip_info, offset, data, chunk)) return false;
         offset += page_size;
         data += page_size;
     }

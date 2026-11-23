@@ -40,4 +40,4 @@ void passy_secure_messaging_calculate_session_keys(SecureMessaging* secure_messa
 
 void passy_secure_messaging_wrap_apdu(SecureMessaging* secure_messaging, BitBuffer* tx_buffer);
 
-void passy_secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer);
+bool passy_secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer);

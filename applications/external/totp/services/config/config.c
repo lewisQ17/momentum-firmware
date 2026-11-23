@@ -355,7 +355,7 @@ bool totp_config_file_update_user_settings(const PluginState* plugin_state) {
 
 bool totp_config_file_load(PluginState* const plugin_state) {
     Storage* storage = totp_open_storage();
-    FlipperFormat* fff_data_file;
+    FlipperFormat* fff_data_file = NULL;
     if(!totp_open_config_file(storage, &fff_data_file)) {
         totp_close_storage();
         return false;
@@ -384,11 +384,14 @@ bool totp_config_file_load(PluginState* const plugin_state) {
                 file_version,
                 CONFIG_FILE_ACTUAL_VERSION);
             totp_close_config_file(fff_data_file);
+            // Already closed; NULL it so the failure cleanup at the end can't double-free
+            fff_data_file = NULL;
 
             char* backup_path = totp_config_file_backup_i(storage);
 
             if(backup_path != NULL) {
                 if(totp_open_config_file(storage, &fff_data_file) != true) {
+                    free(backup_path);
                     break;
                 }
 
@@ -396,6 +399,7 @@ bool totp_config_file_load(PluginState* const plugin_state) {
                 if(!flipper_format_file_open_existing(fff_backup_data_file, backup_path)) {
                     flipper_format_file_close(fff_backup_data_file);
                     flipper_format_free(fff_backup_data_file);
+                    free(backup_path);
                     break;
                 }
 
@@ -410,6 +414,9 @@ bool totp_config_file_load(PluginState* const plugin_state) {
                         LOGGING_TAG,
                         "An error occurred during migration to version %" PRId16,
                         CONFIG_FILE_ACTUAL_VERSION);
+                    flipper_format_file_close(fff_backup_data_file);
+                    flipper_format_free(fff_backup_data_file);
+                    free(backup_path);
                     break;
                 }
 
@@ -601,6 +608,11 @@ bool totp_config_file_load(PluginState* const plugin_state) {
     } while(false);
 
     furi_string_free(temp_str);
+    if(!result) {
+        // On success ownership moved to config_file_context (closed by totp_config_file_close)
+        totp_close_config_file(fff_data_file);
+        totp_close_storage();
+    }
     return result;
 }
 

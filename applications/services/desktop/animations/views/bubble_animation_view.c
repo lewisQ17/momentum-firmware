@@ -282,8 +282,22 @@ static Icon* bubble_animation_clone_first_frame(const Icon* icon_orig) {
      * for compressed header
      */
     size_t max_bitmap_size = ROUND_UP_TO(icon_orig->width, 8) * icon_orig->height + 1;
-    FURI_CONST_ASSIGN_PTR(icon_clone->frames[0], malloc(max_bitmap_size));
-    memcpy((void*)icon_clone->frames[0], icon_orig->frames[0], max_bitmap_size);
+    /* SD animation frames are allocated at their real (often compressed, much
+     * smaller) size, so copying max_bitmap_size read up to ~1 KB past the source.
+     * The frame's own header tells the real length: byte 0 is_compressed, bytes
+     * 2..3 the little-endian compressed_buff_size (see CompressHeader in
+     * compress.c); the decoder reads exactly 4 + that. Uncompressed frames are the
+     * full max size. Copy only that — identical bytes for the decoder, no over-read,
+     * and a smaller clone. Capped at max so a bogus header can never read more
+     * than before. */
+    const uint8_t* src = icon_orig->frames[0];
+    size_t copy_size = max_bitmap_size;
+    if(src[0]) {
+        size_t real = 4 + ((size_t)src[2] | ((size_t)src[3] << 8));
+        if(real < copy_size) copy_size = real;
+    }
+    FURI_CONST_ASSIGN_PTR(icon_clone->frames[0], malloc(copy_size));
+    memcpy((void*)icon_clone->frames[0], src, copy_size);
     FURI_CONST_ASSIGN(icon_clone->frame_count, 1);
 
     return icon_clone;

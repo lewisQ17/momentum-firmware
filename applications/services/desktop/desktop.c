@@ -122,10 +122,12 @@ static bool desktop_custom_event_callback(void* context, uint32_t event) {
             animation_manager_unload_and_stall_animation(desktop->animation_manager);
         }
 
-        // The clock viewport is only composited on the desktop; stop its 1 Hz
-        // RTC-read timer while a foreground app owns the screen so we don't wake
-        // the CPU every second to update a clock that isn't drawn.
-        furi_timer_stop(desktop->update_clock_timer);
+        // (Re)arm the clock timer: the timer callback stops itself once it sees a
+        // fullscreen app (status bar hidden), but windowed/desktop-layer apps keep
+        // the status bar and its clock visible, so those must keep updating.
+        if(desktop->settings.display_clock) {
+            furi_timer_start(desktop->update_clock_timer, furi_ms_to_ticks(1000));
+        }
 
         desktop_auto_lock_inhibit(desktop);
         desktop->app_running = true;
@@ -232,6 +234,13 @@ static void desktop_auto_lock_inhibit(Desktop* desktop) {
 static void desktop_clock_timer_callback(void* context) {
     furi_assert(context);
     Desktop* desktop = context;
+
+    // A fullscreen app hides the status bar, so the clock isn't drawn: stop the 1 Hz
+    // timer to save wakeups. BeforeAppStarted / AfterAppFinished restart it.
+    if(desktop->app_running && gui_active_view_port_count(desktop->gui, GuiLayerFullscreen) > 0) {
+        furi_timer_stop(desktop->update_clock_timer);
+        return;
+    }
 
     const bool clock_enabled = gui_active_view_port_count(desktop->gui, GuiLayerStatusBarLeft) < 6;
 

@@ -43,9 +43,10 @@ void passy_scene_read_success_on_enter(void* context) {
 
             char payloadDebug[384] = {0};
             memset(payloadDebug, 0, sizeof(payloadDebug));
+            PassyPrintBuf payloadDebugBuf = {payloadDebug, sizeof(payloadDebug)};
             (&asn_DEF_DG1)
                 ->op->print_struct(
-                    &asn_DEF_DG1, dg1, 1, passy_print_struct_callback, payloadDebug);
+                    &asn_DEF_DG1, dg1, 1, passy_print_struct_callback, &payloadDebugBuf);
             if(strlen(payloadDebug) > 0) {
                 FURI_LOG_D(TAG, "DG1: %s", payloadDebug);
             } else {
@@ -146,7 +147,8 @@ void passy_scene_read_success_on_enter(void* context) {
             furi_string_cat_printf(str, "%s\n", bit_buffer_get_data(passy->DG1));
         }
 
-        free(dg1);
+        // asn_decode allocates dg1->mrz.buf; a plain free() would leak it
+        ASN_STRUCT_FREE(asn_DEF_DG1, dg1);
         dg1 = 0;
 
     } else if(passy->read_type == PassyReadDG2 || passy->read_type == PassyReadDG7) {

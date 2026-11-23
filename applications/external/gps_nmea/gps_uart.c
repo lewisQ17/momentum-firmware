@@ -190,7 +190,7 @@ void gps_uart_init_thread(GpsUart* gps_uart) {
     gps_uart->status.time_minutes = 0;
     gps_uart->status.time_seconds = 0;
 
-    gps_uart->rx_stream = furi_stream_buffer_alloc(RX_BUF_SIZE * 5, 1);
+    gps_uart->rx_stream = furi_stream_buffer_alloc(RX_BUF_SIZE * 2, 1);
 
     gps_uart->thread = furi_thread_alloc();
     furi_thread_set_name(gps_uart->thread, "GpsUartWorker");

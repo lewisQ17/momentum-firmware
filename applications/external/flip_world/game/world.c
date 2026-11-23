@@ -2,6 +2,7 @@
 #include <game/storage.h>
 #include <flip_storage/storage.h>
 #include "game/icon.h"
+#include <string.h>
 
 static IconSpec world_get_icon_spec(const char *name)
 {
@@ -243,11 +244,28 @@ const LevelBehaviour *world_pvp()
     return &_world_pvp;
 }
 
+// The world name comes from the server's world list and is used in a file path and URL:
+// reject empty names and anything that could escape the worlds directory.
+static bool world_name_is_safe(const char *name)
+{
+    if (!name || name[0] == '\0')
+    {
+        return false;
+    }
+    return strchr(name, '/') == NULL && strchr(name, '\\') == NULL && strstr(name, "..") == NULL;
+}
+
 FuriString *world_fetch(FlipperHTTP *fhttp, const char *name)
 {
     if (!name)
     {
         FURI_LOG_E("Game", "World name is NULL");
+        return NULL;
+    }
+
+    if (!world_name_is_safe(name))
+    {
+        FURI_LOG_E("Game", "world_fetch: Rejected unsafe world name");
         return NULL;
     }
 

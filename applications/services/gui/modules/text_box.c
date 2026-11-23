@@ -220,7 +220,14 @@ static void text_box_prepare_model(Canvas* canvas, TextBoxModel* model) {
     model->scroll_num = 0;
     model->scroll_pos = 0;
     model->line_offset = 0;
-    model->lines_on_screen = TEXT_BOX_TEXT_HEIGHT / canvas_current_font_height(canvas);
+    // Custom (asset pack) fonts may be tiny/huge/zero height: guard the division and
+    // clamp to the window_offset[] size below.
+    size_t font_h = canvas_current_font_height(canvas);
+    int32_t lines = (font_h == 0 || font_h > TEXT_BOX_TEXT_HEIGHT) ?
+                        1 :
+                        (int32_t)(TEXT_BOX_TEXT_HEIGHT / font_h);
+    if(lines > TEXT_BOX_MAX_LINES_PER_SCREEN) lines = TEXT_BOX_MAX_LINES_PER_SCREEN;
+    model->lines_on_screen = lines;
 
     // Cache text offset to quick final text offset update if TextBoxFocusEnd is set
     int32_t window_offset[TEXT_BOX_MAX_LINES_PER_SCREEN] = {};

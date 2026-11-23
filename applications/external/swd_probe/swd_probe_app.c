@@ -650,7 +650,10 @@ static void swd_apscan_reset(AppFSM* const ctx) {
 
 static bool swd_apscan_test(AppFSM* const ctx, uint32_t ap) {
     furi_assert(ctx);
-    furi_assert(ap < sizeof(ctx->apidr_info));
+    // ap is script/USB controlled: reject out of range at runtime (assert is a no-op in release)
+    if(ap >= COUNT(ctx->apidr_info)) {
+        return false;
+    }
     bool ret = true;
 
     ctx->apidr_info[ap].tested = true;
@@ -709,7 +712,7 @@ static void swd_script_log(ScriptContext* ctx, FuriLogLevel level, const char* f
         }
 
         furi_string_cat_str(buffer, prefix);
-        furi_string_cat_printf(buffer, format, argp);
+        furi_string_cat_vprintf(buffer, format, argp);
         furi_string_cat_str(buffer, "\n");
 
         if(!usb_uart_tx_data(
@@ -717,7 +720,8 @@ static void swd_script_log(ScriptContext* ctx, FuriLogLevel level, const char* f
             DBGS("Sending via USB failed");
         }
     } else {
-        LOG(furi_string_get_cstr(buffer));
+        furi_string_cat_vprintf(buffer, format, argp);
+        LOG("%s", furi_string_get_cstr(buffer));
     }
     va_end(argp);
     furi_string_free(buffer);
@@ -965,6 +969,17 @@ static bool swd_scriptfunc_call(ScriptContext* ctx) {
             swd_script_log(ctx, FuriLogLevelError, "failed to parse filename");
             break;
         }
+
+        /* each nested script costs a ScriptContext plus stack on a small thread: limit depth */
+        uint32_t depth = 0;
+        for(ScriptContext* c = ctx; c; c = c->parent) {
+            depth++;
+        }
+        if(depth > 3) {
+            swd_script_log(ctx, FuriLogLevelError, "call nesting too deep");
+            break;
+        }
+
         furi_string_cat_printf(filepath, "/%s", filename);
 
         swd_script_seek_newline(ctx);
@@ -1029,6 +1044,11 @@ static bool swd_scriptfunc_beep(ScriptContext* ctx) {
     swd_script_skip_whitespace(ctx);
     swd_script_get_number(ctx, &sound);
 
+    if(sound >= COUNT(seq_sounds)) {
+        swd_script_log(ctx, FuriLogLevelError, "invalid sound %lu", sound);
+        return false;
+    }
+
     notification_message_block(ctx->app->notification, seq_sounds[sound]);
 
     swd_script_seek_newline(ctx);
@@ -1039,7 +1059,7 @@ static bool swd_scriptfunc_beep(ScriptContext* ctx) {
 static bool swd_scriptfunc_message(ScriptContext* ctx) {
     uint32_t wait_time = 0;
     char message[256];
-    char type[256];
+    char type[16];
     bool success = true;
     bool show_dialog = false;
 
@@ -1065,7 +1085,7 @@ static bool swd_scriptfunc_message(ScriptContext* ctx) {
     }
 
     if(wait_time <= 60 * 1000) {
-        strncpy(ctx->app->state_string, message, sizeof(ctx->app->state_string));
+        strlcpy(ctx->app->state_string, message, sizeof(ctx->app->state_string));
         swd_script_gui_refresh(ctx);
         furi_delay_ms(wait_time);
         if(show_dialog) {
@@ -1742,8 +1762,9 @@ static bool swd_scriptfunc_core_continue(ScriptContext* ctx) {
         succ = false;
     } else {
         succ = swd_write_memory(ctx->app, ctx->selected_ap, SCS_DHCSR, SCS_DHCSR_KEY) == 1;
-        furi_mutex_release(ctx->app->swd_mutex);
     }
+    // release on every path (was leaked when the core was not halted)
+    furi_mutex_release(ctx->app->swd_mutex);
 
     if(!succ) {
         swd_script_log(ctx, FuriLogLevelError, "swd_write_memory failed");
@@ -2236,7 +2257,8 @@ static bool swd_execute_script(AppFSM* const ctx, const char* filename) {
 
 #include "model/model_chip.h"
 
-static int rotatedVertexCoords[NUM_VERTICES][3];
+// only x/y are needed to draw; int16_t keeps this small in RAM
+static int16_t rotatedVertexCoords[NUM_VERTICES][2];
 
 static void draw_model(Canvas* const canvas) {
     static float xAngle = 0;
@@ -2265,14 +2287,12 @@ static void draw_model(Canvas* const canvas) {
         int z1 = y * sinXAngle + z * cosXAngle;
 
         int x2 = x * cosYAngle + z1 * sinYAngle;
-        int z2 = -x * sinYAngle + z1 * cosYAngle;
 
         int x3 = x2 * cosZAngle - y1 * sinZAngle;
         int y3 = x2 * sinZAngle + y1 * cosZAngle;
 
         rotatedVertexCoords[i][0] = x3 + centerX;
         rotatedVertexCoords[i][1] = y3 + centerY;
-        rotatedVertexCoords[i][2] = z2;
     }
 
     for(size_t i = 0; i < COUNT(edgeIndices); i++) {
@@ -2812,6 +2832,9 @@ static void swd_main_loop(AppFSM* ctx) {
                     ctx->targetid_info.designer = (ctx->dp_regs.targetid >> 1) & 0x3FF;
                 }
 
+                /* script handlers lock swd_mutex per command (non-recursive): release first */
+                furi_mutex_release(ctx->swd_mutex);
+
                 if(!ctx->script_detected_executed && strlen(ctx->script_detected) > 0) {
                     DBG(" - Run script '%s'", ctx->script_detected);
 
@@ -2821,7 +2844,6 @@ static void swd_main_loop(AppFSM* ctx) {
                     swd_execute_script(ctx, ctx->script_detected);
                     ctx->mode_page = ModePageFound;
                 }
-                furi_mutex_release(ctx->swd_mutex);
             }
         } else {
             if(!has_multiple_bits(ctx->io_swc)) {

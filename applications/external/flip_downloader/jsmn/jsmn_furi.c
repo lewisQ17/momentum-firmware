@@ -10,7 +10,7 @@
 
 // Forward declarations of helper functions
 static int jsoneq_furi(const FuriString *json, jsmntok_t *tok, const FuriString *s);
-static int skip_token(const jsmntok_t *tokens, int start, int total);
+static int skip_token(const jsmntok_t *tokens, int start, int total, int depth);
 
 /**
  * Allocates a fresh unused token from the token pool.
@@ -430,10 +430,13 @@ static int jsoneq_furi(const FuriString *json, jsmntok_t *tok, const FuriString 
     return (res == 0) ? 0 : -1;
 }
 
+// Max nesting depth skip_token will recurse into; real data nests 2-3 levels, so this only
+// stops hostile [[[[...]]]] input from overflowing the small app stack.
+#define JSMN_SKIP_MAX_DEPTH 16
 // Skip a token and its descendants
-static int skip_token(const jsmntok_t *tokens, int start, int total)
+static int skip_token(const jsmntok_t *tokens, int start, int total, int depth)
 {
-    if (start < 0 || start >= total)
+    if (start < 0 || start >= total || depth > JSMN_SKIP_MAX_DEPTH)
         return -1;
 
     int i = start;
@@ -446,7 +449,7 @@ static int skip_token(const jsmntok_t *tokens, int start, int total)
             i++; // skip key
             if (i >= total)
                 return -1;
-            i = skip_token(tokens, i, total); // skip value
+            i = skip_token(tokens, i, total, depth + 1); // skip value
             if (i == -1)
                 return -1;
         }
@@ -458,7 +461,7 @@ static int skip_token(const jsmntok_t *tokens, int start, int total)
         i++;
         for (int e = 0; e < elems; e++)
         {
-            i = skip_token(tokens, i, total);
+            i = skip_token(tokens, i, total, depth + 1);
             if (i == -1)
                 return -1;
         }
@@ -480,7 +483,15 @@ FuriString *get_json_value_furi(const char *key, const FuriString *json_data)
         FURI_LOG_E("JSMM.H", "JSON data is NULL");
         return NULL;
     }
-    uint32_t max_tokens = json_token_count_furi(json_data);
+    // json_token_count_furi returns uint32_t but carries negative jsmn errors; recover the sign.
+    // malloc(0) is a hard furi_check crash and a wrapped error count would be a huge allocation.
+    int token_count = (int)json_token_count_furi(json_data);
+    if (token_count <= 0)
+    {
+        FURI_LOG_E("JSMM.H", "No JSON tokens found.");
+        return NULL;
+    }
+    uint32_t max_tokens = (uint32_t)token_count;
     if (!jsmn_memory_check(sizeof(jsmntok_t) * max_tokens))
     {
         FURI_LOG_E("JSMM.H", "Insufficient memory for JSON tokens.");
@@ -558,7 +569,15 @@ FuriString *get_json_array_value_furi(const char *key, uint32_t index, const Fur
         FURI_LOG_E("JSMM.H", "Failed to get array for key");
         return NULL;
     }
-    uint32_t max_tokens = json_token_count_furi(array_str);
+    int token_count = (int)json_token_count_furi(array_str);
+    if (token_count <= 0)
+    {
+        // malloc(0) crashes; a negative count would wrap as uint32_t.
+        FURI_LOG_E("JSMM.H", "No JSON tokens found in array.");
+        furi_string_free(array_str);
+        return NULL;
+    }
+    uint32_t max_tokens = (uint32_t)token_count;
     if (!jsmn_memory_check(sizeof(jsmntok_t) * max_tokens))
     {
         FURI_LOG_E("JSMM.H", "Insufficient memory for JSON tokens.");
@@ -604,7 +623,7 @@ FuriString *get_json_array_value_furi(const char *key, uint32_t index, const Fur
     int elem_token = 1;
     for (uint32_t i = 0; i < index; i++)
     {
-        elem_token = skip_token(tokens, elem_token, ret);
+        elem_token = skip_token(tokens, elem_token, ret, 0);
         if (elem_token == -1 || elem_token >= ret)
         {
             FURI_LOG_E("JSMM.H", "Error skipping tokens to reach element %lu.", i);
@@ -640,7 +659,15 @@ FuriString **get_json_array_values_furi(const char *key, const FuriString *json_
         return NULL;
     }
 
-    uint32_t max_tokens = json_token_count_furi(array_str);
+    int token_count = (int)json_token_count_furi(array_str);
+    if (token_count <= 0)
+    {
+        // malloc(0) crashes; a negative count would wrap as uint32_t.
+        FURI_LOG_E("JSMM.H", "No JSON tokens found in array.");
+        furi_string_free(array_str);
+        return NULL;
+    }
+    uint32_t max_tokens = (uint32_t)token_count;
     if (!jsmn_memory_check(sizeof(jsmntok_t) * max_tokens))
     {
         FURI_LOG_E("JSMM.H", "Insufficient memory for JSON tokens.");
@@ -676,6 +703,13 @@ FuriString **get_json_array_values_furi(const char *key, const FuriString *json_
     }
 
     int array_size = tokens[0].size;
+    if (array_size <= 0)
+    {
+        // malloc(0) would crash; an empty array has no values.
+        free(tokens);
+        furi_string_free(array_str);
+        return NULL;
+    }
     FuriString **values = (FuriString **)malloc(array_size * sizeof(FuriString *));
     if (values == NULL)
     {
@@ -705,7 +739,7 @@ FuriString **get_json_array_values_furi(const char *key, const FuriString *json_
         actual_num_values++;
 
         // Skip this element and its descendants
-        current_token = skip_token(tokens, current_token, ret);
+        current_token = skip_token(tokens, current_token, ret, 0);
         if (current_token == -1)
         {
             FURI_LOG_E("JSMM.H", "Error skipping tokens after element %d.", i);
