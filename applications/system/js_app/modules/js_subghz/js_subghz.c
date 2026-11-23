@@ -22,6 +22,16 @@ typedef struct {
     JsSubghzRadioState state;
 } JsSubghzInst;
 
+// Custom preset data comes from a user-supplied .sub file: the HAL loader scans
+// register pairs up to a 00 terminator and then reads an 8-byte PA table, so
+// make sure both fit inside the buffer before handing it over.
+static bool js_subghz_validate_preset_data(const uint8_t* data, size_t size) {
+    if(size < 10 || size > 1024 || (size % 2)) return false;
+    size_t t = 0;
+    while(t < size && data[t]) t += 2;
+    return (t + 10) <= size;
+}
+
 static FuriHalSubGhzPreset js_subghz_get_preset_name(const char* preset_name) {
     FuriHalSubGhzPreset preset = FuriHalSubGhzPresetIDLE;
     if(!strcmp(preset_name, "FuriHalSubGhzPresetOok270Async")) {
@@ -306,14 +316,20 @@ static void js_subghz_transmit_file(struct mjs* mjs) {
         if(preset == FuriHalSubGhzPresetCustom) {
             uint8_t* custom_preset_data;
             if(!flipper_format_get_value_count(fff_file, "Custom_preset_data", &temp_data32) ||
-               !temp_data32 || (temp_data32 % 2)) {
+               temp_data32 < 10 || temp_data32 > 1024 || (temp_data32 % 2)) {
                 mjs_prepend_errorf(mjs, MJS_INTERNAL_ERROR, "Custom_preset_data size error");
                 break;
             }
             custom_preset_data = malloc(temp_data32);
             if(!flipper_format_read_hex(
                    fff_file, "Custom_preset_data", custom_preset_data, temp_data32)) {
+                free(custom_preset_data);
                 mjs_prepend_errorf(mjs, MJS_INTERNAL_ERROR, "Custom_preset_data read error");
+                break;
+            }
+            if(!js_subghz_validate_preset_data(custom_preset_data, temp_data32)) {
+                free(custom_preset_data);
+                mjs_prepend_errorf(mjs, MJS_INTERNAL_ERROR, "Custom_preset_data integrity error");
                 break;
             }
             subghz_devices_load_preset(js_subghz->radio_device, preset, custom_preset_data);

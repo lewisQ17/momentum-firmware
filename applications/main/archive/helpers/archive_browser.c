@@ -461,9 +461,8 @@ void archive_set_tab(ArchiveBrowserView* browser, ArchiveTabEnum tab) {
                 model->select_mode = false;
             }
             model->tab_idx = tab;
-            if(!memcmp(archive_get_default_path(tab), "/app:", strlen("/app:"))) {
-                archive_clipboard_free(model);
-            }
+            // The clipboard intentionally survives tab switches (also across /app: tabs
+            // that archive_switch_tab passes through); paste is already disabled there.
         },
         false);
 }

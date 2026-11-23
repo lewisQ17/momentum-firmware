@@ -84,9 +84,11 @@ void badge_wallet_load_cards(BadgeWalletApp* app) {
     File* dir = storage_file_alloc(app->storage);
     if(storage_dir_open(dir, BADGE_WALLET_NFC_DIR)) {
         FileInfo info;
-        char name[BADGE_WALLET_NAME_MAX];
+        /* Heap, not stack: the app stack is only 3 KB. A 128-byte buffer
+         * truncated long names and dropped their ".nfc" suffix. */
+        char* name = malloc(BADGE_WALLET_NAME_MAX);
         while(app->card_count < BADGE_WALLET_MAX_CARDS &&
-              storage_dir_read(dir, &info, name, sizeof(name))) {
+              storage_dir_read(dir, &info, name, BADGE_WALLET_NAME_MAX)) {
             if(file_info_is_dir(&info)) continue;
 
             FuriString* fname = furi_string_alloc_set(name);
@@ -101,6 +103,7 @@ void badge_wallet_load_cards(BadgeWalletApp* app) {
             card->favorite = false;
             app->card_count++;
         }
+        free(name);
     }
     /* storage_dir_close must be called even if open failed. */
     storage_dir_close(dir);
@@ -109,26 +112,84 @@ void badge_wallet_load_cards(BadgeWalletApp* app) {
     badge_wallet_apply_sidecar(app);
 }
 
+/* Rewrite the sidecar without losing metadata for cards that are not in cards[]
+ * (e.g. beyond the BADGE_WALLET_MAX_CARDS scan cap or pushed out of the first
+ * 128 directory entries). Strategy: write the loaded cards to a temp file, then
+ * stream the old sidecar and carry over every block whose path is not loaded but
+ * whose .nfc file still exists (deleted cards are still dropped). The temp file
+ * replaces the old one only after a fully successful write, so a failure or
+ * power loss mid-write never truncates the existing sidecar. */
 void badge_wallet_save_sidecar(BadgeWalletApp* app) {
     furi_assert(app);
     storage_common_mkdir(app->storage, BADGE_WALLET_DATA_DIR);
 
+    const char* tmp_path = BADGE_WALLET_SIDECAR ".tmp";
+    bool ok = false;
+
     FlipperFormat* ff = flipper_format_file_alloc(app->storage);
+    FlipperFormat* old_ff = flipper_format_file_alloc(app->storage);
+    FuriString* card_path = furi_string_alloc();
+    FuriString* label = furi_string_alloc();
+    FuriString* header = furi_string_alloc();
+
     do {
-        if(!flipper_format_file_open_always(ff, BADGE_WALLET_SIDECAR)) break;
+        if(!flipper_format_file_open_always(ff, tmp_path)) break;
         if(!flipper_format_write_header_cstr(ff, SIDECAR_FILETYPE, SIDECAR_VERSION)) break;
 
-        for(size_t i = 0; i < app->card_count; i++) {
+        bool write_ok = true;
+        for(size_t i = 0; i < app->card_count && write_ok; i++) {
             BadgeCard* card = &app->cards[i];
             bool fav = card->favorite;
-            if(!flipper_format_write_string(ff, "Card", card->path)) break;
-            if(!flipper_format_write_bool(ff, "Favorite", &fav, 1)) break;
-            if(!flipper_format_write_string(ff, "Label", card->label)) break;
+            write_ok = flipper_format_write_string(ff, "Card", card->path) &&
+                       flipper_format_write_bool(ff, "Favorite", &fav, 1) &&
+                       flipper_format_write_string(ff, "Label", card->label);
         }
+        if(!write_ok) break;
+
+        /* Carry over entries for cards we did not load. */
+        uint32_t version = 0;
+        if(flipper_format_file_open_existing(old_ff, BADGE_WALLET_SIDECAR) &&
+           flipper_format_read_header(old_ff, header, &version)) {
+            while(write_ok && flipper_format_read_string(old_ff, "Card", card_path)) {
+                bool fav = false;
+                flipper_format_read_bool(old_ff, "Favorite", &fav, 1);
+                bool has_label = flipper_format_read_string(old_ff, "Label", label);
+
+                bool loaded = false;
+                for(size_t i = 0; i < app->card_count; i++) {
+                    if(furi_string_equal(app->cards[i].path, card_path)) {
+                        loaded = true;
+                        break;
+                    }
+                }
+                if(loaded || !storage_file_exists(app->storage, furi_string_get_cstr(card_path)))
+                    continue;
+
+                write_ok = flipper_format_write_string(ff, "Card", card_path) &&
+                           flipper_format_write_bool(ff, "Favorite", &fav, 1) &&
+                           (!has_label || flipper_format_write_string(ff, "Label", label));
+            }
+        }
+        if(!write_ok) break;
+        ok = true;
     } while(false);
 
+    flipper_format_file_close(old_ff);
     flipper_format_file_close(ff);
+    flipper_format_free(old_ff);
     flipper_format_free(ff);
+    furi_string_free(card_path);
+    furi_string_free(label);
+    furi_string_free(header);
+
+    if(ok) {
+        storage_common_remove(app->storage, BADGE_WALLET_SIDECAR);
+        if(storage_common_rename(app->storage, tmp_path, BADGE_WALLET_SIDECAR) != FSE_OK) {
+            storage_common_remove(app->storage, tmp_path);
+        }
+    } else {
+        storage_common_remove(app->storage, tmp_path);
+    }
 }
 
 /* ------------------------------------------------------------------ */

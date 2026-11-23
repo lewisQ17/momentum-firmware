@@ -103,9 +103,10 @@ static inline bool iso15693_3_load_security_legacy(Iso15693_3Data* data, Flipper
         data->settings.lock_bits.afi = legacy_data[0] & ISO15693_3_LOCK_AFI_LEGACY;
 
         // The rest are block security
+        // (destination is block_security; the arguments were swapped before)
         memcpy(
-            &legacy_data[1],
             simple_array_get_data(data->block_security),
+            &legacy_data[1],
             simple_array_get_count(data->block_security));
 
         loaded = true;
@@ -177,11 +178,16 @@ bool iso15693_3_load(Iso15693_3Data* data, FlipperFormat* ff, uint32_t version) 
 
             uint32_t block_count;
             if(!flipper_format_read_uint32(ff, ISO15693_3_BLOCK_COUNT_KEY, &block_count, 1)) break;
-            data->system_info.block_count = block_count;
+            // Validate the uint32 before it is truncated into the uint16 field
+            if(block_count > 256) break;
+            data->system_info.block_count = (uint16_t)block_count;
 
             if(!flipper_format_read_hex(
                    ff, ISO15693_3_BLOCK_SIZE_KEY, &(data->system_info.block_size), 1))
                 break;
+            if(data->system_info.block_size > 32) break;
+            // Memory flag without allocated arrays would crash on emulate
+            if(data->system_info.block_count > 0 && data->system_info.block_size == 0) break;
 
             if(data->system_info.block_count > 0 && data->system_info.block_size > 0) {
                 simple_array_init(

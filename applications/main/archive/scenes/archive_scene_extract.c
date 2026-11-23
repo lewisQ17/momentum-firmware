@@ -29,6 +29,18 @@ static void archive_extract_dest_from_path(const char* archive_path, FuriString*
     }
 }
 
+// tar_archive_get_mode_for_path is case-sensitive, but the Extract menu and the
+// destination logic are not (FAT keeps FOO.TGZ uppercase). Pick the mode here.
+static TarOpenMode archive_extract_mode(const char* archive_path) {
+    FuriString* path = furi_string_alloc_set_str(archive_path);
+    TarOpenMode mode = (furi_string_end_withi_str(path, ".tgz") ||
+                        furi_string_end_withi_str(path, ".tar.gz")) ?
+                           TarOpenModeReadGzip :
+                           TarOpenModeRead;
+    furi_string_free(path);
+    return mode;
+}
+
 // Blocking unpack (mirrors how the OTA updater / storage_cli extract). Runs while
 // the loading popup is shown on the stack view, which is drawn by the GUI service
 // thread independently of this (blocking) app thread.
@@ -37,7 +49,7 @@ static bool archive_extract_perform(const char* archive_path, const char* dest_d
     storage_common_mkdir(storage, dest_dir); // no-op if it already exists
     TarArchive* tar = tar_archive_alloc(storage);
     bool ok = false;
-    if(tar_archive_open(tar, archive_path, tar_archive_get_mode_for_path(archive_path))) {
+    if(tar_archive_open(tar, archive_path, archive_extract_mode(archive_path))) {
         ok = tar_archive_unpack_to(tar, dest_dir, NULL);
     }
     tar_archive_free(tar);

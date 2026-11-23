@@ -95,7 +95,12 @@ void subghz_file_encoder_worker_get_text_progress(
     if(total_size == 0) {
         furi_string_printf(output, "000%%");
     } else {
-        furi_string_printf(output, "%03u%%", 100 * (current_offset - buffer_avail) / total_size);
+        // buffer_avail is in binary bytes (4 per duration) while the offset is in text
+        // bytes, so the difference can go negative; clamp it and avoid 32-bit overflow
+        size_t consumed = current_offset > buffer_avail ? current_offset - buffer_avail : 0;
+        unsigned int pct = (unsigned int)(((uint64_t)consumed * 100u) / total_size);
+        if(pct > 100u) pct = 100u;
+        furi_string_printf(output, "%03u%%", pct);
     }
 }
 

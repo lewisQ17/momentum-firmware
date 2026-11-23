@@ -126,6 +126,11 @@ static void input_cli_keyboard(PipeSide* pipe, FuriString* args, FuriPubSub* eve
         // through. Keep reading until a full key combo is decoded.
         CliAnsiParserResult parsed = cli_ansi_parser_feed(parser, in_chr);
         if(!parsed.is_done) continue;
+        // Raw bytes >= 0x80 (UTF-8 lead/continuation bytes, e.g. "Ä" = C3 84) come
+        // back as key == byte and collide with CliKeyLeft..End (0x81-0x86), turning
+        // a typed character into a D-pad press. Real special keys only complete on
+        // an ASCII byte ('A'-'H'), so drop any completion triggered by a high byte.
+        if((uint8_t)in_chr >= CliKeySpecial) continue;
 
         CliKey key = parsed.result.key;
         if(key == CliKeyETX) break;

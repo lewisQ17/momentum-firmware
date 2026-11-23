@@ -331,6 +331,13 @@ static void power_check_low_battery(Power* power) {
         return;
     }
 
+    // The auto-poweroff warning owns the shared PowerOff view, response and
+    // countdown while active; don't touch them from the low-battery path (that
+    // would double the countdown speed or hide the view and leave a silent timer).
+    if(power->auto_poweroff_warning) {
+        return;
+    }
+
     const uint8_t timeout_s = power_off_timeout_seconds(power->settings.power_off_timeout);
 
     // Check battery charge and vbus voltage
@@ -383,6 +390,15 @@ static void power_check_battery_level_change(Power* power) {
         power->event.type = PowerEventTypeBatteryLevelChanged;
         power->event.data.battery_level = power->battery_level;
         furi_pubsub_publish(power->event_pubsub, &power->event);
+    }
+}
+
+// Drop a visible auto-poweroff warning (if any) together with its flag, so the
+// view can't stay in front swallowing input with nobody reading its response.
+static void power_auto_poweroff_warning_reset(Power* power) {
+    if(power->auto_poweroff_warning) {
+        view_holder_set_view(power->view_holder, NULL);
+        power->auto_poweroff_warning = false;
     }
 }
 
@@ -444,7 +460,8 @@ static void power_check_auto_poweroff(Power* power) {
         return;
     }
 
-    if(power->info.charge <= power->auto_poweroff_next_warning) {
+    // Don't take over the shared view/countdown while the low-battery warning is active.
+    if(!power->battery_low && power->info.charge <= power->auto_poweroff_next_warning) {
         power->auto_poweroff_warning = true;
         power->power_off_timeout = timeout_s;
         power_off_set_variant(power->view_power_off, PowerOffVariantAutoPoweroff);
@@ -639,14 +656,14 @@ static void power_message_callback(FuriEventLoopObject* object, void* context) {
         furi_assert(msg.lock);
         power->settings = *msg.csettings;
         power->auto_poweroff_next_warning = power->settings.auto_poweroff_percent;
-        power->auto_poweroff_warning = false;
+        power_auto_poweroff_warning_reset(power);
         power_settings_apply(power);
         power_settings_save(&power->settings);
         break;
     case PowerMessageTypeReloadSettings:
         power_settings_load(&power->settings);
         power->auto_poweroff_next_warning = power->settings.auto_poweroff_percent;
-        power->auto_poweroff_warning = false;
+        power_auto_poweroff_warning_reset(power);
         power_settings_apply(power);
         break;
     default:
@@ -733,11 +750,8 @@ static void power_init_settings(Power* power) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     furi_pubsub_subscribe(storage_get_pubsub(storage), power_storage_callback, power);
 
-    if(storage_sd_status(storage) != FSE_OK) {
-        FURI_LOG_D(TAG, "SD Card not ready, skipping settings");
-        return;
-    }
-
+    // Settings live on /int (always mounted), so no SD-card gate here; skipping
+    // would leave the zeroed defaults (critical floor off, 30 s timeout).
     power_settings_load(&power->settings);
     power->auto_poweroff_next_warning = power->settings.auto_poweroff_percent;
     power_settings_apply(power);
@@ -751,6 +765,7 @@ static Power* power_alloc(void) {
     power->event_pubsub = furi_pubsub_alloc();
     // State initialization
     power->power_off_timeout = power_off_timeout_seconds(PowerOffTimeout90);
+    power->settings.power_off_timeout = PowerOffTimeout90;
     power->show_battery_low_warning = true;
     power->auto_poweroff_next_warning = 0;
     power->auto_poweroff_warning = false;

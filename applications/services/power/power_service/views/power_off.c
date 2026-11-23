@@ -90,7 +90,9 @@ static bool power_off_input_callback(InputEvent* event, void* context) {
         } else if(event->key == InputKeyLeft) {
             model->response = PowerOffResponseCancel;
             consumed = true;
-        } else if(event->key == InputKeyRight) {
+        } else if(event->key == InputKeyRight && model->variant == PowerOffVariantLowBattery) {
+            // Only the low-battery variant draws a Hide button; for the auto warning
+            // Right would show "Cancelled" while the countdown still powers off.
             model->response = PowerOffResponseHide;
             consumed = true;
         }

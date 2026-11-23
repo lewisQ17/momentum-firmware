@@ -250,13 +250,17 @@ bool subghz_tx_rx_worker_start(
     furi_stream_buffer_reset(instance->stream_tx);
     furi_stream_buffer_reset(instance->stream_rx);
 
-    instance->worker_running = true;
-
-    if(furi_hal_subghz_is_tx_allowed(frequency)) {
-        instance->frequency = frequency;
-        instance->device = device;
-        res = true;
+    // Do not start the thread for a TX-disallowed frequency: it would have no
+    // (or a stale) device and furi_check(instance->device) would crash.
+    if(!furi_hal_subghz_is_tx_allowed(frequency)) {
+        instance->device = NULL;
+        return false;
     }
+
+    instance->frequency = frequency;
+    instance->device = device;
+    instance->worker_running = true;
+    res = true;
 
     furi_thread_start(instance->thread);
 
@@ -265,7 +269,8 @@ bool subghz_tx_rx_worker_start(
 
 void subghz_tx_rx_worker_stop(SubGhzTxRxWorker* instance) {
     furi_check(instance);
-    furi_check(instance->worker_running);
+    // Tolerate stop() after a failed start() (thread was never started)
+    if(!instance->worker_running) return;
 
     instance->worker_running = false;
 

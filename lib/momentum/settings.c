@@ -215,6 +215,11 @@ void momentum_settings_save(void) {
         }
     }
 
+    if(written) {
+        // The final flush + dir-entry update happen in close; a failed close means
+        // .tmp may be truncated, so don't swap it over the good file.
+        written &= flipper_format_file_close(file);
+    }
     flipper_format_free(file);
 
     if(written) {
@@ -229,8 +234,12 @@ void momentum_settings_save(void) {
         if(storage_common_rename(storage, MOMENTUM_SETTINGS_PATH ".tmp", MOMENTUM_SETTINGS_PATH) ==
            FSE_OK) {
             storage_common_remove(storage, MOMENTUM_SETTINGS_PATH ".bak");
-        } else if(had_old) {
-            storage_common_rename(storage, MOMENTUM_SETTINGS_PATH ".bak", MOMENTUM_SETTINGS_PATH);
+        } else {
+            if(had_old) {
+                storage_common_rename(
+                    storage, MOMENTUM_SETTINGS_PATH ".bak", MOMENTUM_SETTINGS_PATH);
+            }
+            storage_common_remove(storage, MOMENTUM_SETTINGS_PATH ".tmp");
         }
     } else {
         // Failed or partial write: keep the existing settings untouched.
