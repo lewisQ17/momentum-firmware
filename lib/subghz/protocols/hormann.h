@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_hormann_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderHormann instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_hormann_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderHormann.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderHormann* pointer to a SubGhzProtocolDecoderHormann instance

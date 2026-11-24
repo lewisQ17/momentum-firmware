@@ -128,6 +128,9 @@ bool iso14443_4a_load(Iso14443_4aData* data, FlipperFormat* ff, uint32_t version
             uint32_t t1_tk_size;
             if(!flipper_format_get_value_count(ff, ISO14443_4A_T1_TK_KEY, &t1_tk_size)) break;
 
+            // Why: tl is uint8_t and the ATS must fit the 256-byte listener tx buffer.
+            if(t1_tk_size > (uint32_t)(UINT8_MAX - ats_data->tl)) break;
+
             if(t1_tk_size > 0) {
                 simple_array_init(ats_data->t1_tk, t1_tk_size);
                 if(!flipper_format_read_hex(

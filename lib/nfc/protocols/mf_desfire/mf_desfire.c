@@ -152,6 +152,9 @@ bool mf_desfire_load(MfDesfireData* data, FlipperFormat* ff, uint32_t version) {
         uint32_t application_count;
         if(!mf_desfire_application_count_load(&application_count, ff)) break;
 
+        // Why: read_hex takes a uint16_t size (count * 3 bytes); larger counts wrap/OOM.
+        if(application_count > UINT16_MAX / sizeof(MfDesfireApplicationId)) break;
+
         if(application_count > 0) {
             simple_array_init(data->application_ids, application_count);
             if(!mf_desfire_application_ids_load(

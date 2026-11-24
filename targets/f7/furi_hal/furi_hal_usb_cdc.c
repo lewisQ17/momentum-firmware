@@ -482,8 +482,11 @@ void furi_hal_cdc_set_callbacks(uint8_t if_num, CdcCallbacks* cb, void* context)
         }
     }
 
+    // Atomic vs USB ISR so it never sees the new callback with the old context
+    FURI_CRITICAL_ENTER();
     callbacks[if_num] = cb;
     cb_ctx[if_num] = context;
+    FURI_CRITICAL_EXIT();
 
     if(callbacks[if_num] != NULL) {
         if(callbacks[if_num]->state_callback != NULL) {

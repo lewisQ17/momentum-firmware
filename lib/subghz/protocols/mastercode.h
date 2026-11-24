@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_mastercode_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderMastercode instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_mastercode_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderMastercode.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderMastercode* pointer to a SubGhzProtocolDecoderMastercode instance

@@ -24,9 +24,14 @@ void favorite_timeout_run(ViewDispatcher* view_dispatcher, SceneManager* scene_m
     }
 
     FavoriteTImeoutCtx ctx = {.view_dispatcher = view_dispatcher, .scene_manager = scene_manager};
-    FuriTimer* timer = furi_timer_alloc(favorite_timeout_callback, FuriTimerTypeOnce, &ctx);
-    furi_timer_start(timer, timeout * furi_kernel_get_tick_frequency());
+    // Event loop timer so the callback runs on the app thread (inside view_dispatcher_run),
+    // not on the timer daemon thread racing the dispatcher's own scene handling
+    FuriEventLoopTimer* timer = furi_event_loop_timer_alloc(
+        view_dispatcher_get_event_loop(view_dispatcher),
+        favorite_timeout_callback,
+        FuriEventLoopTimerTypeOnce,
+        &ctx);
+    furi_event_loop_timer_start(timer, timeout * furi_kernel_get_tick_frequency());
     view_dispatcher_run(view_dispatcher);
-    furi_timer_stop(timer);
-    furi_timer_free(timer);
+    furi_event_loop_timer_free(timer);
 }

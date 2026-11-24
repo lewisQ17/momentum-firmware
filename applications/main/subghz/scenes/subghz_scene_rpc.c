@@ -174,6 +174,7 @@ void subghz_scene_rpc_on_exit(void* context) {
         subghz_txrx_stop(subghz->txrx);
         subghz_blink_stop(subghz);
     }
+    subghz_block_generic_global.endless_tx = false;
 
     Popup* popup = subghz->popup;
 

@@ -3,6 +3,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -36,6 +37,11 @@ struct SubGhzProtocolEncoderDickertMAHS {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderDickertMAHS, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     DickertMAHSDecoderStepReset = 0,
     DickertMAHSDecoderStepInitial,
@@ -63,7 +69,7 @@ const SubGhzProtocolEncoder subghz_protocol_dickert_mahs_encoder = {
 
     .deserialize = subghz_protocol_encoder_dickert_mahs_deserialize,
     .stop = subghz_protocol_encoder_dickert_mahs_stop,
-    .yield = subghz_protocol_encoder_dickert_mahs_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_dickert_mahs = {
@@ -226,24 +232,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_dickert_mahs_stop(void* context) {
     SubGhzProtocolEncoderDickertMAHS* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_dickert_mahs_yield(void* context) {
-    SubGhzProtocolEncoderDickertMAHS* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_dickert_mahs_alloc(SubGhzEnvironment* environment) {

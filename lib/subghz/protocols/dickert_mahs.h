@@ -42,14 +42,6 @@ SubGhzProtocolStatus
  */
 void subghz_protocol_encoder_dickert_mahs_stop(void* context);
 
-/** Getting the level and duration of the upload to be loaded into DMA.
- *
- * @param      context  Pointer to a SubGhzProtocolEncoderDickertMAHS instance
- *
- * @return     LevelDuration
- */
-LevelDuration subghz_protocol_encoder_dickert_mahs_yield(void* context);
-
 /** Allocate SubGhzProtocolDecoderDickertMAHS.
  *
  * @param      environment  Pointer to a SubGhzEnvironment instance

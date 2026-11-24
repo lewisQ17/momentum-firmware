@@ -41,13 +41,6 @@ SubGhzProtocolStatus subghz_protocol_encoder_intertechno_v3_deserialize(
 void subghz_protocol_encoder_intertechno_v3_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderIntertechno_V3 instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_intertechno_v3_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderIntertechno_V3.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderIntertechno_V3* pointer to a SubGhzProtocolDecoderIntertechno_V3 instance

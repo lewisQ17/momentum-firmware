@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_treadmill37_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderTreadmill37 instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_treadmill37_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderTreadmill37.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderTreadmill37* pointer to a SubGhzProtocolDecoderTreadmill37 instance

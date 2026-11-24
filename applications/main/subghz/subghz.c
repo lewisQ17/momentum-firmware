@@ -7,6 +7,7 @@
 #include "subghz_i.h"
 #include <applications/main/archive/helpers/archive_helpers_ext.h>
 #include <momentum/momentum.h>
+#include <lib/subghz/blocks/generic.h>
 
 #include "scenes/subghz_scene_start.h"
 
@@ -305,6 +306,8 @@ void subghz_free(SubGhz* subghz, bool alloc_for_tx_only) {
     subghz_txrx_stop(subghz->txrx);
     subghz_txrx_sleep(subghz->txrx);
 #endif
+    // Static flag survives the app; don't leak it into CLI/JS/external TX
+    subghz_block_generic_global.endless_tx = false;
 
     if(!alloc_for_tx_only) {
 #ifndef SUBGHZ_ADD_MANUALLY

@@ -119,7 +119,8 @@ void subghz_scene_receiver_callback(SubGhzCustomEvent event, void* context) {
 
 void repeater_stop_callback(void* context) {
     SubGhz* subghz = context;
-    scene_manager_handle_custom_event(subghz->scene_manager, SubGhzCustomEventViewRepeaterStop);
+    // Timer daemon thread: queue the event so the handler runs in the app thread
+    view_dispatcher_send_custom_event(subghz->view_dispatcher, SubGhzCustomEventViewRepeaterStop);
 }
 
 static void subghz_scene_add_to_history_callback(

@@ -2,6 +2,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -52,6 +53,11 @@ struct SubGhzProtocolEncoderSecPlus_v1 {
     uint8_t data_array[44];
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderSecPlus_v1, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     SecPlus_v1DecoderStepReset = 0,
     SecPlus_v1DecoderStepSearchStartBit,
@@ -80,7 +86,7 @@ const SubGhzProtocolEncoder subghz_protocol_secplus_v1_encoder = {
 
     .deserialize = subghz_protocol_encoder_secplus_v1_deserialize,
     .stop = subghz_protocol_encoder_secplus_v1_stop,
-    .yield = subghz_protocol_encoder_secplus_v1_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_secplus_v1 = {
@@ -333,24 +339,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_secplus_v1_stop(void* context) {
     SubGhzProtocolEncoderSecPlus_v1* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_secplus_v1_yield(void* context) {
-    SubGhzProtocolEncoderSecPlus_v1* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_secplus_v1_alloc(SubGhzEnvironment* environment) {

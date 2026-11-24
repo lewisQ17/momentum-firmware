@@ -2,6 +2,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -32,6 +33,11 @@ struct SubGhzProtocolEncoderDitecGOL4 {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderDitecGOL4, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     DitecGOL4DecoderStepReset = 0,
     DitecGOL4DecoderStepStartBit,
@@ -60,7 +66,7 @@ const SubGhzProtocolEncoder subghz_protocol_ditec_gol4_encoder = {
 
     .deserialize = subghz_protocol_encoder_ditec_gol4_deserialize,
     .stop = subghz_protocol_encoder_ditec_gol4_stop,
-    .yield = subghz_protocol_encoder_ditec_gol4_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_ditec_gol4 = {
@@ -450,24 +456,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_ditec_gol4_stop(void* context) {
     SubGhzProtocolEncoderDitecGOL4* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_ditec_gol4_yield(void* context) {
-    SubGhzProtocolEncoderDitecGOL4* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_ditec_gol4_alloc(SubGhzEnvironment* environment) {

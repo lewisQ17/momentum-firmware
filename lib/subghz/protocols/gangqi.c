@@ -2,6 +2,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -30,6 +31,11 @@ struct SubGhzProtocolEncoderGangQi {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderGangQi, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     GangQiDecoderStepReset = 0,
     GangQiDecoderStepSaveDuration,
@@ -57,7 +63,7 @@ const SubGhzProtocolEncoder subghz_protocol_gangqi_encoder = {
 
     .deserialize = subghz_protocol_encoder_gangqi_deserialize,
     .stop = subghz_protocol_encoder_gangqi_stop,
-    .yield = subghz_protocol_encoder_gangqi_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_gangqi = {
@@ -289,24 +295,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_gangqi_stop(void* context) {
     SubGhzProtocolEncoderGangQi* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_gangqi_yield(void* context) {
-    SubGhzProtocolEncoderGangQi* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_gangqi_alloc(SubGhzEnvironment* environment) {

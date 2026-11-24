@@ -3,6 +3,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -59,6 +60,11 @@ struct SubGhzProtocolEncoderChamb_Code {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderChamb_Code, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     Chamb_CodeDecoderStepReset = 0,
     Chamb_CodeDecoderStepFoundStartBit,
@@ -87,7 +93,7 @@ const SubGhzProtocolEncoder subghz_protocol_chamb_code_encoder = {
 
     .deserialize = subghz_protocol_encoder_chamb_code_deserialize,
     .stop = subghz_protocol_encoder_chamb_code_stop,
-    .yield = subghz_protocol_encoder_chamb_code_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_chamb_code = {
@@ -243,24 +249,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_chamb_code_stop(void* context) {
     SubGhzProtocolEncoderChamb_Code* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_chamb_code_yield(void* context) {
-    SubGhzProtocolEncoderChamb_Code* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_chamb_code_alloc(SubGhzEnvironment* environment) {

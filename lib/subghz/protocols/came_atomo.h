@@ -43,13 +43,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_came_atomo_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderCameAtomo instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_came_atomo_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderCameAtomo.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderCameAtomo* pointer to a SubGhzProtocolDecoderCameAtomo instance

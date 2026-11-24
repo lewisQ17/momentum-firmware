@@ -44,13 +44,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_legrand_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderLegrand instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_legrand_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderLegrand.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderLegrand* pointer to a SubGhzProtocolDecoderLegrand instance

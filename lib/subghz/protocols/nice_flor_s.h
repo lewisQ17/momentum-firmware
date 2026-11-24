@@ -39,13 +39,6 @@ SubGhzProtocolStatus
  */
 void subghz_protocol_encoder_nice_flor_s_stop(void* context);
 
-/**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderNiceFlorS instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_nice_flor_s_yield(void* context);
-
 uint64_t subghz_protocol_nice_flor_s_encrypt(uint64_t data, const char* file_name);
 
 /**

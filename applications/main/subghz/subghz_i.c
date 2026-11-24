@@ -227,6 +227,11 @@ bool subghz_key_load(SubGhz* subghz, const char* file_path, bool show_dialog) {
                 fff_data, file_path, subghz_txrx_radio_device_get_name(subghz->txrx));
         } else {
             subghz->load_type_file = SubGhzLoadTypeFileKey;
+            // Real key files are tiny (BinRAW ~6 KB); cap so a crafted file can't OOM the heap
+            if(stream_size(flipper_format_get_raw_stream(fff_data_file)) > 32 * 1024) {
+                FURI_LOG_E(TAG, "Key file too large");
+                break;
+            }
             stream_copy_full(
                 flipper_format_get_raw_stream(fff_data_file),
                 flipper_format_get_raw_stream(fff_data));

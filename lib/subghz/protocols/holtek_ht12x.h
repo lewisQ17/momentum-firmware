@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_holtek_th12x_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderHoltek_HT12X instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_holtek_th12x_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderHoltek_HT12X.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderHoltek_HT12X* pointer to a SubGhzProtocolDecoderHoltek_HT12X instance

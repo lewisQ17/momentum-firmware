@@ -52,6 +52,8 @@ struct ExpansionWorker {
     ExpansionWorkerExitReason exit_reason;
     ExpansionWorkerCallback callback;
     void* cb_context;
+
+    bool otg_enabled_by_worker;
 };
 
 // Called in UART IRQ context
@@ -255,11 +257,15 @@ static bool expansion_worker_handle_state_connected(
                 instance->state = ExpansionWorkerStateRpcActive;
             } else if(command == ExpansionFrameControlCommandEnableOtg) {
                 Power* power = furi_record_open(RECORD_POWER);
+                // Only take ownership if OTG was off, so a manual OTG is not switched off later
+                const bool otg_was_enabled = power_is_otg_enabled(power);
                 power_enable_otg(power, true);
+                if(!otg_was_enabled) instance->otg_enabled_by_worker = true;
                 furi_record_close(RECORD_POWER);
             } else if(command == ExpansionFrameControlCommandDisableOtg) {
                 Power* power = furi_record_open(RECORD_POWER);
                 power_enable_otg(power, false);
+                instance->otg_enabled_by_worker = false;
                 furi_record_close(RECORD_POWER);
             } else {
                 break;
@@ -371,6 +377,15 @@ static int32_t expansion_worker(void* context) {
     FURI_LOG_D(TAG, "Worker stopped");
 
     furi_hal_serial_control_release(instance->serial_handle);
+
+    // Module is gone: release the 5V it requested (otherwise stays on until reboot)
+    if(instance->otg_enabled_by_worker) {
+        Power* power = furi_record_open(RECORD_POWER);
+        power_enable_otg(power, false);
+        furi_record_close(RECORD_POWER);
+        instance->otg_enabled_by_worker = false;
+    }
+
     furi_hal_power_insomnia_exit();
 
     // Do not invoke worker callback on user-requested exit
@@ -383,6 +398,7 @@ static int32_t expansion_worker(void* context) {
 
 ExpansionWorker* expansion_worker_alloc(FuriHalSerialId serial_id) {
     ExpansionWorker* instance = malloc(sizeof(ExpansionWorker));
+    instance->otg_enabled_by_worker = false;
 
     instance->thread = furi_thread_alloc_ex(
         TAG "Worker", EXPANSION_WORKER_STACK_SZIE, expansion_worker, instance);

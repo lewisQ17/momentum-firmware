@@ -529,6 +529,9 @@ static void power_auto_poweroff_timer_callback(void* context) {
     furi_assert(context);
     Power* power = context;
 
+    // A stale re-arm can survive disarm; never power off while an app is running
+    if(power->app_running) return;
+
     //Dont poweroff device if charger connected
     if(power->state != PowerStateNotCharging) {
         FURI_LOG_D(TAG, "We dont auto_power_off until battery is charging");
@@ -558,7 +561,7 @@ static void power_auto_poweroff_arm(Power* power) {
 
 // stop timer and event subscription
 static void power_auto_poweroff_disarm(Power* power) {
-    power_stop_auto_poweroff_timer(power);
+    // Unsubscribe first (waits for in-flight callbacks), stop timer last so it stays stopped
     if(power->input_events_subscription) {
         furi_pubsub_unsubscribe(power->input_events_pubsub, power->input_events_subscription);
         power->input_events_subscription = NULL;
@@ -567,6 +570,7 @@ static void power_auto_poweroff_disarm(Power* power) {
         furi_pubsub_unsubscribe(power->ascii_events_pubsub, power->ascii_events_subscription);
         power->ascii_events_subscription = NULL;
     }
+    power_stop_auto_poweroff_timer(power);
 }
 
 //check message queue from Loader - is some app started or not (if started we dont do auto poweroff)

@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_magellan_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderMagellan instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_magellan_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderMagellan.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderMagellan* pointer to a SubGhzProtocolDecoderMagellan instance

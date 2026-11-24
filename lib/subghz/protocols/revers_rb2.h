@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_revers_rb2_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderRevers_RB2 instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_revers_rb2_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderRevers_RB2.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderRevers_RB2* pointer to a SubGhzProtocolDecoderRevers_RB2 instance

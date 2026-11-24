@@ -114,7 +114,8 @@ static void
                 if(storage_file_open(
                        file, furi_string_get_cstr(path), FSAM_READ, FSOM_OPEN_EXISTING)) {
                     uint64_t frame_size = storage_file_size(file);
-                    if(frame_size > ASSET_PACKS_ICON_MAX_FRAME_SIZE) {
+                    // frame_size < 1: malloc(0) would crash before validation runs
+                    if(frame_size < 1 || frame_size > ASSET_PACKS_ICON_MAX_FRAME_SIZE) {
                         swap->frames[i] = NULL; // freed in the unwind below
                         ok = false;
                     } else {
@@ -426,7 +427,8 @@ static Icon* asset_packs_load_animated_dir(File* file, FuriString* scratch, cons
         furi_string_printf(scratch, "%s/frame_%02d.bm", dir, i);
         if(storage_file_open(file, furi_string_get_cstr(scratch), FSAM_READ, FSOM_OPEN_EXISTING)) {
             uint64_t frame_size = storage_file_size(file);
-            if(frame_size > ASSET_PACKS_ICON_MAX_FRAME_SIZE) {
+            // frame_size < 1: malloc(0) would crash before validation runs
+            if(frame_size < 1 || frame_size > ASSET_PACKS_ICON_MAX_FRAME_SIZE) {
                 swap->frames[i] = NULL; // freed in the unwind below
                 ok = false;
             } else {

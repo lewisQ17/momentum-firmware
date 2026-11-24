@@ -433,14 +433,18 @@ ButtonMenu* button_menu_alloc(void) {
 void button_menu_free(ButtonMenu* button_menu) {
     furi_check(button_menu);
 
+    // Free the timer outside the model lock: furi_timer_free() waits on the timer daemon,
+    // which may be blocked in the timer callback on this very model lock -> deadlock
+    FuriTimer* scroll_timer = NULL;
+    with_view_model(
+        button_menu->view, ButtonMenuModel * model, { scroll_timer = model->scroll_timer; }, false);
+    furi_timer_stop(scroll_timer);
+    furi_timer_free(scroll_timer);
+
     with_view_model(
         button_menu->view,
         ButtonMenuModel * model,
-        {
-            ButtonMenuItemArray_clear(model->items);
-            furi_timer_stop(model->scroll_timer);
-            furi_timer_free(model->scroll_timer);
-        },
+        { ButtonMenuItemArray_clear(model->items); },
         true);
     view_free(button_menu->view);
     free(button_menu);

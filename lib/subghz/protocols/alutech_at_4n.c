@@ -2,6 +2,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -43,6 +44,11 @@ struct SubGhzProtocolEncoderAlutech_at_4n {
     uint32_t crc;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderAlutech_at_4n, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     Alutech_at_4nDecoderStepReset = 0,
     Alutech_at_4nDecoderStepCheckPreambula,
@@ -73,7 +79,7 @@ const SubGhzProtocolEncoder subghz_protocol_alutech_at_4n_encoder = {
 
     .deserialize = subghz_protocol_encoder_alutech_at_4n_deserialize,
     .stop = subghz_protocol_encoder_alutech_at_4n_stop,
-    .yield = subghz_protocol_encoder_alutech_at_4n_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_alutech_at_4n = {
@@ -124,24 +130,6 @@ void subghz_protocol_encoder_alutech_at_4n_free(void* context) {
 void subghz_protocol_encoder_alutech_at_4n_stop(void* context) {
     SubGhzProtocolEncoderAlutech_at_4n* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_alutech_at_4n_yield(void* context) {
-    SubGhzProtocolEncoderAlutech_at_4n* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 /**

@@ -4,6 +4,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -51,6 +52,11 @@ struct SubGhzProtocolEncoderCameTwee {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderCameTwee, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     CameTweeDecoderStepReset = 0,
     CameTweeDecoderStepDecoderData,
@@ -77,7 +83,7 @@ const SubGhzProtocolEncoder subghz_protocol_came_twee_encoder = {
 
     .deserialize = subghz_protocol_encoder_came_twee_deserialize,
     .stop = subghz_protocol_encoder_came_twee_stop,
-    .yield = subghz_protocol_encoder_came_twee_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_came_twee = {
@@ -259,24 +265,6 @@ void subghz_protocol_encoder_came_twee_stop(void* context) {
     SubGhzProtocolEncoderCameTwee* instance = context;
     instance->encoder.is_running = false;
     instance->encoder.front = 0; // reset position
-}
-
-LevelDuration subghz_protocol_encoder_came_twee_yield(void* context) {
-    SubGhzProtocolEncoderCameTwee* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_came_twee_alloc(SubGhzEnvironment* environment) {

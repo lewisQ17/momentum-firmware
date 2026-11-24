@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_linear_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderLinear instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_linear_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderLinear.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderLinear* pointer to a SubGhzProtocolDecoderLinear instance

@@ -178,6 +178,8 @@ class Main(App):
         symbols = (symbols / "targets/f7/api_symbols.csv").read_text()
         api_has_icon = lambda name: f"Variable,+,{name},const Icon," in symbols
         api_has_icon_disabled = lambda name: f"Variable,-,{name},const Icon," in symbols
+        # Byte-identical frame data -> first emitted frame array (saves flash)
+        seen_frames = {}
         # Traverse icons tree, append image data to source file
         for dirpath, dirnames, filenames in os.walk(self.args.input_directory):
             self.logger.debug(f"Processing directory {dirpath}")
@@ -213,11 +215,15 @@ class Main(App):
                         height = temp_height
                     assert width == temp_width
                     assert height == temp_height
-                    frame_name = f"_{icon_name}_{frame_count}"
+                    if data in seen_frames:
+                        frame_name = seen_frames[data]
+                    else:
+                        frame_name = f"_{icon_name}_{frame_count}"
+                        seen_frames[data] = frame_name
+                        icons_c.write(
+                            ICONS_TEMPLATE_C_FRAME.format(name=frame_name, data=data)
+                        )
                     frame_names.append(frame_name)
-                    icons_c.write(
-                        ICONS_TEMPLATE_C_FRAME.format(name=frame_name, data=data)
-                    )
                     frame_count += 1
                 assert frame_rate > 0
                 assert frame_count > 0
@@ -248,10 +254,14 @@ class Main(App):
                         continue
                     fullfilename = os.path.join(dirpath, filename)
                     width, height, data = self._icon2header(fullfilename)
-                    frame_name = f"_{icon_name}_0"
-                    icons_c.write(
-                        ICONS_TEMPLATE_C_FRAME.format(name=frame_name, data=data)
-                    )
+                    if data in seen_frames:
+                        frame_name = seen_frames[data]
+                    else:
+                        frame_name = f"_{icon_name}_0"
+                        seen_frames[data] = frame_name
+                        icons_c.write(
+                            ICONS_TEMPLATE_C_FRAME.format(name=frame_name, data=data)
+                        )
                     icons_c.write(
                         ICONS_TEMPLATE_C_DATA.format(
                             name=f"_{icon_name}", data=f"{{{frame_name}}}"

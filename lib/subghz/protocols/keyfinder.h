@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_keyfinder_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderKeyFinder instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_keyfinder_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderKeyFinder.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderKeyFinder* pointer to a SubGhzProtocolDecoderKeyFinder instance

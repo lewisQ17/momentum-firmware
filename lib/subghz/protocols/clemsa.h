@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_clemsa_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderClemsa instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_clemsa_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderClemsa.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderClemsa* pointer to a SubGhzProtocolDecoderClemsa instance

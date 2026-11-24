@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_linear_delta3_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderLinearDelta3 instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_linear_delta3_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderLinearDelta3.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderLinearDelta3* pointer to a SubGhzProtocolDecoderLinearDelta3 instance

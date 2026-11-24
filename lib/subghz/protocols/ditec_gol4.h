@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_ditec_gol4_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderDitecGOL4 instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_ditec_gol4_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderDitecGOL4.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderDitecGOL4* pointer to a SubGhzProtocolDecoderDitecGOL4 instance

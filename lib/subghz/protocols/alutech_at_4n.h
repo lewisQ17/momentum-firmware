@@ -39,13 +39,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_alutech_at_4n_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderAlutech_at_4n instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_alutech_at_4n_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderAlutech_at_4n.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderAlutech_at_4n* pointer to a SubGhzProtocolDecoderAlutech_at_4n instance

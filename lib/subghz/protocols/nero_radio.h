@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_nero_radio_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderNeroRadio instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_nero_radio_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderNeroRadio.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderNeroRadio* pointer to a SubGhzProtocolDecoderNeroRadio instance

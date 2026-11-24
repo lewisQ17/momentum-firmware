@@ -4,6 +4,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -40,6 +41,11 @@ struct SubGhzProtocolEncoderPowerSmart {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderPowerSmart, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     PowerSmartDecoderStepReset = 0,
     PowerSmartDecoderFoundHeader,
@@ -67,7 +73,7 @@ const SubGhzProtocolEncoder subghz_protocol_power_smart_encoder = {
 
     .deserialize = subghz_protocol_encoder_power_smart_deserialize,
     .stop = subghz_protocol_encoder_power_smart_stop,
-    .yield = subghz_protocol_encoder_power_smart_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_power_smart = {
@@ -225,24 +231,6 @@ void subghz_protocol_encoder_power_smart_stop(void* context) {
     SubGhzProtocolEncoderPowerSmart* instance = context;
     instance->encoder.is_running = false;
     instance->encoder.front = 0; // reset position
-}
-
-LevelDuration subghz_protocol_encoder_power_smart_yield(void* context) {
-    SubGhzProtocolEncoderPowerSmart* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_power_smart_alloc(SubGhzEnvironment* environment) {

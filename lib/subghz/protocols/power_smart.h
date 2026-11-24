@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_power_smart_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderPowerSmart instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_power_smart_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderPowerSmart.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderPowerSmart* pointer to a SubGhzProtocolDecoderPowerSmart instance

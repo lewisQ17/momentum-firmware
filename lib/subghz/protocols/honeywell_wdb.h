@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_honeywell_wdb_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderHoneywell_WDB instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_honeywell_wdb_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderHoneywell_WDB.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderHoneywell_WDB* pointer to a SubGhzProtocolDecoderHoneywell_WDB instance

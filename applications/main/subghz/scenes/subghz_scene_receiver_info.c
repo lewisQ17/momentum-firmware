@@ -271,6 +271,9 @@ bool subghz_scene_receiver_info_on_event(void* context, SceneManagerEvent event)
 void subghz_scene_receiver_info_on_exit(void* context) {
     SubGhz* subghz = context;
 
+    // Don't leave a stale endless_tx if the scene was left while OK was held
+    subghz_block_generic_global.endless_tx = false;
+
     widget_reset(subghz->widget);
     subghz_txrx_reset_dynamic_and_custom_btns(subghz->txrx);
 }

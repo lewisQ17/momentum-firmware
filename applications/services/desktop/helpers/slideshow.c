@@ -54,7 +54,7 @@ bool slideshow_load(Slideshow* slideshow, const char* fspath) {
         SlideshowFileHeader header;
         if((storage_file_read(slideshow_file, &header, sizeof(header)) != sizeof(header)) ||
            (header.magic != SLIDESHOW_MAGIC) ||
-           (header.version > SLIDESHOW_MAX_SUPPORTED_VERSION)) {
+           (header.version > SLIDESHOW_MAX_SUPPORTED_VERSION) || (header.frame_count == 0)) {
             break;
         }
         Icon* icon = &slideshow->icon;
@@ -66,6 +66,10 @@ bool slideshow_load(Slideshow* slideshow, const char* fspath) {
             SlideshowFrameHeader frame_header;
             if(storage_file_read(slideshow_file, &frame_header, sizeof(frame_header)) !=
                sizeof(frame_header)) {
+                break;
+            }
+            // Empty frame would malloc(0), which is a furi_check crash
+            if(frame_header.size == 0) {
                 break;
             }
             FURI_CONST_ASSIGN_PTR(icon->frames[frame_idx], malloc(frame_header.size));

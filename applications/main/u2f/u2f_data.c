@@ -15,6 +15,10 @@
 #define U2F_CERT_USER_UNENCRYPTED \
     2 // Unencrypted user certificate, will be encrypted after first load
 
+// Max user cert size. The Register response (131 byte header + cert + DER signature + status)
+// must fit the 7609 byte U2F HID payload buffer; real attestation certs are well under 1 KB.
+#define U2F_CERT_MAX_SIZE 7168
+
 #define U2F_CERT_KEY_FILE_TYPE "Flipper U2F Certificate Key File"
 #define U2F_CERT_KEY_VERSION   1
 
@@ -84,6 +88,10 @@ bool u2f_data_cert_check(void) {
                 FURI_LOG_E(TAG, "Wrong certificate length");
                 break;
             }
+            if(temp_len > U2F_CERT_MAX_SIZE) {
+                FURI_LOG_E(TAG, "Certificate too large");
+                break;
+            }
             state = true;
         } while(0);
     }
@@ -106,8 +114,11 @@ uint32_t u2f_data_cert_load(uint8_t* cert) {
 
     if(storage_file_open(file, U2F_CERT_FILE, FSAM_READ, FSOM_OPEN_EXISTING)) {
         file_size = storage_file_size(file);
-        len_cur = storage_file_read(file, cert, file_size);
-        if(len_cur != file_size) len_cur = 0;
+        // Caller buffers are fixed size, never read more than the cap into them
+        if(file_size <= U2F_CERT_MAX_SIZE) {
+            len_cur = storage_file_read(file, cert, file_size);
+            if(len_cur != file_size) len_cur = 0;
+        }
     }
 
     storage_file_close(file);

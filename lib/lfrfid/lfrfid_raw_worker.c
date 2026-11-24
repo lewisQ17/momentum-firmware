@@ -120,11 +120,12 @@ void lfrfid_raw_worker_start_emulate(
 void lfrfid_raw_worker_stop(LFRFIDRawWorker* worker) {
     furi_check(worker);
 
+    // Don't NULL callbacks while the worker thread may still check-then-call them
+    furi_event_flag_set(worker->events, 1 << LFRFIDRawWorkerEventStop);
+    furi_thread_join(worker->thread);
     worker->emulate_callback = NULL;
     worker->context = NULL;
     worker->read_callback = NULL;
-    furi_event_flag_set(worker->events, 1 << LFRFIDRawWorkerEventStop);
-    furi_thread_join(worker->thread);
 }
 
 static void lfrfid_raw_worker_capture(bool level, uint32_t duration, void* context) {

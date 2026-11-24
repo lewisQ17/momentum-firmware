@@ -2,6 +2,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -30,6 +31,11 @@ struct SubGhzProtocolEncoderHay21 {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderHay21, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     Hay21DecoderStepReset = 0,
     Hay21DecoderStepSaveDuration,
@@ -57,7 +63,7 @@ const SubGhzProtocolEncoder subghz_protocol_hay21_encoder = {
 
     .deserialize = subghz_protocol_encoder_hay21_deserialize,
     .stop = subghz_protocol_encoder_hay21_stop,
-    .yield = subghz_protocol_encoder_hay21_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_hay21 = {
@@ -302,24 +308,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_hay21_stop(void* context) {
     SubGhzProtocolEncoderHay21* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_hay21_yield(void* context) {
-    SubGhzProtocolEncoderHay21* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_hay21_alloc(SubGhzEnvironment* environment) {

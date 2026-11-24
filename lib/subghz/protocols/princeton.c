@@ -3,6 +3,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -47,6 +48,11 @@ struct SubGhzProtocolEncoderPrinceton {
     uint32_t guard_time;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderPrinceton, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     PrincetonDecoderStepReset = 0,
     PrincetonDecoderStepSaveDuration,
@@ -74,7 +80,7 @@ const SubGhzProtocolEncoder subghz_protocol_princeton_encoder = {
 
     .deserialize = subghz_protocol_encoder_princeton_deserialize,
     .stop = subghz_protocol_encoder_princeton_stop,
-    .yield = subghz_protocol_encoder_princeton_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_princeton = {
@@ -405,24 +411,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_princeton_stop(void* context) {
     SubGhzProtocolEncoderPrinceton* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_princeton_yield(void* context) {
-    SubGhzProtocolEncoderPrinceton* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_princeton_alloc(SubGhzEnvironment* environment) {

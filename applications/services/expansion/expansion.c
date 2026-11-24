@@ -84,7 +84,9 @@ static void expansion_worker_callback(void* context, ExpansionWorkerCallbackReas
 
     case ExpansionWorkerCallbackReasonConnected:
         message.type = ExpansionMessageTypeConnectionEstablished;
-        message.api_lock = api_lock_alloc_locked();
+        // Nobody waits on this message; a locked api_lock would leak, and waiting in the
+        // worker could deadlock with expansion_worker_stop()
+        message.api_lock = NULL;
         break;
     };
 

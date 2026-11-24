@@ -153,6 +153,10 @@ static void bt_battery_level_changed_callback(const void* _event, void* context)
     }
 }
 
+// Guards bt->rpc_session between GAP, BT service and desktop threads.
+// File-static (Bt is a singleton) so bt_i.h stays untouched.
+static FuriMutex* bt_rpc_mutex = NULL;
+
 Bt* bt_alloc(void) {
     Bt* bt = malloc(sizeof(Bt));
     // Init default maximum packet size
@@ -186,6 +190,8 @@ Bt* bt_alloc(void) {
     // API evnent
     bt->api_event = furi_event_flag_alloc();
 
+    bt_rpc_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+
     return bt;
 }
 
@@ -196,13 +202,22 @@ static uint16_t bt_serial_event_callback(SerialServiceEvent event, void* context
     uint16_t ret = 0;
 
     if(event.event == SerialServiceEventTypeDataReceived) {
-        size_t bytes_processed =
-            rpc_session_feed(bt->rpc_session, event.data.buffer, event.data.size, 1000);
-        if(bytes_processed != event.data.size) {
-            FURI_LOG_E(
-                TAG, "Only %zu of %u bytes processed by RPC", bytes_processed, event.data.size);
+        // Hold the mutex across feed + size query so the session can't be closed/NULLed mid-use
+        furi_mutex_acquire(bt_rpc_mutex, FuriWaitForever);
+        RpcSession* rpc_session = bt->rpc_session;
+        if(rpc_session) {
+            size_t bytes_processed =
+                rpc_session_feed(rpc_session, event.data.buffer, event.data.size, 1000);
+            if(bytes_processed != event.data.size) {
+                FURI_LOG_E(
+                    TAG,
+                    "Only %zu of %u bytes processed by RPC",
+                    bytes_processed,
+                    event.data.size);
+            }
+            ret = rpc_session_get_available_size(rpc_session);
         }
-        ret = rpc_session_get_available_size(bt->rpc_session);
+        furi_mutex_release(bt_rpc_mutex);
     } else if(event.event == SerialServiceEventTypeDataSent) {
         furi_event_flag_set(bt->rpc_event, BT_RPC_EVENT_BUFF_SENT);
     } else if(event.event == SerialServiceEventTypesBleResetRequest) {
@@ -281,6 +296,7 @@ static bool bt_on_gap_event_callback(GapEvent event, void* context) {
             furi_message_queue_put(bt->message_queue, &message, FuriWaitForever) == FuriStatusOk);
         ret = true;
     } else if(event.type == GapEventTypeDisconnected) {
+        furi_mutex_acquire(bt_rpc_mutex, FuriWaitForever);
         if(current_profile_is_serial && bt->rpc_session) {
             FURI_LOG_I(TAG, "Close RPC connection");
             ble_profile_serial_set_rpc_active(
@@ -290,6 +306,7 @@ static bool bt_on_gap_event_callback(GapEvent event, void* context) {
             ble_profile_serial_set_event_callback(bt->current_profile, 0, NULL, NULL);
             bt->rpc_session = NULL;
         }
+        furi_mutex_release(bt_rpc_mutex);
         ret = true;
     } else if(event.type == GapEventTypeStartAdvertising) {
         bt->status = BtStatusAdvertising;
@@ -368,6 +385,7 @@ static void bt_show_warning(Bt* bt, const char* text) {
 }
 
 void bt_open_rpc_connection(Bt* bt) {
+    furi_mutex_acquire(bt_rpc_mutex, FuriWaitForever);
     if(!bt->rpc_session && bt->status == BtStatusConnected) {
         // Clear BT_RPC_EVENT_DISCONNECTED because it might be set from previous session
         furi_event_flag_clear(bt->rpc_event, BT_RPC_EVENT_DISCONNECTED);
@@ -389,9 +407,11 @@ void bt_open_rpc_connection(Bt* bt) {
             }
         }
     }
+    furi_mutex_release(bt_rpc_mutex);
 }
 
 void bt_close_rpc_connection(Bt* bt) {
+    furi_mutex_acquire(bt_rpc_mutex, FuriWaitForever);
     if(furi_hal_bt_check_profile_type(bt->current_profile, ble_profile_serial) &&
        bt->rpc_session) {
         FURI_LOG_I(TAG, "Close RPC connection");
@@ -400,6 +420,7 @@ void bt_close_rpc_connection(Bt* bt) {
         ble_profile_serial_set_event_callback(bt->current_profile, 0, NULL, NULL);
         bt->rpc_session = NULL;
     }
+    furi_mutex_release(bt_rpc_mutex);
 }
 
 static void bt_change_profile(Bt* bt, BtMessage* message) {

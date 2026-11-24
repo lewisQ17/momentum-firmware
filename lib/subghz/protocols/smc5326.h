@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_smc5326_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderSMC5326 instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_smc5326_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderSMC5326.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderSMC5326* pointer to a SubGhzProtocolDecoderSMC5326 instance

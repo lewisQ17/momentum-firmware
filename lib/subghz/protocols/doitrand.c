@@ -3,6 +3,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -36,6 +37,11 @@ struct SubGhzProtocolEncoderDoitrand {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderDoitrand, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     DoitrandDecoderStepReset = 0,
     DoitrandDecoderStepFoundStartBit,
@@ -64,7 +70,7 @@ const SubGhzProtocolEncoder subghz_protocol_doitrand_encoder = {
 
     .deserialize = subghz_protocol_encoder_doitrand_deserialize,
     .stop = subghz_protocol_encoder_doitrand_stop,
-    .yield = subghz_protocol_encoder_doitrand_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_doitrand = {
@@ -168,24 +174,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_doitrand_stop(void* context) {
     SubGhzProtocolEncoderDoitrand* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_doitrand_yield(void* context) {
-    SubGhzProtocolEncoderDoitrand* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_doitrand_alloc(SubGhzEnvironment* environment) {

@@ -178,6 +178,10 @@ static bool bt_keys_storage_validate_file(
             version,
             BT_KEYS_STORAGE_VERSION);
         return false;
+    } else if(size == 0) {
+        // Header-only file (e.g. interrupted save) would malloc(0), a furi_check crash
+        FURI_LOG_W(TAG, "File has no payload");
+        return false;
     }
 
     *payload_size = size;

@@ -24,16 +24,22 @@ bool findmy_state_load(FindMyState* out_state) {
 
             if(!flipper_format_read_bool(file, "beacon_active", &state.beacon_active, 1)) break;
 
+            // Range-check against what the UI allows (interval 1..10 s, power 0..6, known tag
+            // types), out of range falls back to defaults. A bad file would otherwise trip
+            // furi_check in the beacon config at every boot / SD mount.
             if(!flipper_format_read_uint32(file, "broadcast_interval", &tmp, 1)) break;
+            if(tmp < 1 || tmp > 10) break;
             state.broadcast_interval = tmp;
 
             if(!flipper_format_read_uint32(file, "transmit_power", &tmp, 1)) break;
+            if(tmp > 6) break;
             state.transmit_power = tmp;
 
             if(!flipper_format_read_uint32(file, "tag_type", &tmp, 1)) {
                 tmp = FindMyTypeApple;
                 flipper_format_rewind(file);
             }
+            if(tmp > FindMyTypeTile) break;
             state.tag_type = tmp;
 
             if(!flipper_format_read_bool(file, "show_mac", &state.show_mac, 1)) {

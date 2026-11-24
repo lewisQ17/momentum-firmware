@@ -266,9 +266,10 @@ void rgb_backlight_reconfigure(bool enabled) {
         }
         furi_timer_start(rgb_state.rainbow_timer, rgb_settings.rainbow_interval);
     } else if(rgb_state.rainbow_timer != NULL) {
+        // Only stop, never free: furi_timer_free() waits on the timer daemon, which may be
+        // blocked in rainbow_timer() on rgb_state.mutex that we (or our caller) hold -> deadlock.
+        // The callback returns early when disabled/Off, and reconfigure restarts it when needed.
         furi_timer_stop(rgb_state.rainbow_timer);
-        furi_timer_free(rgb_state.rainbow_timer);
-        rgb_state.rainbow_timer = NULL;
     }
     rgb_state.rainbow_hsv.s = rgb_settings.rainbow_saturation;
     rgb_backlight_update(rgb_state.last_brightness, true);

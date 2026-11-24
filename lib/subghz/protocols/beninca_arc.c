@@ -2,6 +2,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 #include "core/log.h"
@@ -46,6 +47,11 @@ struct SubGhzProtocolEncoderBenincaARC {
     SubGhzKeystore* keystore;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderBenincaARC, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 const SubGhzProtocolDecoder subghz_protocol_beninca_arc_decoder = {
     .alloc = subghz_protocol_decoder_beninca_arc_alloc,
     .free = subghz_protocol_decoder_beninca_arc_free,
@@ -67,7 +73,7 @@ const SubGhzProtocolEncoder subghz_protocol_beninca_arc_encoder = {
 
     .deserialize = subghz_protocol_encoder_beninca_arc_deserialize,
     .stop = subghz_protocol_encoder_beninca_arc_stop,
-    .yield = subghz_protocol_encoder_beninca_arc_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_beninca_arc = {
@@ -469,25 +475,6 @@ SubGhzProtocolStatus
     } while(false);
 
     return res;
-}
-
-LevelDuration subghz_protocol_encoder_beninca_arc_yield(void* context) {
-    furi_assert(context);
-    SubGhzProtocolEncoderBenincaARC* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_beninca_arc_alloc(SubGhzEnvironment* environment) {

@@ -346,6 +346,11 @@ static bool animation_storage_load_frames(
                 height);
             break;
         }
+        // Empty frame would malloc(0), which is a furi_check crash
+        if(file_info.size < 1) {
+            FURI_LOG_E(TAG, "Empty frame file \'%s\'", furi_string_get_cstr(filename));
+            break;
+        }
         if(!storage_file_open(
                file, furi_string_get_cstr(filename), FSAM_READ, FSOM_OPEN_EXISTING)) {
             FURI_LOG_E(TAG, "Can't open file \'%s\'", furi_string_get_cstr(filename));
@@ -355,6 +360,21 @@ static bool animation_storage_load_frames(
         FURI_CONST_ASSIGN_PTR(icon->frames[i], malloc(file_info.size));
         if(storage_file_read(file, (void*)icon->frames[i], file_info.size) != file_info.size) {
             FURI_LOG_E(TAG, "Read failed: \'%s\'", furi_string_get_cstr(filename));
+            break;
+        }
+        // The canvas decoder reads the bytes its header claims (raw bitmap, or
+        // 4 + compressed size); a shorter file would be over-read from the heap
+        const uint8_t* frame = icon->frames[i];
+        bool frame_ok;
+        if(frame[0] == 0) {
+            frame_ok = file_info.size >= 1u + (uint32_t)((width + 7) / 8) * height;
+        } else {
+            frame_ok = file_info.size >= 4 &&
+                       file_info.size >= 4u + ((uint32_t)frame[2] | ((uint32_t)frame[3] << 8));
+        }
+        if(!frame_ok) {
+            FURI_LOG_E(
+                TAG, "Frame too short for its header: \'%s\'", furi_string_get_cstr(filename));
             break;
         }
         storage_file_close(file);

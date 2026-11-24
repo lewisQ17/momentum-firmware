@@ -169,7 +169,8 @@ bool felica_load(FelicaData* data, FlipperFormat* ff, uint32_t version) {
     case FelicaStandard:
         uint32_t systems_total = 0;
         if(!flipper_format_read_uint32(ff, "System found", &systems_total, 1)) break;
-        if(systems_total == 0) break;
+        // Why: sys_idx is uint8_t; a larger count would wrap the loop.
+        if(systems_total == 0 || systems_total > UINT8_MAX) break;
 
         simple_array_init(data->systems, systems_total);
 
@@ -195,7 +196,8 @@ bool felica_load(FelicaData* data, FlipperFormat* ff, uint32_t version) {
             do {
                 uint32_t area_count = 0;
                 if(!flipper_format_read_uint32(ff, "Area found", &area_count, 1)) break;
-                if(area_count == 0) break;
+                // Why: bound by uint16_t loop counter; stops size*count wrap in simple_array_init.
+                if(area_count == 0 || area_count > UINT16_MAX) break;
 
                 simple_array_init(system->areas, area_count);
 
@@ -223,7 +225,8 @@ bool felica_load(FelicaData* data, FlipperFormat* ff, uint32_t version) {
             do {
                 uint32_t service_count = 0;
                 if(!flipper_format_read_uint32(ff, "Service found", &service_count, 1)) break;
-                if(service_count == 0) break;
+                // Why: bound by uint16_t loop counter; stops size*count wrap in simple_array_init.
+                if(service_count == 0 || service_count > UINT16_MAX) break;
 
                 simple_array_init(system->services, service_count);
 
@@ -255,7 +258,8 @@ bool felica_load(FelicaData* data, FlipperFormat* ff, uint32_t version) {
                 uint32_t public_block_count = 0;
                 if(!flipper_format_read_uint32(ff, "Public blocks read", &public_block_count, 1))
                     break;
-                if(public_block_count == 0) break;
+                // Why: bound by uint16_t loop counter; stops size*count wrap in simple_array_init.
+                if(public_block_count == 0 || public_block_count > UINT16_MAX) break;
 
                 simple_array_init(system->public_blocks, public_block_count);
                 for(uint16_t i = 0; i < public_block_count; i++) {
@@ -281,6 +285,8 @@ bool felica_load(FelicaData* data, FlipperFormat* ff, uint32_t version) {
                     needle += 6; // length of "Data: " = 6
                     furi_string_mid(str_data_buffer, needle, 3 * FELICA_DATA_BLOCK_SIZE);
                     furi_string_replace_all(str_data_buffer, " ", "");
+                    // Why: hex_chars_to_uint8 has no output bound; exactly 16 bytes fit block.data.
+                    if(furi_string_size(str_data_buffer) != 2 * FELICA_DATA_BLOCK_SIZE) break;
                     if(!hex_chars_to_uint8(
                            furi_string_get_cstr(str_data_buffer), public_block->block.data)) {
                         break;

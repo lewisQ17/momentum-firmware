@@ -3,6 +3,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -37,6 +38,11 @@ struct SubGhzProtocolEncoderLinearDelta3 {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderLinearDelta3, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     LinearDecoderStepReset = 0,
     LinearDecoderStepSaveDuration,
@@ -64,7 +70,7 @@ const SubGhzProtocolEncoder subghz_protocol_linear_delta3_encoder = {
 
     .deserialize = subghz_protocol_encoder_linear_delta3_deserialize,
     .stop = subghz_protocol_encoder_linear_delta3_stop,
-    .yield = subghz_protocol_encoder_linear_delta3_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_linear_delta3 = {
@@ -183,24 +189,6 @@ SubGhzProtocolStatus subghz_protocol_encoder_linear_delta3_deserialize(
 void subghz_protocol_encoder_linear_delta3_stop(void* context) {
     SubGhzProtocolEncoderLinearDelta3* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_linear_delta3_yield(void* context) {
-    SubGhzProtocolEncoderLinearDelta3* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_linear_delta3_alloc(SubGhzEnvironment* environment) {

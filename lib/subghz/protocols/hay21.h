@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_hay21_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderHay21 instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_hay21_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderHay21.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderHay21* pointer to a SubGhzProtocolDecoderHay21 instance

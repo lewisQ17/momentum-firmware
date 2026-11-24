@@ -40,13 +40,6 @@ SubGhzProtocolStatus subghz_protocol_encoder_kinggates_stylo_4k_deserialize(
 void subghz_protocol_encoder_kinggates_stylo_4k_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderKingGates_stylo_4k instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_kinggates_stylo_4k_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderKingGates_stylo_4k.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderKingGates_stylo_4k* pointer to a SubGhzProtocolDecoderKingGates_stylo_4k instance

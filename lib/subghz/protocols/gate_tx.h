@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_gate_tx_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderGateTx instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_gate_tx_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderGateTx.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderGateTx* pointer to a SubGhzProtocolDecoderGateTx instance

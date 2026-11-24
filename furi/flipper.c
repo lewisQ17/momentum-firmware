@@ -1,6 +1,7 @@
 #include "flipper.h"
 #include <applications.h>
 #include <furi.h>
+#include <string.h>
 #include <furi_hal_version.h>
 #include <furi_hal_memory.h>
 #include <furi_hal_light.h>
@@ -146,12 +147,22 @@ void flipper_mount_callback(const void* message, void* context) {
         // TODO: Need to restart services that already applied previous name
         namespoof_init();
 
+        // Remember active pack so we only free it (while GUI may be drawing from it)
+        // when the pack actually changed
+        char previous_pack[sizeof(momentum_settings.asset_pack)];
+        memcpy(previous_pack, momentum_settings.asset_pack, sizeof(previous_pack));
+
         // TODO: If new SD doesn't contain all current settings IDs, values
         // from previous SD are kept for these settings
         momentum_settings_load();
 
+        // Unchanged pack stays loaded (asset_packs_init() is a no-op then, or loads it if
+        // none was loaded yet), avoiding a use-after-free against concurrent GUI drawing
         // TODO: Could lock kernel on free to avoid GUI using assets while being free'd
-        asset_packs_free();
+        if(strncmp(
+               previous_pack, momentum_settings.asset_pack, sizeof(previous_pack)) != 0) {
+            asset_packs_free();
+        }
         asset_packs_init();
     }
 }

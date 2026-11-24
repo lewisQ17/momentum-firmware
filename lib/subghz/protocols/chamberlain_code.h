@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_chamb_code_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderChamb_Code instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_chamb_code_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderChamb_Code.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderChamb_Code* pointer to a SubGhzProtocolDecoderChamb_Code instance

@@ -4,6 +4,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -32,6 +33,11 @@ struct SubGhzProtocolEncoderRevers_RB2 {
     SubGhzBlockGeneric generic;
 };
 
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderRevers_RB2, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
+
 typedef enum {
     Revers_RB2DecoderStepReset = 0,
     Revers_RB2DecoderStepHeader,
@@ -57,7 +63,7 @@ const SubGhzProtocolEncoder subghz_protocol_revers_rb2_encoder = {
 
     .deserialize = subghz_protocol_encoder_revers_rb2_deserialize,
     .stop = subghz_protocol_encoder_revers_rb2_stop,
-    .yield = subghz_protocol_encoder_revers_rb2_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_revers_rb2 = {
@@ -192,24 +198,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_revers_rb2_stop(void* context) {
     SubGhzProtocolEncoderRevers_RB2* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_revers_rb2_yield(void* context) {
-    SubGhzProtocolEncoderRevers_RB2* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_revers_rb2_alloc(SubGhzEnvironment* environment) {

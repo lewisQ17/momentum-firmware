@@ -52,8 +52,9 @@ bool subghz_scene_transmitter_update_data_show(void* context) {
 
 void fav_timer_callback(void* context) {
     SubGhz* subghz = context;
-    scene_manager_handle_custom_event(
-        subghz->scene_manager, SubGhzCustomEventViewTransmitterSendStop);
+    // Timer daemon thread: queue the event so scene_manager is only used from the app thread
+    view_dispatcher_send_custom_event(
+        subghz->view_dispatcher, SubGhzCustomEventViewTransmitterSendStop);
 }
 
 void subghz_scene_transmitter_on_enter(void* context) {
@@ -153,6 +154,10 @@ bool subghz_scene_transmitter_on_event(void* context, SceneManagerEvent event) {
 void subghz_scene_transmitter_on_exit(void* context) {
     SubGhz* subghz = context;
     subghz->state_notifications = SubGhzNotificationStateIDLE;
+
+    // Leaving with OK still held (Back tap) would leave TX running with endless_tx set
+    subghz_block_generic_global.endless_tx = false;
+    subghz_txrx_stop(subghz->txrx);
 
     subghz_txrx_reset_dynamic_and_custom_btns(subghz->txrx);
 }

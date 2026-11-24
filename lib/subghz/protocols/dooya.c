@@ -2,6 +2,7 @@
 #include "../blocks/const.h"
 #include "../blocks/decoder.h"
 #include "../blocks/encoder.h"
+#include "encoder_yield_common.h"
 #include "../blocks/generic.h"
 #include "../blocks/math.h"
 
@@ -29,6 +30,11 @@ struct SubGhzProtocolEncoderDooya {
     SubGhzProtocolBlockEncoder encoder;
     SubGhzBlockGeneric generic;
 };
+
+// Layout required by subghz_protocol_encoder_common_yield
+_Static_assert(
+    offsetof(struct SubGhzProtocolEncoderDooya, encoder) == sizeof(SubGhzProtocolEncoderBase),
+    "encoder layout");
 
 typedef enum {
     DooyaDecoderStepReset = 0,
@@ -58,7 +64,7 @@ const SubGhzProtocolEncoder subghz_protocol_dooya_encoder = {
 
     .deserialize = subghz_protocol_encoder_dooya_deserialize,
     .stop = subghz_protocol_encoder_dooya_stop,
-    .yield = subghz_protocol_encoder_dooya_yield,
+    .yield = subghz_protocol_encoder_common_yield,
 };
 
 const SubGhzProtocol subghz_protocol_dooya = {
@@ -178,24 +184,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_dooya_stop(void* context) {
     SubGhzProtocolEncoderDooya* instance = context;
     instance->encoder.is_running = false;
-}
-
-LevelDuration subghz_protocol_encoder_dooya_yield(void* context) {
-    SubGhzProtocolEncoderDooya* instance = context;
-
-    if(instance->encoder.repeat == 0 || !instance->encoder.is_running) {
-        instance->encoder.is_running = false;
-        return level_duration_reset();
-    }
-
-    LevelDuration ret = instance->encoder.upload[instance->encoder.front];
-
-    if(++instance->encoder.front == instance->encoder.size_upload) {
-        if(!subghz_block_generic_global.endless_tx) instance->encoder.repeat--;
-        instance->encoder.front = 0;
-    }
-
-    return ret;
 }
 
 void* subghz_protocol_decoder_dooya_alloc(SubGhzEnvironment* environment) {

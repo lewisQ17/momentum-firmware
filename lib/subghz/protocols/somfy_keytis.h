@@ -40,13 +40,6 @@ SubGhzProtocolStatus
 void subghz_protocol_encoder_somfy_keytis_stop(void* context);
 
 /**
- * Getting the level and duration of the upload to be loaded into DMA.
- * @param context Pointer to a SubGhzProtocolEncoderSomfyKeytis instance
- * @return LevelDuration 
- */
-LevelDuration subghz_protocol_encoder_somfy_keytis_yield(void* context);
-
-/**
  * Allocate SubGhzProtocolDecoderSomfyKeytis.
  * @param environment Pointer to a SubGhzEnvironment instance
  * @return SubGhzProtocolDecoderSomfyKeytis* pointer to a SubGhzProtocolDecoderSomfyKeytis instance
