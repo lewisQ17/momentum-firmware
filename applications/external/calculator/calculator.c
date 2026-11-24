@@ -259,7 +259,7 @@ void calculate(Calculator* calculator_state) {
     result = te_interp(calculator_state->text, 0);
 
     // NaN/inf/out-of-int-range results would overflow the text buffer in the int conversions below
-    if(!isfinite(result) || fabs(result) >= 2147483647.0) {
+    if(!isfinite(result) || fabs(result) >= (double)INT32_MAX) {
         strcpy(calculator_state->text, "Err");
         calculator_state->textLength = 3;
         return;
