@@ -75,11 +75,17 @@ bool subghz_scene_rpc_on_event(void* context, SceneManagerEvent event) {
                         subghz->rpc_ctx, "Error in protocol parameters description");
                     break;
 
-                default: //if(SubGhzTxRxStartTxStateOk)
+                case SubGhzTxRxStartTxStateOk:
                     result = true;
                     subghz_blink_start(subghz);
                     scene_manager_set_scene_state(
                         subghz->scene_manager, SubGhzSceneRpc, SubGhzRpcStateTx);
+                    break;
+                default: // ErrorMemory or anything else: no TX is running, don't report success
+                    subghz_block_generic_global.endless_tx = false;
+                    rpc_system_app_set_error_code(
+                        subghz->rpc_ctx, RpcAppSystemErrorCodeInternalParse);
+                    rpc_system_app_set_error_text(subghz->rpc_ctx, "Not enough memory");
                     break;
                 }
             }
@@ -95,6 +101,10 @@ bool subghz_scene_rpc_on_event(void* context, SceneManagerEvent event) {
             // scene_manager_set_scene_state(
             //     subghz->scene_manager, SubGhzSceneRpc, SubGhzRpcStateIdle);
             rpc_system_app_confirm(subghz->rpc_ctx, result);
+        } else if(event.event == SubGhzCustomEventSceneRpcButtonPressRelease) {
+            // Not supported here: still answer, otherwise the host hangs and the
+            // pending command blocks every later RPC command
+            rpc_system_app_confirm(subghz->rpc_ctx, false);
 
             // USELESS PART
             // } else if(event.event == SubGhzCustomEventSceneRpcButtonPressRelease) {
@@ -152,15 +162,14 @@ bool subghz_scene_rpc_on_event(void* context, SceneManagerEvent event) {
     } else if(event.type == SceneManagerEventTypeTick) {
         // if hardware TX finished then stop TX correctly
         if(subghz_devices_is_async_complete_tx(subghz->txrx->radio_device)) {
-            bool result = false;
+            // Press/Release already confirmed their commands; confirming here again
+            // would hit a zero/foreign command id
             if(state == SubGhzRpcStateTx) {
                 subghz_txrx_stop(subghz->txrx);
                 subghz_blink_stop(subghz);
-                result = true;
             }
             scene_manager_set_scene_state(
                 subghz->scene_manager, SubGhzSceneRpc, SubGhzRpcStateIdle);
-            rpc_system_app_confirm(subghz->rpc_ctx, result);
         }
     }
     return consumed;

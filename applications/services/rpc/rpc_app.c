@@ -44,20 +44,32 @@ static void rpc_system_app_send_error_response(
     const char* name) {
     // Not describing all possible errors as only APP_NOT_RUNNING is used
     const char* status_str = status == PB_CommandStatus_ERROR_APP_NOT_RUNNING ? "APP_NOT_RUNNING" :
+                             status == PB_CommandStatus_ERROR_BUSY            ? "BUSY" :
                                                                                 "UNKNOWN";
     FURI_LOG_E(TAG, "%s: %s, id %lu, status: %d", name, status_str, command_id, status);
     rpc_send_and_release_empty(rpc_app->session, command_id, status);
 }
 
-static void rpc_system_app_set_last_command(
+// Returns false (and answers the host with ERROR_BUSY) if a previous command is still unconfirmed.
+// Pending state is tracked by event type, not command_id, because command_id 0 is a valid id.
+// AppExit is always accepted so the host can still close a stuck app.
+static bool rpc_system_app_set_last_command(
     RpcAppSystem* rpc_app,
     uint32_t command_id,
-    const RpcAppSystemEvent* event) {
-    furi_assert(rpc_app->last_command_id == 0);
-    furi_assert(rpc_app->last_event_type == RpcAppEventTypeInvalid);
+    const RpcAppSystemEvent* event,
+    const char* name) {
+    if(rpc_app->last_event_type != RpcAppEventTypeInvalid) {
+        if(event->type != RpcAppEventTypeAppExit) {
+            rpc_system_app_send_error_response(
+                rpc_app, command_id, PB_CommandStatus_ERROR_BUSY, name);
+            return false;
+        }
+        FURI_LOG_W(TAG, "%s: overriding pending command", name);
+    }
 
     rpc_app->last_command_id = command_id;
     rpc_app->last_event_type = event->type;
+    return true;
 }
 
 static void rpc_system_app_start_process(const PB_Main* request, void* context) {
@@ -66,8 +78,6 @@ static void rpc_system_app_start_process(const PB_Main* request, void* context) 
 
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
-    furi_assert(rpc_app->last_command_id == 0);
-    furi_assert(rpc_app->last_event_type == RpcAppEventTypeInvalid);
 
     FURI_LOG_D(TAG, "StartProcess: id %lu", request->command_id);
 
@@ -93,12 +103,16 @@ static void rpc_system_app_start_process(const PB_Main* request, void* context) 
             result = PB_CommandStatus_ERROR_APP_SYSTEM_LOCKED;
         } else if(status == LoaderStatusErrorInternal) {
             result = PB_CommandStatus_ERROR_APP_CANT_START;
+        } else if(status == LoaderStatusErrorApiMismatchCanceled) {
+            // User pressed Cancel on the on-device API mismatch dialog
+            result = PB_CommandStatus_ERROR_APP_CANT_START;
         } else if(status == LoaderStatusErrorUnknownApp) {
             result = PB_CommandStatus_ERROR_INVALID_PARAMETERS;
         } else if(status == LoaderStatusOk) {
             result = PB_CommandStatus_OK;
         } else {
-            furi_crash();
+            // Never crash on a host-triggerable loader status
+            result = PB_CommandStatus_ERROR_APP_CANT_START;
         }
     } else {
         result = PB_CommandStatus_ERROR_INVALID_PARAMETERS;
@@ -155,8 +169,10 @@ static void rpc_system_app_exit_request(const PB_Main* request, void* context) {
                 },
         };
 
+        if(!rpc_system_app_set_last_command(rpc_app, request->command_id, &event, "ExitRequest")) {
+            return;
+        }
         rpc_system_app_error_reset(rpc_app);
-        rpc_system_app_set_last_command(rpc_app, request->command_id, &event);
 
         rpc_app->callback(&event, rpc_app->callback_context);
 
@@ -185,8 +201,10 @@ static void rpc_system_app_load_file(const PB_Main* request, void* context) {
                 },
         };
 
+        if(!rpc_system_app_set_last_command(rpc_app, request->command_id, &event, "LoadFile")) {
+            return;
+        }
         rpc_system_app_error_reset(rpc_app);
-        rpc_system_app_set_last_command(rpc_app, request->command_id, &event);
 
         rpc_app->callback(&event, rpc_app->callback_context);
 
@@ -217,8 +235,10 @@ static void rpc_system_app_button_press(const PB_Main* request, void* context) {
             event.data.i32 = request->content.app_button_press_request.index;
         }
 
+        if(!rpc_system_app_set_last_command(rpc_app, request->command_id, &event, "ButtonPress")) {
+            return;
+        }
         rpc_system_app_error_reset(rpc_app);
-        rpc_system_app_set_last_command(rpc_app, request->command_id, &event);
 
         rpc_app->callback(&event, rpc_app->callback_context);
 
@@ -247,8 +267,11 @@ static void rpc_system_app_button_release(const PB_Main* request, void* context)
                 },
         };
 
+        if(!rpc_system_app_set_last_command(
+               rpc_app, request->command_id, &event, "ButtonRelease")) {
+            return;
+        }
         rpc_system_app_error_reset(rpc_app);
-        rpc_system_app_set_last_command(rpc_app, request->command_id, &event);
 
         rpc_app->callback(&event, rpc_app->callback_context);
 
@@ -279,8 +302,11 @@ static void rpc_system_app_button_press_release(const PB_Main* request, void* co
             event.data.i32 = request->content.app_button_press_release_request.index;
         }
 
+        if(!rpc_system_app_set_last_command(
+               rpc_app, request->command_id, &event, "ButtonPressRelease")) {
+            return;
+        }
         rpc_system_app_error_reset(rpc_app);
-        rpc_system_app_set_last_command(rpc_app, request->command_id, &event);
 
         rpc_app->callback(&event, rpc_app->callback_context);
 
@@ -338,8 +364,10 @@ static void rpc_system_app_data_exchange_process(const PB_Main* request, void* c
                 },
         };
 
+        if(!rpc_system_app_set_last_command(rpc_app, request->command_id, &event, "DataExchange")) {
+            return;
+        }
         rpc_system_app_error_reset(rpc_app);
-        rpc_system_app_set_last_command(rpc_app, request->command_id, &event);
 
         rpc_app->callback(&event, rpc_app->callback_context);
     } else {
@@ -360,15 +388,11 @@ void rpc_system_app_send_exited(RpcAppSystem* rpc_app) {
 
 void rpc_system_app_confirm(RpcAppSystem* rpc_app, bool result) {
     furi_check(rpc_app);
-    furi_check(rpc_app->last_command_id != 0);
-    /* Ensure that only commands of these types can be confirmed */
-    furi_check(
-        rpc_app->last_event_type == RpcAppEventTypeAppExit ||
-        rpc_app->last_event_type == RpcAppEventTypeLoadFile ||
-        rpc_app->last_event_type == RpcAppEventTypeButtonPress ||
-        rpc_app->last_event_type == RpcAppEventTypeButtonRelease ||
-        rpc_app->last_event_type == RpcAppEventTypeButtonPressRelease ||
-        rpc_app->last_event_type == RpcAppEventTypeDataExchange);
+    // Surplus confirm (host-controlled timing) must not crash the device
+    if(rpc_app->last_event_type == RpcAppEventTypeInvalid) {
+        FURI_LOG_W(TAG, "Confirm without pending command");
+        return;
+    }
 
     const uint32_t last_command_id = rpc_app->last_command_id;
     const RpcAppSystemEventType last_event_type = rpc_app->last_event_type;
@@ -391,8 +415,13 @@ void rpc_system_app_confirm(RpcAppSystem* rpc_app, bool result) {
 void rpc_system_app_set_callback(RpcAppSystem* rpc_app, RpcAppSystemCallback callback, void* ctx) {
     furi_check(rpc_app);
 
-    rpc_app->callback = callback;
+    // Drop stale pending command of a previous/dead app so it can't poison the session
+    rpc_app->last_command_id = 0;
+    rpc_app->last_event_type = RpcAppEventTypeInvalid;
+
+    // callback last: rpc_system_app_free() frees us as soon as it reads NULL
     rpc_app->callback_context = ctx;
+    rpc_app->callback = callback;
 }
 
 void rpc_system_app_set_error_code(RpcAppSystem* rpc_app, uint32_t error_code) {

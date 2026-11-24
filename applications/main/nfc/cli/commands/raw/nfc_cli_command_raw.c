@@ -241,6 +241,14 @@ static bool nfc_cli_raw_parse_data(FuriString* value, void* output) {
         if(len % 2 != 0) break;
 
         size_t data_length = len / 2;
+        // tx_buffer is 256 bytes; keep 2 bytes headroom for an appended CRC (-c)
+        const size_t max_len = 254;
+        if(data_length > max_len) {
+            printf(
+                ANSI_FG_RED "\r\nData payload is too long, max length = %d bytes\r\n" ANSI_RESET,
+                max_len);
+            break;
+        }
         uint8_t* data = malloc(data_length);
 
         if(args_read_hex_bytes(value, data, data_length)) {

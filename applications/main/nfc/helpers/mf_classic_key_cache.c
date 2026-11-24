@@ -79,7 +79,8 @@ bool mf_classic_key_cache_save(MfClassicKeyCache* instance, const MfClassicData*
                     ff, furi_string_get_cstr(temp_str), sec_tr->key_b.data, sizeof(MfClassicKey));
             }
         }
-        save_success = key_save_success;
+        // Flush + close explicitly: the final cache flush otherwise happens unchecked in free
+        save_success = key_save_success && flipper_format_buffered_file_close(ff);
     } while(false);
 
     flipper_format_free(ff);

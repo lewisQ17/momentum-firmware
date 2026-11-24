@@ -34,6 +34,19 @@ static void desktop_scene_main_interact_animation_callback(void* context) {
 }
 
 #ifdef APP_ARCHIVE
+// Why: the app thread (6 KB stack for Archive) used to stay allocated for the whole uptime
+// after the first launch. Free it as soon as it stops; it is re-allocated on the next launch.
+static void desktop_scene_main_thread_state_callback(
+    FuriThread* thread,
+    FuriThreadState state,
+    void* context) {
+    Desktop* desktop = context;
+    if(state == FuriThreadStateStopped) {
+        desktop->scene_thread = NULL;
+        furi_thread_free(thread);
+    }
+}
+
 static void desktop_switch_to_app(
     Desktop* desktop,
     const FlipperInternalApplication* flipper_app,
@@ -43,10 +56,16 @@ static void desktop_switch_to_app(
     furi_assert(flipper_app->app);
     furi_assert(flipper_app->name);
 
-    if(furi_thread_get_state(desktop->scene_thread) != FuriThreadStateStopped) {
+    // Non-NULL until the state callback has freed the previous run
+    if(desktop->scene_thread != NULL) {
         FURI_LOG_E("Desktop", "Thread is already running");
         return;
     }
+
+    desktop->scene_thread = furi_thread_alloc();
+    furi_thread_set_state_callback(
+        desktop->scene_thread, desktop_scene_main_thread_state_callback);
+    furi_thread_set_state_context(desktop->scene_thread, desktop);
 
     FuriHalRtcHeapTrackMode mode = furi_hal_rtc_get_heap_track_mode();
     if(mode > FuriHalRtcHeapTrackModeNone) {

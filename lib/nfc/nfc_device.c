@@ -200,7 +200,8 @@ bool nfc_device_save(NfcDevice* instance, const char* path) {
         // Write protocol-dependent data
         if(!nfc_devices[instance->protocol]->save(instance->protocol_data, ff)) break;
 
-        saved = true;
+        // Flush + close explicitly: the final cache flush otherwise happens unchecked in free
+        saved = flipper_format_buffered_file_close(ff);
     } while(false);
 
     if(instance->loading_callback) {

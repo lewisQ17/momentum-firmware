@@ -679,11 +679,16 @@ FS_Error storage_common_copy(Storage* storage, const char* old_path, const char*
         } else {
             Stream* stream_from = file_stream_alloc(storage);
             Stream* stream_to = file_stream_alloc(storage);
+            bool dest_created = false;
+            size_t total = 0;
+            size_t copied = 0;
 
             do {
                 if(!file_stream_open(stream_from, old_path, FSAM_READ, FSOM_OPEN_EXISTING)) break;
                 if(!file_stream_open(stream_to, new_path, FSAM_WRITE, FSOM_CREATE_NEW)) break;
-                stream_copy_full(stream_from, stream_to);
+                dest_created = true;
+                total = stream_size(stream_from);
+                copied = stream_copy_full(stream_from, stream_to);
             } while(false);
 
             error = file_stream_get_error(stream_from);
@@ -691,8 +696,22 @@ FS_Error storage_common_copy(Storage* storage, const char* old_path, const char*
                 error = file_stream_get_error(stream_to);
             }
 
+            if(dest_created) {
+                // Why: a full volume gives a short copy without a file error, and the flush
+                // happens on close. Report both so rename/migrate never delete the source
+                // after a truncated copy.
+                if(error == FSE_OK && copied != total) error = FSE_INTERNAL;
+                file_stream_close(stream_to);
+                if(error == FSE_OK) error = file_stream_get_error(stream_to);
+            }
+
             stream_free(stream_from);
             stream_free(stream_to);
+
+            // Remove the partial destination (we created it with CREATE_NEW, so it is ours)
+            if(dest_created && error != FSE_OK) {
+                storage_common_remove(storage, new_path);
+            }
         }
     }
 
@@ -1171,6 +1190,7 @@ bool storage_simply_remove_recursive(Storage* storage, const char* path) {
     File* dir = storage_file_alloc(storage);
     cur_dir = furi_string_alloc_set(path);
     bool go_deeper = false;
+    bool remove_failed = false;
 
     while(1) {
         if(!storage_dir_open(dir, furi_string_get_cstr(cur_dir))) {
@@ -1187,10 +1207,16 @@ bool storage_simply_remove_recursive(Storage* storage, const char* path) {
 
             fullname = furi_string_alloc_printf("%s/%s", furi_string_get_cstr(cur_dir), name);
             FS_Error error = storage_common_remove(storage, furi_string_get_cstr(fullname));
-            furi_check(error == FSE_OK);
             furi_string_free(fullname);
+            if(error != FSE_OK) {
+                // Why: read-only/open files must fail the call, not crash the device
+                remove_failed = true;
+                break;
+            }
         }
         storage_dir_close(dir);
+
+        if(remove_failed) break;
 
         if(go_deeper) {
             go_deeper = false;
@@ -1198,7 +1224,7 @@ bool storage_simply_remove_recursive(Storage* storage, const char* path) {
         }
 
         FS_Error error = storage_common_remove(storage, furi_string_get_cstr(cur_dir));
-        furi_check(error == FSE_OK);
+        if(error != FSE_OK) break;
 
         if(furi_string_cmp(cur_dir, path)) {
             size_t last_char = furi_string_search_rchar(cur_dir, '/');

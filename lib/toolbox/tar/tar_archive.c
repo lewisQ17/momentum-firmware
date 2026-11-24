@@ -62,7 +62,8 @@ static int mtar_storage_file_seek(void* stream, unsigned offset) {
 
 static int mtar_storage_file_close(void* stream) {
     if(stream) {
-        storage_file_close(stream);
+        // Why: the final flush happens on close, so a failed close is a failed write
+        return storage_file_close(stream) ? MTAR_ESUCCESS : MTAR_EWRITEFAIL;
     }
     return MTAR_ESUCCESS;
 }
@@ -560,7 +561,8 @@ bool tar_archive_add_dir(TarArchive* archive, const char* fs_full_path, const ch
 
         while(true) {
             if(!storage_dir_read(directory, &file_info, name, MAX_NAME_LEN)) {
-                success = true; /* empty dir / no more files */
+                // End of dir is reported as FSE_NOT_EXIST; any other error is a truncated backup
+                success = (storage_file_get_error(directory) == FSE_NOT_EXIST);
                 break;
             }
 

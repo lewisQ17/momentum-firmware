@@ -853,6 +853,8 @@ FS_Error storage_process_virtual_mount(StorageData* storage) {
     if(storage->status == StorageStatusOK) return FSE_ALREADY_OPEN;
     if(storage->status != StorageStatusNotMounted) return FSE_NOT_READY;
     SDData* sd_data = storage->data;
+    // Why: ~590 B FATFS only needed once an image is actually mounted
+    if(!sd_data->fs) sd_data->fs = malloc(sizeof(FATFS));
     SDError error = f_mount(sd_data->fs, sd_data->path, 1);
     if(error == FR_NO_FILESYSTEM) return FSE_INVALID_PARAMETER;
     if(error != FR_OK) return FSE_INTERNAL;
@@ -992,7 +994,7 @@ void storage_mnt_init(StorageData* storage) {
     FATFS_LinkDriver(&mnt_driver, path);
 
     SDData* sd_data = malloc(sizeof(SDData));
-    sd_data->fs = malloc(sizeof(FATFS));
+    sd_data->fs = NULL; // allocated on first virtual mount; never freed (FatFs keeps pointers)
     sd_data->path = strdup(path);
 
     storage->data = sd_data;

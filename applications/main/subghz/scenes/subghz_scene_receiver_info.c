@@ -181,7 +181,10 @@ bool subghz_scene_receiver_info_on_event(void* context, SceneManagerEvent event)
             // user release OK
             // we switch off endless_tx - that mean protocols yield finish endless transmission,
             // send upload "repeat=xx" times, and after will be stoped by the tick event down in this code
-            subghz->state_notifications = SubGhzNotificationStateTxWait;
+            // Why: after a failed TX start the state was reset; TxWait would then never exit
+            if(subghz->state_notifications == SubGhzNotificationStateTx) {
+                subghz->state_notifications = SubGhzNotificationStateTxWait;
+            }
             subghz_block_generic_global.endless_tx = false;
 
             return true;

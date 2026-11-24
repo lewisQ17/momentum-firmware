@@ -43,7 +43,7 @@ typedef struct {
 } DesktopClock;
 
 struct Desktop {
-    FuriThread* scene_thread;
+    FuriThread* volatile scene_thread; // NULL when no app thread exists
 
     Gui* gui;
     ViewDispatcher* view_dispatcher;

@@ -328,6 +328,11 @@ static Iso15693_3Error iso15693_3_listener_write_multi_blocks_handler(
 
         const uint32_t block_count = request->block_count + 1;
         const uint32_t block_count_max = instance->data->system_info.block_count;
+        // Reject an out-of-range start first: the subtraction below would underflow
+        if(block_index_start >= block_count_max) {
+            error = Iso15693_3ErrorInternal;
+            break;
+        }
         const uint32_t block_count_available = block_count_max - block_index_start;
 
         const size_t block_data_size = data_size - sizeof(Iso15693_3WriteMultiBlocksRequestLayout);
@@ -356,7 +361,7 @@ static Iso15693_3Error iso15693_3_listener_write_multi_blocks_handler(
         if(error != Iso15693_3ErrorNone) break;
 
         for(uint32_t i = block_index_start; i <= block_index_end; ++i) {
-            const uint8_t* block_data = &request->block_data[block_size * i];
+            const uint8_t* block_data = &request->block_data[block_size * (i - block_index_start)];
             iso15693_3_set_block_data(instance->data, i, block_data, block_size);
         }
     } while(false);

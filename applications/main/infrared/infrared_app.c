@@ -56,10 +56,10 @@ static void infrared_rpc_command_callback(const RpcAppSystemEvent* event, void* 
     furi_assert(infrared->rpc_ctx);
 
     if(event->type == RpcAppEventTypeSessionClose) {
+        // Only post the event here (RPC thread). The app thread clears the callback and
+        // rpc_ctx when it handles it, so it can't race with an in-flight confirm.
         view_dispatcher_send_custom_event(
             infrared->view_dispatcher, InfraredCustomEventTypeRpcSessionClose);
-        rpc_system_app_set_callback(infrared->rpc_ctx, NULL, NULL);
-        infrared->rpc_ctx = NULL;
     } else if(event->type == RpcAppEventTypeAppExit) {
         view_dispatcher_send_custom_event(
             infrared->view_dispatcher, InfraredCustomEventTypeRpcExit);

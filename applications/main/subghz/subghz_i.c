@@ -362,8 +362,17 @@ bool subghz_save_protocol_to_file(
             break;
         }
 
+        // Why: a full SD gives a short write without error; compare against the expected size
+        const size_t expected = stream_size(flipper_format_stream);
         stream_seek(flipper_format_stream, 0, StreamOffsetFromStart);
-        stream_save_to_file(flipper_format_stream, storage, dev_file_name, FSOM_CREATE_ALWAYS);
+        const size_t written =
+            stream_save_to_file(flipper_format_stream, storage, dev_file_name, FSOM_CREATE_ALWAYS);
+
+        if(written != expected) {
+            // Do not leave a truncated .sub behind that looks like a valid save
+            storage_simply_remove(storage, dev_file_name);
+            break;
+        }
 
         if(storage_common_stat(storage, dev_file_name, NULL) != FSE_OK) {
             break;

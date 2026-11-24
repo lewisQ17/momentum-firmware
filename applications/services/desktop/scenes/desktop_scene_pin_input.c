@@ -18,6 +18,8 @@
 #include "../desktop_settings_filename.h"
 #include "desktop_scene.h"
 
+#define TAG "DesktopScenePinInput"
+
 #define WRONG_PIN_HEADER_TIMEOUT 3000
 #define INPUT_PIN_VIEW_TIMEOUT   15000
 
@@ -93,11 +95,20 @@ static void desktop_scene_pin_input_done_callback(const DesktopPinCode* pin_code
         uint32_t pin_fails = furi_hal_rtc_get_pin_fails() + 1;
         if(pin_fails >= 10 && momentum_settings.bad_pins_format) {
             Storage* storage = furi_record_open(RECORD_STORAGE);
-            storage_sd_format(storage);
+            FS_Error format_err = storage_sd_format(storage);
+            if(format_err != FSE_OK) {
+                format_err = storage_sd_format(storage); // retry once, like the duress path
+            }
             furi_record_close(RECORD_STORAGE);
-            furi_hal_rtc_reset_registers();
-            Power* power = furi_record_open(RECORD_POWER);
-            power_reboot(power, PowerBootModeNormal);
+            // Why: only reset the attempt counter and reboot when the format really ran,
+            // otherwise a failed format would hand out a fresh 10 attempts with data intact
+            if(format_err == FSE_OK) {
+                furi_hal_rtc_reset_registers();
+                Power* power = furi_record_open(RECORD_POWER);
+                power_reboot(power, PowerBootModeNormal);
+            } else {
+                FURI_LOG_E(TAG, "bad-PIN SD format failed: %d", format_err);
+            }
         }
         furi_hal_rtc_set_pin_fails(pin_fails);
         view_dispatcher_send_custom_event(

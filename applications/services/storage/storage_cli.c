@@ -276,18 +276,27 @@ static void storage_cli_read_chunks(PipeSide* pipe, FuriString* path, FuriString
     if(strint_to_uint32(furi_string_get_cstr(args), NULL, &buffer_size, 10) !=
        StrintParseNoError) {
         storage_cli_print_usage();
+    } else if(buffer_size > 65536) {
+        // Why: a host-chosen size must not be able to exhaust the heap (malloc failure reboots)
+        storage_cli_print_usage();
     } else if(storage_file_open(file, furi_string_get_cstr(path), FSAM_READ, FSOM_OPEN_EXISTING)) {
         uint64_t file_size = storage_file_size(file);
 
         printf("Size: %llu\r\n", file_size);
 
-        if(buffer_size) {
+        if(buffer_size && file_size) {
+            if(buffer_size > file_size) buffer_size = (uint32_t)file_size;
             uint8_t* data = malloc(buffer_size);
             while(file_size > 0) {
                 printf("\r\nReady?\r\n");
-                getchar();
+                if(getchar() == EOF) break;
 
                 size_t read_size = storage_file_read(file, data, buffer_size);
+                if(read_size == 0) {
+                    // Why: short file/read error would otherwise loop forever
+                    storage_cli_print_error(storage_file_get_error(file));
+                    break;
+                }
                 for(size_t i = 0; i < read_size; i++) {
                     putchar(data[i]);
                 }

@@ -276,7 +276,7 @@ static Desktop* desktop_alloc(void) {
     desktop->animation_semaphore = furi_semaphore_alloc(1, 0);
     desktop->animation_manager = animation_manager_alloc();
     desktop->gui = furi_record_open(RECORD_GUI);
-    desktop->scene_thread = furi_thread_alloc();
+    desktop->scene_thread = NULL; // allocated per app launch, freed when the app stops
     desktop->view_dispatcher = view_dispatcher_alloc();
     desktop->scene_manager = scene_manager_alloc(&desktop_scene_handlers, desktop);
 

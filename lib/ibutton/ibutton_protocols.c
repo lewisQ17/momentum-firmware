@@ -232,7 +232,8 @@ bool ibutton_protocols_save(
         GET_PROTOCOL_GROUP(id);
         if(!GROUP_BASE->save(GROUP_DATA, data, PROTOCOL_ID, ff)) break;
 
-        success = true;
+        // Flush + close explicitly: the final cache flush otherwise happens unchecked in free
+        success = flipper_format_buffered_file_close(ff);
     } while(false);
 
     flipper_format_free(ff);

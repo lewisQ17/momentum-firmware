@@ -158,11 +158,12 @@ bool furi_hal_crypto_enclave_store_key(FuriHalCryptoKey* key, uint8_t* slot) {
     furi_check(key);
     furi_check(slot);
 
-    furi_check(furi_mutex_acquire(furi_hal_crypto_mutex, FuriWaitForever) == FuriStatusOk);
-
+    // Why: check before taking the mutex, an early return used to leave it held forever
     if(!furi_hal_bt_is_alive()) {
         return false;
     }
+
+    furi_check(furi_mutex_acquire(furi_hal_crypto_mutex, FuriWaitForever) == FuriStatusOk);
 
     SHCI_C2_FUS_StoreUsrKey_Cmd_Param_t pParam;
     size_t key_data_size = 0;
@@ -276,12 +277,17 @@ bool furi_hal_crypto_enclave_load_key(uint8_t slot, const uint8_t* iv) {
 
         if(SHCI_C2_FUS_LoadUsrKey(slot) == SHCI_Success) {
             success = true;
-        } else {
-            CLEAR_BIT(AES1->CR, AES_CR_EN);
-            furi_check(furi_mutex_release(furi_hal_crypto_mutex) == FuriStatusOk);
         }
 
     } while(false);
+
+    // Why: every failure path (BT core dead or SHCI error) must undo the acquire/enable above,
+    // otherwise the mutex stays held and the next crypto caller blocks forever
+    if(!success) {
+        CLEAR_BIT(AES1->CR, AES_CR_EN);
+        furi_hal_bus_disable(FuriHalBusAES1);
+        furi_check(furi_mutex_release(furi_hal_crypto_mutex) == FuriStatusOk);
+    }
 
     furi_hal_bt_unlock_core2();
     return success;
@@ -294,6 +300,11 @@ bool furi_hal_crypto_enclave_unload_key(uint8_t slot) {
 
     do {
         if(!furi_hal_bt_is_alive()) {
+            // Why: the key is gone with the dead core, but the mutex/bus taken by load_key
+            // must still be released
+            CLEAR_BIT(AES1->CR, AES_CR_EN);
+            furi_hal_bus_disable(FuriHalBusAES1);
+            furi_check(furi_mutex_release(furi_hal_crypto_mutex) == FuriStatusOk);
             break;
         }
 

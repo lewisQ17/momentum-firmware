@@ -253,7 +253,8 @@ static bool nfc_cli_apdu_parse_data(FuriString* value, void* output) {
 
         size_t data_length = len / 2;
 
-        const size_t max_len = UINT16_MAX;
+        // tx_buffer is 256 bytes; stay below so a longer word cannot trip furi_check
+        const size_t max_len = 255;
         if(data_length > max_len) {
             printf(
                 ANSI_FG_RED "\r\nData payload is too long, max length = %d bytes\r\n" ANSI_RESET,

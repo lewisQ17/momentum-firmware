@@ -18,6 +18,13 @@ static int32_t infrared_scene_rpc_task_callback(void* context) {
     return error;
 }
 
+// rpc_ctx is cleared on RpcSessionClose; never confirm on a closed session
+static void infrared_scene_rpc_confirm(InfraredApp* infrared, bool result) {
+    if(infrared->rpc_ctx) {
+        rpc_system_app_confirm(infrared->rpc_ctx, result);
+    }
+}
+
 void infrared_scene_rpc_on_enter(void* context) {
     InfraredApp* infrared = context;
     scene_manager_set_scene_state(infrared->scene_manager, InfraredSceneRpc, InfraredRpcStateIdle);
@@ -54,6 +61,9 @@ bool infrared_scene_rpc_on_event(void* context, SceneManagerEvent event) {
             if(rpc_state == InfraredRpcStateIdle) {
                 // Load the remote in a separate thread
                 infrared_blocking_task_start(infrared, infrared_scene_rpc_task_callback);
+            } else {
+                // Already loaded: answer instead of leaving the host command unconfirmed
+                infrared_scene_rpc_confirm(infrared, false);
             }
 
         } else if(event.event == InfraredCustomEventTypeTaskFinished) {
@@ -69,12 +79,15 @@ bool infrared_scene_rpc_on_event(void* context, SceneManagerEvent event) {
                 furi_string_printf(
                     str, "Failed to load\n%s", furi_string_get_cstr(infrared->file_path));
 
-                rpc_system_app_set_error_code(infrared->rpc_ctx, RpcAppSystemErrorCodeParseFile);
-                rpc_system_app_set_error_text(infrared->rpc_ctx, furi_string_get_cstr(str));
+                if(infrared->rpc_ctx) {
+                    rpc_system_app_set_error_code(
+                        infrared->rpc_ctx, RpcAppSystemErrorCodeParseFile);
+                    rpc_system_app_set_error_text(infrared->rpc_ctx, furi_string_get_cstr(str));
+                }
 
                 furi_string_free(str);
             }
-            rpc_system_app_confirm(infrared->rpc_ctx, !INFRARED_ERROR_PRESENT(task_error));
+            infrared_scene_rpc_confirm(infrared, !INFRARED_ERROR_PRESENT(task_error));
         } else if(
             event.event == InfraredCustomEventTypeRpcButtonPressName ||
             event.event == InfraredCustomEventTypeRpcButtonPressIndex) {
@@ -110,7 +123,7 @@ bool infrared_scene_rpc_on_event(void* context, SceneManagerEvent event) {
                     }
                 }
             }
-            rpc_system_app_confirm(infrared->rpc_ctx, result);
+            infrared_scene_rpc_confirm(infrared, result);
 
         } else if(event.event == InfraredCustomEventTypeRpcButtonRelease) {
             bool result = false;
@@ -122,7 +135,7 @@ bool infrared_scene_rpc_on_event(void* context, SceneManagerEvent event) {
                     infrared->scene_manager, InfraredSceneRpc, InfraredRpcStateLoaded);
             }
 
-            rpc_system_app_confirm(infrared->rpc_ctx, result);
+            infrared_scene_rpc_confirm(infrared, result);
 
         } else if(
             event.event == InfraredCustomEventTypeRpcButtonPressReleaseName ||
@@ -166,7 +179,7 @@ bool infrared_scene_rpc_on_event(void* context, SceneManagerEvent event) {
                 scene_manager_set_scene_state(
                     infrared->scene_manager, InfraredSceneRpc, InfraredRpcStateLoaded);
             }
-            rpc_system_app_confirm(infrared->rpc_ctx, result);
+            infrared_scene_rpc_confirm(infrared, result);
         } else if(
             event.event == InfraredCustomEventTypeRpcExit ||
             event.event == InfraredCustomEventTypeRpcSessionClose ||
@@ -175,7 +188,11 @@ bool infrared_scene_rpc_on_event(void* context, SceneManagerEvent event) {
             view_dispatcher_stop(infrared->view_dispatcher);
 
             if(event.event == InfraredCustomEventTypeRpcExit) {
-                rpc_system_app_confirm(infrared->rpc_ctx, true);
+                infrared_scene_rpc_confirm(infrared, true);
+            } else if(event.event == InfraredCustomEventTypeRpcSessionClose && infrared->rpc_ctx) {
+                // Clear on the app thread (see infrared_rpc_command_callback)
+                rpc_system_app_set_callback(infrared->rpc_ctx, NULL, NULL);
+                infrared->rpc_ctx = NULL;
             }
         }
 

@@ -709,14 +709,18 @@ void archive_delete_selected(ArchiveBrowserView* browser) {
 
         const char* path_cstr = furi_string_get_cstr(path);
         FileInfo fileinfo;
+        // A failed stat means the file is already gone, so the favorite is stale and may go
+        bool removed = true;
         if(storage_common_stat(fs_api, path_cstr, &fileinfo) == FSE_OK) {
             if(file_info_is_dir(&fileinfo)) {
-                storage_simply_remove_recursive(fs_api, path_cstr);
+                removed = storage_simply_remove_recursive(fs_api, path_cstr);
             } else {
-                storage_common_remove(fs_api, path_cstr);
+                FS_Error rm_err = storage_common_remove(fs_api, path_cstr);
+                removed = (rm_err == FSE_OK || rm_err == FSE_NOT_EXIST);
             }
         }
-        if(archive_is_favorite("%s", path_cstr)) {
+        // Why: keep the favorite when the delete failed, the file is still there
+        if(removed && archive_is_favorite("%s", path_cstr)) {
             archive_favorites_delete("%s", path_cstr);
         }
         furi_string_free(path);

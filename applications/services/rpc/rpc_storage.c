@@ -115,6 +115,13 @@ static void rpc_system_storage_info_process(const PB_Main* request, void* contex
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
 
+    // Why: proto3 omits empty strings, so a missing path decodes to NULL and would crash
+    if(!request->content.storage_info_request.path) {
+        rpc_send_and_release_empty(
+            session, request->command_id, PB_CommandStatus_ERROR_INVALID_PARAMETERS);
+        return;
+    }
+
     PB_Main* response = malloc(sizeof(PB_Main));
     response->command_id = request->command_id;
 
@@ -148,6 +155,13 @@ static void rpc_system_storage_timestamp_process(const PB_Main* request, void* c
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
 
+    // Why: proto3 omits empty strings, so a missing path decodes to NULL and would crash
+    if(!request->content.storage_timestamp_request.path) {
+        rpc_send_and_release_empty(
+            session, request->command_id, PB_CommandStatus_ERROR_INVALID_PARAMETERS);
+        return;
+    }
+
     PB_Main* response = malloc(sizeof(PB_Main));
     response->command_id = request->command_id;
 
@@ -179,6 +193,13 @@ static void rpc_system_storage_stat_process(const PB_Main* request, void* contex
     furi_assert(session);
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
+
+    // Why: proto3 omits empty strings, so a missing path decodes to NULL and would crash
+    if(!request->content.storage_stat_request.path) {
+        rpc_send_and_release_empty(
+            session, request->command_id, PB_CommandStatus_ERROR_INVALID_PARAMETERS);
+        return;
+    }
 
     PB_Main* response = malloc(sizeof(PB_Main));
     response->command_id = request->command_id;
@@ -276,6 +297,13 @@ static void rpc_system_storage_list_process(const PB_Main* request, void* contex
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
 
+    // Why: proto3 omits empty strings, so a missing path decodes to NULL and would crash
+    if(!list_request->path) {
+        rpc_send_and_release_empty(
+            session, request->command_id, PB_CommandStatus_ERROR_INVALID_PARAMETERS);
+        return;
+    }
+
     if(!strcmp(list_request->path, "/")) {
         rpc_system_storage_list_root(request, context);
         return;
@@ -365,6 +393,13 @@ static void rpc_system_storage_read_process(const PB_Main* request, void* contex
     furi_assert(session);
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
+
+    // Why: proto3 omits empty strings, so a missing path decodes to NULL and would crash
+    if(!request->content.storage_read_request.path) {
+        rpc_send_and_release_empty(
+            session, request->command_id, PB_CommandStatus_ERROR_INVALID_PARAMETERS);
+        return;
+    }
 
     /* use same message memory to send response */
     PB_Main* response = malloc(sizeof(PB_Main));
@@ -482,8 +517,18 @@ static void rpc_system_storage_write_process(const PB_Main* request, void* conte
     }
 
     if(send_response) {
-        rpc_send_and_release_empty(session, rpc_storage->current_command_id, command_status);
-        rpc_system_storage_reset_state(rpc_storage, session, false);
+        if(fs_operation_success) {
+            // Why: the flush happens on close, so close before replying and report its result.
+            // State is reset here directly so the file is not closed/freed twice.
+            storage_file_close(file);
+            command_status = rpc_system_storage_get_file_error(file);
+            storage_file_free(file);
+            rpc_storage->state = RpcStorageStateIdle;
+            rpc_send_and_release_empty(session, rpc_storage->current_command_id, command_status);
+        } else {
+            rpc_send_and_release_empty(session, rpc_storage->current_command_id, command_status);
+            rpc_system_storage_reset_state(rpc_storage, session, false);
+        }
     }
 }
 
@@ -640,6 +685,14 @@ static void rpc_system_storage_rename_process(const PB_Main* request, void* cont
     PB_CommandStatus status;
     rpc_system_storage_reset_state(rpc_storage, session, true);
 
+    if(!request->content.storage_rename_request.old_path ||
+       !request->content.storage_rename_request.new_path) {
+        // Why: missing (empty) strings decode to NULL
+        rpc_send_and_release_empty(
+            session, request->command_id, PB_CommandStatus_ERROR_INVALID_PARAMETERS);
+        return;
+    }
+
     if(path_contains_only_ascii(request->content.storage_rename_request.new_path)) {
         FS_Error error = storage_common_rename(
             rpc_storage->api,
@@ -666,6 +719,13 @@ static void rpc_system_storage_backup_create_process(const PB_Main* request, voi
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
 
+    // Why: proto3 omits empty strings, so a missing path decodes to NULL and would crash
+    if(!request->content.storage_backup_create_request.archive_path) {
+        rpc_send_and_release_empty(
+            session, request->command_id, PB_CommandStatus_ERROR_INVALID_PARAMETERS);
+        return;
+    }
+
     bool backup_ok = int_backup_create(
         rpc_storage->api, request->content.storage_backup_create_request.archive_path);
 
@@ -685,6 +745,13 @@ static void rpc_system_storage_backup_restore_process(const PB_Main* request, vo
     furi_assert(session);
 
     rpc_system_storage_reset_state(rpc_storage, session, true);
+
+    // Why: proto3 omits empty strings, so a missing path decodes to NULL and would crash
+    if(!request->content.storage_backup_restore_request.archive_path) {
+        rpc_send_and_release_empty(
+            session, request->command_id, PB_CommandStatus_ERROR_INVALID_PARAMETERS);
+        return;
+    }
 
     bool backup_ok = int_backup_unpack(
         rpc_storage->api, request->content.storage_backup_restore_request.archive_path);
@@ -712,6 +779,11 @@ static void rpc_system_storage_tar_extract_process(const PB_Main* request, void*
     do {
         const char *tar_path = request->content.storage_tar_extract_request.tar_path,
                    *out_path = request->content.storage_tar_extract_request.out_path;
+        if(!tar_path || !out_path) {
+            status = PB_CommandStatus_ERROR_INVALID_PARAMETERS;
+            break;
+        }
+
         if(!path_contains_only_ascii(out_path)) {
             status = PB_CommandStatus_ERROR_STORAGE_INVALID_NAME;
             break;

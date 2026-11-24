@@ -17,9 +17,7 @@
                            (FELICA_LISTENER_BLOCK_LIST_ITEM_SIZE_MIN + 1))
 
 static uint32_t felica_wcnt_get_max_value(const FelicaData* data) {
-    if(!FELICA_SYSTEM_BLOCK_RO_ACCESS(data) && !FELICA_SYSTEM_BLOCK_RW_ACCESS(data)) {
-        furi_crash("MC[2] reserved values are forbidden");
-    }
+    // Reserved MC[2] values (reader write or crafted dump) are treated as read-only, not a crash
     return (FELICA_SYSTEM_BLOCK_RW_ACCESS(data)) ? FELICA_WCNT_MC2_FF_MAX_VALUE :
                                                    FELICA_WCNT_MC2_00_MAX_VALUE;
 }

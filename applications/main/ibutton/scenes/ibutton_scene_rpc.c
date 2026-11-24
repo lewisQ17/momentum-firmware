@@ -1,7 +1,9 @@
 #include "../ibutton_i.h"
 
+// Scene state: 1 once emulation was started by a LoadFile, 0 before
 void ibutton_scene_rpc_on_enter(void* context) {
-    UNUSED(context);
+    iButton* ibutton = context;
+    scene_manager_set_scene_state(ibutton->scene_manager, iButtonSceneRpc, 0);
 }
 
 static void ibutton_rpc_start_emulation(iButton* ibutton) {
@@ -30,8 +32,13 @@ bool ibutton_scene_rpc_on_event(void* context, SceneManagerEvent event) {
         if(event.event == iButtonCustomEventRpcLoadFile) {
             bool result = false;
 
-            if(ibutton_load_key(ibutton, false)) {
+            if(scene_manager_get_scene_state(ibutton->scene_manager, iButtonSceneRpc)) {
+                // Already emulating: reloading would rewrite the key the worker is reading
+                rpc_system_app_set_error_code(ibutton->rpc, RpcAppSystemErrorCodeInternalParse);
+                rpc_system_app_set_error_text(ibutton->rpc, "Key already loaded");
+            } else if(ibutton_load_key(ibutton, false)) {
                 ibutton_rpc_start_emulation(ibutton);
+                scene_manager_set_scene_state(ibutton->scene_manager, iButtonSceneRpc, 1);
                 result = true;
             } else {
                 rpc_system_app_set_error_code(ibutton->rpc, RpcAppSystemErrorCodeParseFile);
