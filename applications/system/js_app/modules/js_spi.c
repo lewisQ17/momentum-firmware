@@ -1,6 +1,10 @@
 #include "../js_modules.h"
 #include <furi_hal_spi.h>
 
+// Script-controlled lengths are capped before malloc so a script cannot crash
+// the device with an OOM (same cap as js_i2c; fits flash pages / SD blocks).
+#define JS_SPI_MAX_LEN 8192
+
 typedef struct {
     bool acquired_bus;
 } JsSpiInst;
@@ -64,6 +68,10 @@ static void js_spi_write(struct mjs* mjs) {
             ret_bad_args(mjs, "Data array must not be empty");
             return;
         }
+        if(tx_len > JS_SPI_MAX_LEN) {
+            ret_bad_args(mjs, "Data array too long");
+            return;
+        }
         tx_buf = malloc(tx_len);
         tx_buf_was_allocated = true;
         for(size_t i = 0; i < tx_len; i++) {
@@ -104,7 +112,13 @@ static void js_spi_write(struct mjs* mjs) {
             if(tx_buf_was_allocated) free(tx_buf);
             return;
         }
-        timeout = mjs_get_int32(mjs, timeout_arg);
+        int32_t timeout_val = mjs_get_int32(mjs, timeout_arg);
+        if(timeout_val <= 0) { // HAL furi_checks timeout > 0 (reboot)
+            ret_bad_args(mjs, "Timeout must be positive");
+            if(tx_buf_was_allocated) free(tx_buf);
+            return;
+        }
+        timeout = timeout_val;
     }
 
     if(!js_spi_is_acquired(mjs)) {
@@ -127,11 +141,12 @@ static void js_spi_read(struct mjs* mjs) {
         ret_bad_args(mjs, "Length must be a number");
         return;
     }
-    size_t rx_len = mjs_get_int32(mjs, rx_len_arg);
-    if(rx_len == 0) {
-        ret_bad_args(mjs, "Length must not zero");
+    int32_t rx_len_val = mjs_get_int32(mjs, rx_len_arg);
+    if(rx_len_val <= 0 || rx_len_val > JS_SPI_MAX_LEN) {
+        ret_bad_args(mjs, "Length must be 1-8192");
         return;
     }
+    size_t rx_len = rx_len_val;
 
     uint8_t* rx_buf = malloc(rx_len);
 
@@ -143,7 +158,13 @@ static void js_spi_read(struct mjs* mjs) {
             free(rx_buf);
             return;
         }
-        timeout = mjs_get_int32(mjs, timeout_arg);
+        int32_t timeout_val = mjs_get_int32(mjs, timeout_arg);
+        if(timeout_val <= 0) { // HAL furi_checks timeout > 0 (reboot)
+            ret_bad_args(mjs, "Timeout must be positive");
+            free(rx_buf);
+            return;
+        }
+        timeout = timeout_val;
     }
 
     if(!js_spi_is_acquired(mjs)) {
@@ -173,6 +194,10 @@ static void js_spi_write_read(struct mjs* mjs) {
         data_len = mjs_array_length(mjs, tx_buf_arg);
         if(data_len == 0) {
             ret_bad_args(mjs, "Data array must not be empty");
+            return;
+        }
+        if(data_len > JS_SPI_MAX_LEN) {
+            ret_bad_args(mjs, "Data array too long");
             return;
         }
         tx_buf = malloc(data_len);
@@ -218,7 +243,14 @@ static void js_spi_write_read(struct mjs* mjs) {
             free(rx_buf);
             return;
         }
-        timeout = mjs_get_int32(mjs, timeout_arg);
+        int32_t timeout_val = mjs_get_int32(mjs, timeout_arg);
+        if(timeout_val <= 0) { // HAL furi_checks timeout > 0 (reboot)
+            ret_bad_args(mjs, "Timeout must be positive");
+            if(tx_buf_was_allocated) free(tx_buf);
+            free(rx_buf);
+            return;
+        }
+        timeout = timeout_val;
     }
 
     if(!js_spi_is_acquired(mjs)) {

@@ -43,9 +43,10 @@ void scrambleReplace() {
         a.mainScramble[i][1] = dir[furi_hal_random_get() % 3];
     }
     for(int32_t i = 1; i < SLEN; i++) {
-        while(a.mainScramble[i][0] == a.mainScramble[i - 2][0] ||
-              a.mainScramble[i][0] == a.mainScramble[i - 1][0]) {
-            a.mainScramble[i][0] = moves[furi_hal_random_get() % 5];
+        // i - 2 is only read for i >= 2 (was an out-of-bounds read at i == 1); draw covers all 6 faces
+        while(a.mainScramble[i][0] == a.mainScramble[i - 1][0] ||
+              (i >= 2 && a.mainScramble[i][0] == a.mainScramble[i - 2][0])) {
+            a.mainScramble[i][0] = moves[furi_hal_random_get() % 6];
         }
     }
 }

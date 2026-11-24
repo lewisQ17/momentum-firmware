@@ -8,7 +8,6 @@ void uart_terminal_console_output_handle_rx_data_cb(uint8_t* buf, size_t len, vo
     if(app->hex_mode) {
         while(len--) {
             uint8_t byte = *(buf++);
-            if(byte == '\0') break;
             furi_string_cat_printf(new_str, "%02X ", byte);
         }
     } else {
@@ -16,12 +15,12 @@ void uart_terminal_console_output_handle_rx_data_cb(uint8_t* buf, size_t len, vo
         furi_string_cat_printf(new_str, "%s", buf);
     }
 
-    // If text box store gets too big, then truncate it
-    app->text_box_store_strlen += furi_string_size(new_str);
-    ;
-    while(app->text_box_store_strlen >= UART_TERMINAL_TEXT_BOX_STORE_SIZE - 1) {
-        furi_string_right(app->text_box_store, app->text_box_store_strlen / 2);
-        app->text_box_store_strlen = furi_string_size(app->text_box_store) + len;
+    // If text box store gets too big, then truncate it. Use the real sizes (not the raw
+    // byte count) and do it before the cat so the buffer never outgrows its reservation.
+    while(furi_string_size(app->text_box_store) > 0 &&
+          furi_string_size(app->text_box_store) + furi_string_size(new_str) >=
+              UART_TERMINAL_TEXT_BOX_STORE_SIZE - 1) {
+        furi_string_right(app->text_box_store, furi_string_size(app->text_box_store) / 2);
     }
 
     furi_string_cat(app->text_box_store, new_str);

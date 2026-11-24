@@ -1,5 +1,8 @@
 #include "main_loop.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <furi.h>
 #include <furi_hal.h>
 
@@ -87,10 +90,13 @@ private:
         float q0 = quaternion[3]; // cos(T/2)
 
         float yaw = std::atan2(2 * (q0 * q3 - q1 * q2), (1 - 2 * (q1 * q1 + q3 * q3)));
-        float pitch = std::asin(2 * (q0 * q1 + q2 * q3));
+        // Clamp: rounding can push the argument just past +/-1, which makes asin() return NaN
+        float s = 2 * (q0 * q1 + q2 * q3);
+        s = std::max(-1.0f, std::min(1.0f, s));
+        float pitch = std::asin(s);
         // float roll = std::atan2(2 * (q0 * q2 - q1 * q3), (1 - 2 * (q1 * q1 + q2 * q2)));
 
-        if (yaw == NAN || pitch == NAN) {
+        if (std::isnan(yaw) || std::isnan(pitch)) {
             // NaN case, skip it
             return;
         }
@@ -146,6 +152,9 @@ public:
     }
 
     void saveCalibration() {
+        // Leaving early would otherwise persist the all-zero median
+        if (!calibration.isComplete())
+            return;
         CalibrationMedian store;
         cardboard::Vector3 median = calibration.getMedian();
         store.x = median[0];

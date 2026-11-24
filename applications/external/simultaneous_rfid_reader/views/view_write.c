@@ -333,24 +333,24 @@ bool uhf_reader_view_write_custom_event_callback(uint32_t event, void* context) 
                     
                     uhf_tag_reset(App->YRM100XWorker->NewTag);
 
-                    hex_string_to_uint16(furi_string_get_cstr(Model->Pc), App->PcBytes, &App->PcBytesLen);
-                    hex_string_to_uint16(furi_string_get_cstr(Model->Crc), App->CrcBytes, &App->CrcBytesLen);
+                    hex_string_to_uint16(furi_string_get_cstr(Model->Pc), App->PcBytes, 2, &App->PcBytesLen);
+                    hex_string_to_uint16(furi_string_get_cstr(Model->Crc), App->CrcBytes, 2, &App->CrcBytesLen);
                     
                     uint16_t combinedPc = 0;
                     uint16_t combinedCrc = 0;
 
-                    for(size_t i = 0; i < 4; i++) {
+                    for(size_t i = 0; i < App->PcBytesLen; i++) {
                         combinedPc |= App->PcBytes[i];
                     }
 
-                    for(size_t i = 0; i < 4; i++) {
+                    for(size_t i = 0; i < App->CrcBytesLen; i++) {
                         combinedCrc |= App->CrcBytes[i];
                     }
 
                     if(furi_string_equal(Model->WriteFunction, WRITE_EPC_VAL) &&
                        Model->NewEpcValue != NULL) {
                         hex_string_to_bytes(
-                            App->TempSaveBuffer, App->EpcBytes, &App->EpcBytesLen);
+                            App->TempSaveBuffer, App->EpcBytes, 12, &App->EpcBytesLen);
                         
                         uhf_tag_set_epc(
                             App->YRM100XWorker->NewTag, (uint8_t*)App->EpcBytes, App->EpcBytesLen * sizeof(uint8_t));
@@ -358,7 +358,7 @@ bool uhf_reader_view_write_custom_event_callback(uint32_t event, void* context) 
                         m100_enable_write_mask(App->YRM100XWorker->module, WRITE_EPC);
                     } else {
                         hex_string_to_bytes(
-                            furi_string_get_cstr(Model->EpcValue), App->EpcBytes, &App->EpcBytesLen);
+                            furi_string_get_cstr(Model->EpcValue), App->EpcBytes, 12, &App->EpcBytesLen);
                         uhf_tag_set_epc(
                             App->YRM100XWorker->NewTag, (uint8_t*)App->EpcBytes, App->EpcBytesLen * sizeof(uint8_t));
                     }
@@ -366,41 +366,41 @@ bool uhf_reader_view_write_custom_event_callback(uint32_t event, void* context) 
                     if(furi_string_equal(Model->WriteFunction, WRITE_USR_MEM) &&
                        Model->NewEpcValue != NULL) {
                         hex_string_to_bytes(
-                            furi_string_get_cstr(Model->NewEpcValue), App->UserBytes, &App->UserBytesLen);
+                            furi_string_get_cstr(Model->NewEpcValue), App->UserBytes, 16, &App->UserBytesLen);
                         uhf_tag_set_user(
                             App->YRM100XWorker->NewTag, (uint8_t*)App->UserBytes, App->UserBytesLen * sizeof(uint8_t));
                         m100_enable_write_mask(App->YRM100XWorker->module, WRITE_USER);
                         
                     } else {
                         hex_string_to_bytes(
-                            furi_string_get_cstr(Model->MemValue), App->UserBytes, &App->UserBytesLen);
+                            furi_string_get_cstr(Model->MemValue), App->UserBytes, 16, &App->UserBytesLen);
                         uhf_tag_set_user(
                             App->YRM100XWorker->NewTag, (uint8_t*)App->UserBytes, App->UserBytesLen * sizeof(uint8_t));
                     }
                     if(furi_string_equal(Model->WriteFunction, WRITE_TID_MEM) &&
                        Model->NewEpcValue != NULL) {
                         hex_string_to_bytes(
-                            furi_string_get_cstr(Model->NewEpcValue), App->TidBytes, &App->TidBytesLen);
+                            furi_string_get_cstr(Model->NewEpcValue), App->TidBytes, 16, &App->TidBytesLen);
                         uhf_tag_set_tid(
                             App->YRM100XWorker->NewTag, (uint8_t*)App->TidBytes, App->TidBytesLen * sizeof(uint8_t));
                         m100_enable_write_mask(App->YRM100XWorker->module, WRITE_TID);
                     } else {
                         hex_string_to_bytes(
-                            furi_string_get_cstr(Model->TidValue), App->TidBytes, &App->TidBytesLen);
+                            furi_string_get_cstr(Model->TidValue), App->TidBytes, 16, &App->TidBytesLen);
                         uhf_tag_set_tid(
                             App->YRM100XWorker->NewTag, (uint8_t*)App->TidBytes,App->TidBytesLen * sizeof(uint8_t));
                     }
                     if(furi_string_equal(Model->WriteFunction, WRITE_RES_MEM) &&
                        Model->NewEpcValue != NULL) {
                         hex_string_to_bytes(
-                            furi_string_get_cstr(Model->NewEpcValue), App->ResBytes, &App->ResBytesLen);
+                            furi_string_get_cstr(Model->NewEpcValue), App->ResBytes, 8, &App->ResBytesLen);
                         uhf_tag_set_kill_pwd(App->YRM100XWorker->NewTag, App->ResBytes, App->ResBytesLen);
                         uhf_tag_set_access_pwd(App->YRM100XWorker->NewTag, App->ResBytes, App->ResBytesLen);
                         
                         m100_enable_write_mask(App->YRM100XWorker->module, WRITE_RFU);
                     } else {
                         hex_string_to_bytes(
-                            furi_string_get_cstr(Model->ResValue), App->ResBytes, &App->ResBytesLen);
+                            furi_string_get_cstr(Model->ResValue), App->ResBytes, 8, &App->ResBytesLen);
 
                         
                     }

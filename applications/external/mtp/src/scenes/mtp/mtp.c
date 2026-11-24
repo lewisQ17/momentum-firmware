@@ -161,9 +161,14 @@ void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool c
             print_bytes("MTP FileName", ptr, length - sizeof(struct MTPHeader));
 
             char* name = ReadMTPString(ptr);
+            // ReadMTPString returns a string literal (not freeable) for an empty string
+            bool name_owned = (*ptr != 0);
             char* full_path = malloc(sizeof(char) * MTP_PATH_SIZE);
 
-            merge_path(full_path, get_base_path_from_storage_id(persistence.params[2]), name);
+            // Parent dir comes from the object's current path (params[2] is not a storage id here)
+            char* slash = strrchr(path, '/');
+            int parent_len = slash ? (int)(slash - path) : 0;
+            int path_len = snprintf(full_path, MTP_PATH_SIZE, "%.*s/%s", parent_len, path, name);
 
             // if(!storage_file_exists(mtp->storage, full_path)) {
             //     if(!storage_file_rename(mtp->storage, path, full_path)) {
@@ -176,10 +181,18 @@ void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool c
             //     }
             // }
 
-            update_object_handle_path(mtp, handle, full_path);
-            send_mtp_response(mtp, 3, MTP_RESP_OK, persistence.transaction_id, NULL);
-            free(full_path);
-            free(name);
+            if(path_len < 0 || path_len >= MTP_PATH_SIZE) {
+                send_mtp_response(
+                    mtp, 3, MTP_RESP_GENERAL_ERROR, persistence.transaction_id, NULL);
+                free(full_path);
+            } else {
+                // The handle list takes ownership of full_path on success; don't free it
+                if(update_object_handle_path(mtp, handle, full_path) == 0) {
+                    free(full_path);
+                }
+                send_mtp_response(mtp, 3, MTP_RESP_OK, persistence.transaction_id, NULL);
+            }
+            if(name_owned) free(name);
         } else {
             FURI_LOG_W("MTP", "Unsupported property code: 0x%04lx", prop_code);
             send_mtp_response(
@@ -235,7 +248,7 @@ void handle_mtp_data_complete(AppMTP* mtp) {
         char* name = NULL;
         if(CheckMTPStringHasUnicode(ptr)) {
             // unicode isn't supported
-            name = is_dir ? "New Folder" : "New File";
+            name = strdup(is_dir ? "New Folder" : "New File"); // heap-owned, freed below
         } else {
             name = ReadMTPString(ptr);
         }
@@ -261,6 +274,7 @@ void handle_mtp_data_complete(AppMTP* mtp) {
             FURI_LOG_E("MTP", "Invalid storage ID: %ld", storage_id);
             send_mtp_response(
                 mtp, 3, MTP_RESP_INVALID_STORAGE_ID, persistence.transaction_id, NULL);
+            free(name);
             break;
         }
 
@@ -270,12 +284,19 @@ void handle_mtp_data_complete(AppMTP* mtp) {
                 FURI_LOG_E("MTP", "Invalid parent handle: %ld", parent);
                 send_mtp_response(
                     mtp, 3, MTP_RESP_INVALID_OBJECT_HANDLE, persistence.transaction_id, NULL);
+                free(name);
                 break;
             }
         }
 
         char* full_path = malloc(sizeof(char) * MTP_PATH_SIZE);
-        merge_path(full_path, base_path, name);
+        if(!merge_path(full_path, MTP_PATH_SIZE, base_path, name)) {
+            FURI_LOG_E("MTP", "Path too long for object: %s", name);
+            send_mtp_response(mtp, 3, MTP_RESP_GENERAL_ERROR, persistence.transaction_id, NULL);
+            free(full_path);
+            free(name);
+            break;
+        }
 
         FURI_LOG_I("MTP", "Format: %04x", info->format);
 
@@ -286,6 +307,7 @@ void handle_mtp_data_complete(AppMTP* mtp) {
                     send_mtp_response(
                         mtp, 3, MTP_RESP_GENERAL_ERROR, persistence.transaction_id, NULL);
                     free(full_path);
+                    free(name);
                     break;
                 }
             }
@@ -299,6 +321,7 @@ void handle_mtp_data_complete(AppMTP* mtp) {
                         mtp, 3, MTP_RESP_GENERAL_ERROR, persistence.transaction_id, NULL);
                     storage_file_free(file);
                     free(full_path);
+                    free(name);
                     break;
                 }
 
@@ -410,6 +433,7 @@ void handle_mtp_command(AppMTP* mtp, struct MTPContainer* container) {
                 MTP_RESP_INVALID_OBJECT_HANDLE,
                 container->header.transaction_id,
                 NULL);
+            free(buffer);
             break;
         }
 
@@ -548,7 +572,7 @@ void send_device_info(AppMTP* mtp, uint32_t transaction_id) {
 }
 
 int GetNumObjects(AppMTP* mtp, uint32_t storage_id, uint32_t association) {
-    return list_and_issue_handles(mtp, storage_id, association, NULL);
+    return list_and_issue_handles(mtp, storage_id, association, NULL, 0);
 }
 void send_mtp_response_stream(
     AppMTP* mtp,

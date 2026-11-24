@@ -61,6 +61,17 @@ static void show_popup(SubGhzPlaylistCreator* app, const char* header, const cha
 }
 
 static void create_playlist_file(SubGhzPlaylistCreator* app) {
+    // A new playlist must start empty: drop entries left over from a discarded edit
+    if(app->playlist_entries) {
+        for(size_t i = 0; i < app->playlist_entry_count; ++i) {
+            free(app->playlist_entries[i]);
+        }
+        free(app->playlist_entries);
+    }
+    app->playlist_entries = NULL;
+    app->playlist_entry_count = 0;
+    app->playlist_entry_capacity = 0;
+    app->playlist_modified = false;
     if(!storage_simply_mkdir(app->storage, PLAYLIST_DIRECTORY)) {
         show_popup(app, "Error", "Failed to create directory");
         scene_menu_show(app);

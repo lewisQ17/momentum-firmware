@@ -374,6 +374,7 @@ void app_load_cards(App* app) {
         size_t cards_data_size = file_size - PASSCODE_HEADER_SIZE - passcode_len;
         
         if(cards_data_size == 0) {
+            free(file_data);
             storage_file_close(file);
             storage_file_free(file);
             furi_record_close(RECORD_STORAGE);
@@ -383,6 +384,7 @@ void app_load_cards(App* app) {
         
         if(cards_data_size > MAX_ENCRYPTED_SIZE) {
             FURI_LOG_E(TAG, "app_load_cards: Card data too large: %zu", cards_data_size);
+            free(file_data);
             storage_file_close(file);
             storage_file_free(file);
             furi_record_close(RECORD_STORAGE);
@@ -391,6 +393,7 @@ void app_load_cards(App* app) {
         
         if(cards_data_size % AES_BLOCK_SIZE != 0) {
             FURI_LOG_E(TAG, "app_load_cards: Invalid card data size (not aligned): %zu", cards_data_size);
+            free(file_data);
             storage_file_close(file);
             storage_file_free(file);
             furi_record_close(RECORD_STORAGE);

@@ -182,8 +182,9 @@ static void radio_scanner_process_scanning(RadioScannerApp* app) {
     if(!app->scanning) {
 #ifdef FURI_DEBUG
         FURI_LOG_D(TAG, "Exit radio_scanner_process_scanning");
-        return;
 #endif
+        // stay locked on the detected signal (return must not depend on FURI_DEBUG)
+        return;
     }
     uint32_t new_frequency = (app->scan_direction == ScanDirectionUp) ?
                                  app->frequency + SUBGHZ_FREQUENCY_STEP :
@@ -368,7 +369,9 @@ int32_t radio_scanner_app(void* p) {
 #endif
 
     InputEvent event;
+    uint32_t last_draw = 0;
     while(app->running) {
+        bool key_event_handled = false;
 #ifdef FURI_DEBUG
         FURI_LOG_D(TAG, "Main loop iteration");
 #endif
@@ -388,6 +391,7 @@ int32_t radio_scanner_app(void* p) {
         FURI_LOG_D(TAG, "Checking for input events");
 #endif
         if(furi_message_queue_get(app->event_queue, &event, 10) == FuriStatusOk) {
+            key_event_handled = true;
 #ifdef FURI_DEBUG
             FURI_LOG_D(TAG, "Input event received: type=%d, key=%d", event.type, event.key);
 #endif
@@ -414,7 +418,12 @@ int32_t radio_scanner_app(void* p) {
             }
         }
 
-        view_port_update(app->view_port);
+        // redraw at ~10 Hz (immediately on key press); hop rate/dwell stay unchanged
+        uint32_t now = furi_get_tick();
+        if(key_event_handled || (now - last_draw) >= 100) {
+            view_port_update(app->view_port);
+            last_draw = now;
+        }
         furi_delay_ms(10);
     }
 

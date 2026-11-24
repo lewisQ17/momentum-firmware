@@ -488,7 +488,10 @@ void fmf2sub_save_sub_file(Fmf2SubApp* app, Fmf2SubConvertModel* model) {
             // it should be note.
             if(ch < 'A' && ch > 'G' && ch < 'a' && ch > 'g' && ch != 'P' && ch != 'p') {
                 FURI_LOG_D(TAG, "Invalid note: %c", ch);
-                // invalid note
+                // invalid note: do not leak pending duration/octave/dot into the next note
+                duration = -1;
+                octave = -1;
+                dot = false;
                 continue;
             }
             bool sharp = furi_string_get_char(notes, i + 1) == '#';
@@ -514,7 +517,10 @@ void fmf2sub_save_sub_file(Fmf2SubApp* app, Fmf2SubConvertModel* model) {
                 frequency = 246.9;
             } else {
                 FURI_LOG_D(TAG, "Invalid note: %c, %d", ch, (int)ch);
-                // invalid note
+                // invalid note: do not leak pending duration/octave/dot into the next note
+                duration = -1;
+                octave = -1;
+                dot = false;
                 continue;
             }
 

@@ -1,6 +1,28 @@
 #include "nfc_playlist_worker.h"
 
 /**
+ * Checks whether a protocol has a listener (emulation) implementation
+ * @param protocol Protocol of the loaded NFC card
+ * @return true if nfc_listener_alloc() can be called for this protocol
+ */
+static bool nfc_playlist_worker_protocol_has_listener(NfcProtocol protocol) {
+   // Mirrors nfc_listeners_api[]: other protocols have a NULL entry and would hard fault
+   switch(protocol) {
+   case NfcProtocolIso14443_3a:
+   case NfcProtocolIso14443_4a:
+   case NfcProtocolIso15693_3:
+   case NfcProtocolFelica:
+   case NfcProtocolMfUltralight:
+   case NfcProtocolMfClassic:
+   case NfcProtocolSlix:
+   case NfcProtocolType4Tag:
+      return true;
+   default:
+      return false;
+   }
+}
+
+/**
  * Implements delay between NFC card emulations
  * @param worker Pointer to the NfcPlaylistWorker instance
  * @param playlist_position Current position in the playlist (0-based index)
@@ -30,6 +52,11 @@ static void nfc_playlist_worker_delay(NfcPlaylistWorker* worker, int playlist_po
  */
 static void
    nfc_playlist_worker_countdown(NfcPlaylistWorker* worker, NfcPlaylistWorkerState state) {
+   // Don't overwrite a Stop issued from the UI, or stop() would join a full playlist
+   if(worker->state == NfcPlaylistWorkerState_Stopped) {
+      worker->ms_counter = 0;
+      return;
+   }
    worker->state = state;
    worker->ms_counter = (options_emulate_timeout[worker->settings->emulate_timeout] * 1000);
    while(worker->ms_counter > 0 && worker->state == state) {
@@ -134,7 +161,10 @@ static int32_t nfc_playlist_worker_task(void* context) {
          }
 
          // Load the NFC card and emulate it
-         if(nfc_device_load(worker->nfc_device, furi_string_get_cstr(line))) {
+         // Cards whose protocol has no listener are treated as a load failure
+         if(nfc_device_load(worker->nfc_device, furi_string_get_cstr(line)) &&
+            nfc_playlist_worker_protocol_has_listener(
+               nfc_device_get_protocol(worker->nfc_device))) {
             worker->nfc_protocol = nfc_device_get_protocol(worker->nfc_device);
 
             worker->nfc_listener = nfc_listener_alloc(
@@ -168,6 +198,7 @@ static int32_t nfc_playlist_worker_task(void* context) {
       worker->state = NfcPlaylistWorkerState_FailedToLoadPlaylist;
    }
 
+   stream_free(stream);
    furi_record_close(RECORD_STORAGE);
 
    return 0;
@@ -244,7 +275,7 @@ void nfc_playlist_worker_stop(NfcPlaylistWorker* worker) {
  */
 void nfc_playlist_worker_skip(NfcPlaylistWorker* worker) {
    furi_assert(worker);
-   if(worker->state != NfcPlaylistWorkerState_Stopped ||
+   if(worker->state != NfcPlaylistWorkerState_Stopped &&
       worker->state != NfcPlaylistWorkerState_Ready) {
       worker->state = NfcPlaylistWorkerState_Skipping;
    }
@@ -256,7 +287,7 @@ void nfc_playlist_worker_skip(NfcPlaylistWorker* worker) {
  */
 void nfc_playlist_worker_rewind(NfcPlaylistWorker* worker) {
    furi_assert(worker);
-   if(worker->state != NfcPlaylistWorkerState_Stopped ||
+   if(worker->state != NfcPlaylistWorkerState_Stopped &&
       worker->state != NfcPlaylistWorkerState_Ready) {
       worker->state = NfcPlaylistWorkerState_Rewinding;
    }

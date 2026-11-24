@@ -110,22 +110,22 @@ void parse_time_str(char* buffer, int32_t sec) {
 }
 
 void drawDifficulty(Canvas* canvas, ColorGuessPlayModel* model) {
-    UNUSED(model);
-    char* strDifficulty = malloc(7);
-    if(model->difficulty == 0) {
-        strcpy(strDifficulty, "Easy");
-    } else if(model->difficulty == 1) {
-        strcpy(strDifficulty, "Medium");
-    } else if(model->difficulty == 2) {
-        strcpy(strDifficulty, "Hard");
+    const char* strDifficulty = "Easy";
+    switch(model->difficulty) {
+    case 1:
+        strDifficulty = "Medium";
+        break;
+    case 2:
+        strDifficulty = "Hard";
+        break;
+    default:
+        break;
     }
     canvas_draw_box(canvas, 0, 52, 47, 12);
     canvas_invert_color(canvas);
     canvas_draw_icon(canvas, 2, 54, &I_ButtonCenter_7x7);
     canvas_draw_str_aligned(canvas, 11, 54, AlignLeft, AlignTop, strDifficulty);
     canvas_invert_color(canvas);
-    free(strDifficulty);
-    furi_thread_flags_wait(0, FuriFlagWaitAny, 10);
 }
 
 void color_guess_play_draw(Canvas* canvas, ColorGuessPlayModel* model) {

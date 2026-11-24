@@ -49,7 +49,6 @@ Boilerplate* boilerplate_app_alloc() {
     app->palette_color_hex_c = 0x555555;
     app->palette_color_hex_d = 0x000000;
 
-    app->file_path = furi_string_alloc();
     app->camera_ram_sav = storage_file_alloc(app->storage);
     app->page = 0;
     app->pos_x = 0;
@@ -100,6 +99,10 @@ void boilerplate_app_free(Boilerplate* app) {
     view_dispatcher_remove_view(app->view_dispatcher, BoilerplateViewIdSettings);
 
     submenu_free(app->submenu);
+    boilerplate_startscreen_free(app->boilerplate_startscreen);
+    boilerplate_scene_1_free(app->boilerplate_scene_1);
+    boilerplate_scene_2_free(app->boilerplate_scene_2);
+    variable_item_list_free(app->variable_item_list);
 
     // View Dispatcher
     view_dispatcher_free(app->view_dispatcher);
@@ -107,13 +110,16 @@ void boilerplate_app_free(Boilerplate* app) {
     // Scene manager
     scene_manager_free(app->scene_manager);
 
-    if(app->camera_ram_sav && storage_file_is_open(app->camera_ram_sav)) {
+    // Free the File even if it was never opened (e.g. file picker cancelled);
+    // must happen before the storage record is closed.
+    if(storage_file_is_open(app->camera_ram_sav)) {
         storage_file_close(app->camera_ram_sav);
-        storage_file_free(app->camera_ram_sav);
     }
+    storage_file_free(app->camera_ram_sav);
 
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_STORAGE);
+    furi_record_close(RECORD_NOTIFICATION);
 
     app->gui = NULL;
     app->notification = NULL;

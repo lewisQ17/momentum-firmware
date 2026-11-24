@@ -43,7 +43,9 @@ static bool file_write(void* ctx, uint32_t lba, uint16_t count, uint8_t* buf, ui
 
 static uint32_t file_num_blocks(void* ctx) {
     MassStorageApp* app = ctx;
-    return storage_file_size(app->file) / SCSI_BLOCK_SIZE;
+    // Cap at 4 GiB: lba * SCSI_BLOCK_SIZE and storage_file_seek are 32-bit, so larger
+    // images would alias onto the first 4 GiB and corrupt it
+    return MIN(storage_file_size(app->file) / SCSI_BLOCK_SIZE, 0x800000UL);
 }
 
 static void file_eject(void* ctx) {
@@ -166,6 +168,7 @@ bool mass_storage_scene_work_on_event(void* context, SceneManagerEvent event) {
 void mass_storage_scene_work_on_enter(void* context) {
     MassStorageApp* app = context;
     app->bytes_read = app->bytes_written = 0;
+    app->mass_storage_config_ptr = NULL; // on_exit frees it; must not be stale on early return
 
     if(!storage_file_exists(app->fs_api, furi_string_get_cstr(app->file_path))) {
         scene_manager_search_and_switch_to_previous_scene(
@@ -233,4 +236,6 @@ void mass_storage_scene_work_on_exit(void* context) {
     // Clean up config after use
     MassStorageConfig* config = app->mass_storage_config_ptr;
     free_config(config);
+    // Avoid a double free if the next on_enter returns early (image gone)
+    app->mass_storage_config_ptr = NULL;
 }

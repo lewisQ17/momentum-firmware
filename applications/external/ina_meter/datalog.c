@@ -83,6 +83,7 @@ Datalog* datalog_open(Storage* storage, const char* file_name) {
            log->file, furi_string_get_cstr(log->file_name), FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
         FURI_LOG_E(TAG, "Failed to open datalog file %s", furi_string_get_cstr(log->file_name));
         storage_file_free(log->file);
+        furi_string_free(log->file_name);
         free(log);
         return NULL;
     }

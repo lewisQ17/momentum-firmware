@@ -104,7 +104,8 @@ static void js_vgm_delta_yaw(struct mjs* mjs) {
         return;
     }
     uint32_t ms = (num_args == 2) ? mjs_get_int(mjs, mjs_arg(mjs, 1)) : 3000;
-    uint32_t timeout = furi_get_tick() + ms;
+    // Why: elapsed-time compare is tick-wrap safe
+    uint32_t start = furi_get_tick();
     float initial_yaw = imu_yaw_get(vgm->imu);
     do {
         float current_yaw = imu_yaw_get(vgm->imu);
@@ -113,8 +114,12 @@ static void js_vgm_delta_yaw(struct mjs* mjs) {
             mjs_return(mjs, mjs_mk_number(mjs, diff));
             return;
         }
-        furi_delay_ms(100);
-    } while(furi_get_tick() < timeout);
+        // Why: stop-aware wait so Back/exit is not blocked for the whole timeout
+        if(js_delay_with_flags(mjs, 100)) {
+            mjs_return(mjs, MJS_UNDEFINED);
+            return;
+        }
+    } while((furi_get_tick() - start) < ms);
 
     mjs_return(mjs, mjs_mk_number(mjs, 0));
 }

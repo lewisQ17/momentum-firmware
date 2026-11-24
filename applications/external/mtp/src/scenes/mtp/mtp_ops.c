@@ -79,6 +79,8 @@ int GetStorageInfo(AppMTP* mtp, uint32_t storage_id, uint8_t* buf) {
 int GetObjectInfo(AppMTP* mtp, uint32_t handle, uint8_t* buffer) {
     ObjectInfoHeader* header = (ObjectInfoHeader*)buffer;
     uint8_t* ptr = buffer + sizeof(ObjectInfoHeader);
+    // Unwritten header fields would otherwise leak stale heap bytes to the host
+    memset(buffer, 0, sizeof(ObjectInfoHeader));
 
     char* path = get_path_from_handle(mtp, handle);
     if(path == NULL) {
@@ -91,7 +93,6 @@ int GetObjectInfo(AppMTP* mtp, uint32_t handle, uint8_t* buffer) {
     header->protection_status = 0;
 
     Storage* storage = mtp->storage;
-    File* file = storage_file_alloc(storage);
     uint16_t length;
 
     FileInfo fileinfo;
@@ -150,8 +151,6 @@ int GetObjectInfo(AppMTP* mtp, uint32_t handle, uint8_t* buffer) {
     WriteMTPString(ptr, "", &length);
     ptr += length;
 
-    storage_file_free(file);
-
     return ptr - buffer;
 }
 
@@ -174,6 +173,7 @@ void GetObject(AppMTP* mtp, uint32_t transaction_id, uint32_t handle) {
     File* file = storage_file_alloc(storage);
     if(!storage_file_open(file, path, FSAM_READ, FSOM_OPEN_EXISTING)) {
         FURI_LOG_E("MTP", "Failed to open file: %s", path);
+        storage_file_free(file);
         send_mtp_response(
             mtp, MTP_TYPE_RESPONSE, MTP_RESP_INVALID_OBJECT_HANDLE, transaction_id, NULL);
         return;
@@ -196,18 +196,18 @@ void GetObject(AppMTP* mtp, uint32_t transaction_id, uint32_t handle) {
 
 int GetObjectHandles(AppMTP* mtp, uint32_t storage_id, uint32_t association, uint8_t* buffer) {
     uint8_t* ptr = buffer;
-    uint16_t length;
+    uint32_t length;
 
-    UNUSED(length);
+    // The caller's buffer is MTP_BUFFER_SIZE bytes: 4-byte count + handles. Cap the
+    // handle count so large folders cannot overflow it.
+    const uint32_t max_handles = (MTP_BUFFER_SIZE - sizeof(uint32_t)) / sizeof(uint32_t);
 
-    // For now, just return a single object handle
-    int count = list_and_issue_handles(mtp, storage_id, association, NULL);
-
-    *(uint32_t*)ptr = count;
     ptr += sizeof(uint32_t);
 
     uint32_t* handles = (uint32_t*)ptr;
-    length = list_and_issue_handles(mtp, storage_id, association, handles);
+    length = list_and_issue_handles(mtp, storage_id, association, handles, max_handles);
+    if(length > max_handles) length = max_handles;
+    *(uint32_t*)buffer = length;
     ptr += length * sizeof(uint32_t);
 
     return ptr - buffer;
@@ -278,12 +278,19 @@ void MoveObject(
     char* realFilename = filename + 1;
 
     char* newPath = malloc(sizeof(char) * 256);
-    merge_path(newPath, parentPath, realFilename);
+    if(!merge_path(newPath, 256, parentPath, realFilename)) {
+        FURI_LOG_E("MTP", "Move target path invalid or too long");
+        free(newPath);
+        send_mtp_response(
+            mtp, MTP_TYPE_RESPONSE, MTP_RESP_INVALID_OBJECT_HANDLE, transaction_id, NULL);
+        return;
+    }
 
     FURI_LOG_I("MTP", "Moving object: %s to %s", path, newPath);
 
     if(storage_common_rename(storage, path, newPath) != FSE_OK) {
         FURI_LOG_E("MTP", "Failed to move object: %s", path);
+        free(newPath);
         send_mtp_response(
             mtp, MTP_TYPE_RESPONSE, MTP_RESP_INVALID_OBJECT_HANDLE, transaction_id, NULL);
         return;
@@ -292,8 +299,8 @@ void MoveObject(
     FURI_LOG_I("MTP", "Object moved successfully");
     send_mtp_response(mtp, MTP_TYPE_RESPONSE, MTP_RESP_OK, transaction_id, NULL);
 
+    // The handle list takes ownership of newPath and frees the old path itself
     update_object_handle_path(mtp, handle, newPath);
-    free(path);
 
     return;
 }

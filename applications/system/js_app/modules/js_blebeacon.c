@@ -137,6 +137,11 @@ static void js_blebeacon_set_data(struct mjs* mjs) {
         ret_bad_args(mjs, "Data must be a Uint8Array");
         return;
     }
+    // Why: gap_extra_beacon_set_data furi_checks the length (and the HAL arg is a uint8_t)
+    if(data_len > EXTRA_BEACON_MAX_DATA_SIZE) {
+        ret_bad_args(mjs, "Data must be at most 31 bytes");
+        return;
+    }
 
     if(!blebeacon->saved_prev_data) {
         blebeacon->saved_prev_data = true;
@@ -153,6 +158,12 @@ static void js_blebeacon_set_data(struct mjs* mjs) {
 static void js_blebeacon_start(struct mjs* mjs) {
     JsBlebeaconInst* blebeacon = get_this_ctx(mjs);
     if(!check_arg_count(mjs, 0)) return;
+
+    // Why: gap_extra_beacon_start furi_checks the interval, which is zero until a config is set
+    if(!furi_hal_bt_extra_beacon_get_config()) {
+        ret_int_err(mjs, "Call setConfig() before start()");
+        return;
+    }
 
     if(!blebeacon->saved_prev_active) {
         blebeacon->saved_prev_active = true;

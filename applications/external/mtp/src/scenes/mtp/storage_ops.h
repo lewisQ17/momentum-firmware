@@ -13,4 +13,5 @@ int list_and_issue_handles(
     AppMTP* mtp,
     uint32_t storage_id,
     uint32_t association,
-    uint32_t* handles);
+    uint32_t* handles,
+    uint32_t max_handles);

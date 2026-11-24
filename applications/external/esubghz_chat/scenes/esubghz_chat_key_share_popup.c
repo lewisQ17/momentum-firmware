@@ -131,6 +131,9 @@ void scene_on_exit_key_share_popup(void* context) {
 
     nfc_worker_stop(state->nfc_worker);
 
+    // keep parsed_data: it is a FuriString owned by the NfcDevice and freed later
+    FuriString* parsed = state->nfc_dev_data->parsed_data;
     crypto_explicit_bzero(state->nfc_dev_data->mf_ul_data.data, KEY_BITS / 8);
     memset(state->nfc_dev_data, 0, sizeof(NfcDeviceData));
+    state->nfc_dev_data->parsed_data = parsed;
 }

@@ -183,6 +183,7 @@ int32_t infrared_remote_app(char* p) {
         view_port_enabled_set(app->view_port, false);
         gui_remove_view_port(gui, app->view_port);
         view_port_free(app->view_port);
+        infrared_worker_free(app->infrared_worker); // was leaked on cancel
         free(app);
         furi_message_queue_free(event_queue);
 
@@ -193,17 +194,18 @@ int32_t infrared_remote_app(char* p) {
     InfraredRemote* remote = infrared_remote_alloc();
     FuriString* remote_path = furi_string_alloc();
 
-    InfraredSignal* up_signal = infrared_signal_alloc();
-    InfraredSignal* down_signal = infrared_signal_alloc();
-    InfraredSignal* left_signal = infrared_signal_alloc();
-    InfraredSignal* right_signal = infrared_signal_alloc();
-    InfraredSignal* ok_signal = infrared_signal_alloc();
-    InfraredSignal* back_signal = infrared_signal_alloc();
-    InfraredSignal* up_hold_signal = infrared_signal_alloc();
-    InfraredSignal* down_hold_signal = infrared_signal_alloc();
-    InfraredSignal* left_hold_signal = infrared_signal_alloc();
-    InfraredSignal* right_hold_signal = infrared_signal_alloc();
-    InfraredSignal* ok_hold_signal = infrared_signal_alloc();
+    // Signals are borrowed from the remote below (guarded by *_enabled); nothing to free here
+    InfraredSignal* up_signal = NULL;
+    InfraredSignal* down_signal = NULL;
+    InfraredSignal* left_signal = NULL;
+    InfraredSignal* right_signal = NULL;
+    InfraredSignal* ok_signal = NULL;
+    InfraredSignal* back_signal = NULL;
+    InfraredSignal* up_hold_signal = NULL;
+    InfraredSignal* down_hold_signal = NULL;
+    InfraredSignal* left_hold_signal = NULL;
+    InfraredSignal* right_hold_signal = NULL;
+    InfraredSignal* ok_hold_signal = NULL;
 
     InfraredSignal* active_signal = NULL;
     bool is_transmitting = false;

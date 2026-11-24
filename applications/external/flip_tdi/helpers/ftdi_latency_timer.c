@@ -55,13 +55,14 @@ void ftdi_latency_timer_enable(FtdiLatencyTimer* ftdi_latency_timer, bool enable
 }
 
 void ftdi_latency_timer_set_speed(FtdiLatencyTimer* ftdi_latency_timer, uint8_t speed) {
-    UNUSED(ftdi_latency_timer);
     if(speed == 0) {
         speed = FTDI_LATENCY_TIMER_SPEED_DEFALUT;
         ftdi_latency_timer_enable(ftdi_latency_timer, false);
     } else {
         ftdi_latency_timer_enable(ftdi_latency_timer, true);
     }
+    // Store so GetLatencyTimer reads back what was set
+    ftdi_latency_timer->speed = speed;
 
     LL_TIM_SetPrescaler(TIM1, speed - 1);
 }

@@ -127,11 +127,12 @@ __int32_t bt_trigger_app(void* p) {
     bt_keys_storage_set_default_path(app->bt);
     furi_check(bt_profile_restore_default(app->bt));
 
-    //Freeing memory
-    furi_message_queue_free(event_queue);
     //Freeing timer
     furi_timer_free(timer);
+    // Remove the view port before freeing the queue: input/timer callbacks put into it
     cleanUpBeforeYouLeave(app);
+    //Freeing memory
+    furi_message_queue_free(event_queue);
 
     return 0;
 }

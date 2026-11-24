@@ -80,8 +80,10 @@ JsModuleData* js_find_loaded_module(JsModules* instance, const char* name) {
 mjs_val_t js_module_require(JsModules* modules, const char* name, size_t name_len) {
     // Ignore the initial part of the module name
     const char* optional_module_prefix = "@" JS_SDK_VENDOR "/fz-sdk/";
-    if(strncmp(name, optional_module_prefix, strlen(optional_module_prefix)) == 0) {
-        name += strlen(optional_module_prefix);
+    size_t prefix_len = strlen(optional_module_prefix);
+    if(strncmp(name, optional_module_prefix, prefix_len) == 0) {
+        name += prefix_len;
+        name_len -= prefix_len; // keep built-in length comparison consistent with the stripped name
     }
 
     // Check if module is already installed
@@ -167,6 +169,13 @@ mjs_val_t js_module_require(JsModules* modules, const char* name, size_t name_le
         furi_assert(module_inst);
         if(module_inst->create) { //-V779
             module_inst->context = module_inst->create(modules->mjs, &module_object, modules);
+        }
+        if(module_object == MJS_UNDEFINED && !module_inst->context) {
+            // Constructor failed: drop the entry so the destructor never runs with a NULL context.
+            // The entry was inserted at index 0 above. The plugin stays loaded and is freed by
+            // plugin_manager_free().
+            furi_string_free(module_inst->name);
+            JsModuleArray_pop_at(NULL, modules->modules, 0);
         }
     }
 

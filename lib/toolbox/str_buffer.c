@@ -15,4 +15,5 @@ void str_buffer_clear_all_clones(StrBuffer* buffer) {
     }
     free(buffer->owned_strings);
     buffer->owned_strings = NULL;
+    buffer->n_owned_strings = 0; // otherwise the next clone reallocs with a stale count
 }

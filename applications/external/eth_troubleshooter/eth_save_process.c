@@ -275,7 +275,10 @@ EthernetSaveConfig* ethernet_save_process_malloc() {
         FURI_LOG_E(TAG, "Failed to open file or file not exists");
         storage_file_free(file);
         furi_record_close(RECORD_STORAGE);
-        return NULL;
+        // Keep config usable without a log file (no SD / missing app-data dir) instead of
+        // returning NULL, which callers dereference
+        config->log_file = NULL;
+        return config;
     }
 
     config->log_file = file;
@@ -285,6 +288,9 @@ EthernetSaveConfig* ethernet_save_process_malloc() {
 
 void ethernet_save_process_print(EthernetSaveConfig* config, const char* str) {
     furi_assert(config);
+    if(!config->log_file) {
+        return;
+    }
     DateTime datetime = {0};
     furi_hal_rtc_get_datetime(&datetime);
     storage_printf(
@@ -302,8 +308,11 @@ void ethernet_save_process_print(EthernetSaveConfig* config, const char* str) {
 void ethernet_save_process_free(EthernetSaveConfig* config) {
     FURI_LOG_E(TAG, "ethernet_save_process_free");
     ethernet_save_process_write(config);
-    storage_file_close(config->log_file);
-    storage_file_free(config->log_file);
-    furi_record_close(RECORD_STORAGE);
+    // Storage record was already closed on the open-failure path (log_file == NULL)
+    if(config->log_file) {
+        storage_file_close(config->log_file);
+        storage_file_free(config->log_file);
+        furi_record_close(RECORD_STORAGE);
+    }
     free(config);
 }

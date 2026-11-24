@@ -43,7 +43,10 @@ void nfc_playlist_playlist_rename_scene_on_enter(void* context) {
       furi_string_get_cstr(nfc_playlist->worker_info.settings->playlist_path), tmp_file_name);
 
    nfc_playlist->views.text_input.output = malloc(MAX_PLAYLIST_NAME_LEN + 1);
-   strcpy(nfc_playlist->views.text_input.output, furi_string_get_cstr(tmp_file_name));
+   strlcpy(
+      nfc_playlist->views.text_input.output,
+      furi_string_get_cstr(tmp_file_name),
+      MAX_PLAYLIST_NAME_LEN + 1);
    furi_string_free(tmp_file_name);
 
    text_input_set_header_text(nfc_playlist->views.text_input.view, "Enter new file name");

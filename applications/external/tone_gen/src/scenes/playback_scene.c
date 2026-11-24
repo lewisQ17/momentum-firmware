@@ -86,8 +86,12 @@ bool scene_on_event_playback_scene(void* context, SceneManagerEvent event) {
 void scene_on_exit_playback_scene(void* context) {
     FURI_LOG_I(TAG, "scene_on_exit_playback_scene");
     UNUSED(context);
-    stopSound();
-    deinitializeSpeaker();
+    // furi_hal_speaker_stop/release furi_check() ownership; acquire may have timed out
+    // (e.g. a notification sound held the speaker), so only touch it if we own it.
+    if(furi_hal_speaker_is_mine()) {
+        stopSound();
+        deinitializeSpeaker();
+    }
     NotificationApp* notifications = furi_record_open(RECORD_NOTIFICATION);
     notification_message(notifications, &sequence_reset_rgb);
     furi_record_close(RECORD_NOTIFICATION);

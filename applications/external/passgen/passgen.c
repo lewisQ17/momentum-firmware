@@ -156,12 +156,12 @@ void generate(PassGen* app) {
     memset(app->password, 0, PASSGEN_MAX_LENGTH + 1);
 
     int char_option_count = strlen(app->alphabet);
-    if(char_option_count < 0) {
+    if(char_option_count <= 0) {
         return;
     }
 
-    // determine largest character value that avoids bias
-    char ceil = CHAR_MAX - (CHAR_MAX % char_option_count) - 1;
+    // bytes below this limit map uniformly onto the alphabet (256 values, unsigned)
+    const unsigned limit = 256 - (256 % char_option_count);
 
     // iteratively fill the password buffer with random values
     // then keep only values that are in-range (no bias)
@@ -178,9 +178,9 @@ void generate(PassGen* app) {
         size_t valid_count = 0;
 
         for(size_t i = 0; i < remaining_length; i++) {
-            int v = *source;
+            uint8_t v = *(uint8_t*)source;
             // if the generated random value is in range, keep it
-            if(v < ceil) {
+            if(v < limit) {
                 v %= char_option_count;
                 *target = app->alphabet[v];
                 // increment target pointer and count of valid items found

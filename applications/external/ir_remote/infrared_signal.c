@@ -67,7 +67,7 @@ static bool infrared_signal_is_raw_valid(InfraredRawSignal* raw) {
             raw->frequency);
         return false;
 
-    } else if((raw->duty_cycle <= 0) || (raw->duty_cycle > 1)) {
+    } else if(!(raw->duty_cycle > 0.0f && raw->duty_cycle <= 1.0f)) { // NaN-safe
         FURI_LOG_E(TAG, "Duty cycle is out of range (0 - 1): %f", (double)raw->duty_cycle);
         return false;
 
@@ -132,6 +132,17 @@ static inline bool infrared_signal_read_raw(InfraredSignal* signal, FlipperForma
                    flipper_format_get_value_count(ff, "data", &timings_size);
 
     if(!success || timings_size > MAX_TIMINGS_AMOUNT) {
+        return false;
+    }
+
+    // Reject what infrared_worker_set_raw_signal would furi_check() on at key press
+    InfraredRawSignal raw_check = {
+        .timings = NULL,
+        .timings_size = timings_size,
+        .frequency = frequency,
+        .duty_cycle = duty_cycle,
+    };
+    if(!infrared_signal_is_raw_valid(&raw_check)) {
         return false;
     }
 

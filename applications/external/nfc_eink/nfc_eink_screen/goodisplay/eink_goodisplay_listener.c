@@ -66,6 +66,10 @@ static inline uint8_t nfc_eink_screen_apdu_command_B0(
         response->data_length = 0x0000;
         status = (uint16_t*)(response->data);
         length = 2;
+    } else {
+        // Unsupported Le: answer "wrong length" instead of writing through a NULL status
+        resp->status = __builtin_bswap16(0x6700);
+        return 1 + 2;
     }
 
     *status = __builtin_bswap16(0x9000);
@@ -117,10 +121,14 @@ static inline uint8_t nfc_eink_screen_apdu_command_D2(
     UNUSED(resp);
 
     FURI_LOG_D(TAG, "F0 D2: %d", command->data_length);
-    if(screen->device->block_current < screen->device->block_total) {
+    // Bound by the allocation (block_total * block size); data_length < 2 would underflow
+    const uint8_t n = command->data_length;
+    const size_t cap = (size_t)screen->device->block_total * screen->data->base.data_block_size;
+    if(n >= 2 && screen->device->block_current < screen->device->block_total &&
+       (size_t)screen->device->received_data + (n - 2) <= cap) {
         uint8_t* data = screen->data->image_data + screen->device->received_data;
-        memcpy(data, command->data, command->data_length - 2);
-        screen->device->received_data += command->data_length - 2;
+        memcpy(data, command->data, n - 2);
+        screen->device->received_data += n - 2;
     }
     NfcEinkScreenSpecificGoodisplayContext* ctx = screen->device->screen_context;
     ctx->was_update = true;
@@ -264,7 +272,10 @@ static NfcCommand nfc_eink_goodisplay_command_handler_02(
         *response_length = nfc_eink_goodisplay_command_handler_process_apdu(
             screen, apdu, &response->apdu_resp.apdu_response);
     } else {
-        if(screen->device->block_current < screen->device->block_total) {
+        const size_t cap =
+            (size_t)screen->device->block_total * screen->data->base.data_block_size;
+        if(screen->device->block_current < screen->device->block_total &&
+           (size_t)screen->device->received_data + 2 <= cap) {
             uint8_t* data = screen->data->image_data + screen->device->received_data;
             ctx->listener_state = EinkGoodisplayListenerStateReadingBlocks;
             memcpy(data, (uint8_t*)apdu, 2);

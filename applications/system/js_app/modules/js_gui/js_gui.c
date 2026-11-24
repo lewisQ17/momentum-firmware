@@ -19,6 +19,9 @@ typedef struct {
     JsEventLoopContract navigation_contract;
     FuriSemaphore*
         navigation; // FIXME: (-nofl) convert into callback once FuriEventLoop starts supporting this
+    // custom events sent via `sendCustom` that the dispatcher hasn't delivered yet; the dispatcher
+    // queue blocks forever on this thread when full
+    int32_t pending_custom;
 } JsGui;
 
 // Useful for factories
@@ -58,7 +61,9 @@ static mjs_val_t
 static bool js_gui_vd_custom_callback(void* context, uint32_t event) {
     furi_check(context);
     JsGui* module = context;
-    furi_check(furi_message_queue_put(module->custom, &event, 0) == FuriStatusOk);
+    if(module->pending_custom > 0) module->pending_custom--;
+    // drop the event on overflow instead of crashing
+    (void)furi_message_queue_put(module->custom, &event, 0);
     return true;
 }
 
@@ -86,6 +91,12 @@ static void js_gui_vd_send_custom(struct mjs* mjs) {
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_vd_send_custom_args, &event);
 
     JsGui* module = JS_GET_CONTEXT(mjs);
+    if(!module) JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "invalid viewDispatcher");
+    // stay below the dispatcher queue size so the blocking put can never deadlock the JS thread
+    if(module->pending_custom >= EVENT_QUEUE_SIZE - 1) {
+        JS_ERROR_AND_RETURN(mjs, MJS_INTERNAL_ERROR, "custom event queue full");
+    }
+    module->pending_custom++;
     view_dispatcher_send_custom_event(module->dispatcher, (uint32_t)event);
 }
 
@@ -111,6 +122,7 @@ static void js_gui_vd_send_to(struct mjs* mjs) {
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_vd_send_to_args, &send_direction);
 
     JsGui* module = JS_GET_CONTEXT(mjs);
+    if(!module) JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "invalid viewDispatcher");
     if(send_direction == JsSendDirToBack) {
         view_dispatcher_send_to_back(module->dispatcher);
     } else {
@@ -134,6 +146,8 @@ static void js_gui_vd_switch_to(struct mjs* mjs) {
     JsGuiViewData* view_data = JS_GET_INST(mjs, view);
     mjs_val_t vd_obj = mjs_get_this(mjs);
     JsGui* module = JS_GET_INST(mjs, vd_obj);
+    if(!module) JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "invalid viewDispatcher");
+    if(!view_data) JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "argument must be a View");
     view_dispatcher_switch_to_view(module->dispatcher, (uint32_t)view_data->id);
     mjs_set(mjs, vd_obj, "currentView", ~0, view);
 }
@@ -200,7 +214,8 @@ static void* js_gui_create(struct mjs* mjs, mjs_val_t* object, JsModules* module
 }
 
 static void js_gui_destroy(void* inst) {
-    furi_assert(inst);
+    // create() returns NULL when event_loop isn't loaded (furi_assert is a no-op in release)
+    if(!inst) return;
     JsGui* module = inst;
 
     view_dispatcher_free(module->dispatcher);
@@ -288,7 +303,9 @@ static bool js_gui_view_internal_set_children(
     bool do_reset) {
     if(do_reset) data->descriptor->reset_children(data->specific_view, data->custom_data);
 
-    for(size_t i = 0; i < mjs_array_length(mjs, children); i++) {
+    // mjs_array_length is O(n), don't recompute it on every iteration
+    size_t children_len = mjs_array_length(mjs, children);
+    for(size_t i = 0; i < children_len; i++) {
         mjs_val_t child = mjs_array_get(mjs, children, i);
         if(!data->descriptor->add_child(mjs, data->specific_view, data->custom_data, child))
             return false;
@@ -312,6 +329,7 @@ static void js_gui_view_set(struct mjs* mjs) {
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_view_set_args, &name, &value);
 
     JsGuiViewData* data = JS_GET_CONTEXT(mjs);
+    if(!data) JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "invalid View");
     bool success = js_gui_view_assign(mjs, name, value, data);
     UNUSED(success);
     mjs_return(mjs, MJS_UNDEFINED);
@@ -331,6 +349,7 @@ static void js_gui_view_add_child(struct mjs* mjs) {
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_view_add_child_args, &child);
 
     JsGuiViewData* data = JS_GET_CONTEXT(mjs);
+    if(!data) JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "invalid View");
     if(!data->descriptor->add_child || !data->descriptor->reset_children)
         JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "this View can't have children");
 
@@ -344,6 +363,7 @@ static void js_gui_view_add_child(struct mjs* mjs) {
  */
 static void js_gui_view_reset_children(struct mjs* mjs) {
     JsGuiViewData* data = JS_GET_CONTEXT(mjs);
+    if(!data) JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "invalid View");
     if(!data->descriptor->add_child || !data->descriptor->reset_children)
         JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "this View can't have children");
 
@@ -365,6 +385,7 @@ static void js_gui_view_set_children(struct mjs* mjs) {
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_gui_view_set_children_args, &children);
 
     JsGuiViewData* data = JS_GET_CONTEXT(mjs);
+    if(!data) JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "invalid View");
     if(!data->descriptor->add_child || !data->descriptor->reset_children)
         JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "this View can't have children");
 

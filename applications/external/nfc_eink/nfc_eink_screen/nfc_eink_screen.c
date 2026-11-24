@@ -95,6 +95,9 @@ static bool nfc_eink_screen_init_internal(NfcEinkScreen* screen) {
         if(data->image_size % info->data_block_size != 0) device->block_total += 1;
         size_t memory_size = device->block_total * data->base.data_block_size;
 
+        // Re-config messages call this again: don't leak the previous buffer
+        free(data->image_data);
+        data->image_data = NULL;
         data->image_data = malloc(memory_size);
         result = true;
     } while(false);
@@ -261,7 +264,7 @@ static bool nfc_eink_screen_save_block(
     furi_string_printf(temp_str, "%s %d", NFC_EINK_SCREEN_BLOCK_DATA_KEY, block_num);
     bool block_saved =
         flipper_format_write_hex(ff, furi_string_get_cstr(temp_str), block, block_size);
-    free(temp_str);
+    furi_string_free(temp_str);
     return block_saved;
 }
 

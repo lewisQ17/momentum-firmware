@@ -271,10 +271,16 @@ void draw_game_scene(Canvas* canvas, GeometryDashApp* app) {
     int start_grid_x = (int)(app->scroll_offset / OBSTACLE_GAP) - 5;
     int end_grid_x = start_grid_x + (SCREEN_WIDTH / OBSTACLE_GAP) + 10;
     for (int grid_x = start_grid_x; grid_x <= end_grid_x; grid_x++) {
-        int obstacle_screen_x = (grid_x * OBSTACLE_GAP) - (int)app->scroll_offset;
         for (int j = 0; j < app->current_level.length; j++) {
             Obstacle* obs = &app->current_level.obstacles[j];
-            if (obs->grid_x == grid_x) {
+            // Long blocks that start before the window but still overlap it must be drawn too
+            bool in_window = obs->grid_x == grid_x ||
+                             (grid_x == start_grid_x && obs->type == ObstacleTypeBlock &&
+                              obs->grid_x < start_grid_x &&
+                              obs->grid_x * OBSTACLE_GAP + obs->length * OBSTACLE_WIDTH >
+                                  start_grid_x * OBSTACLE_GAP);
+            if (in_window) {
+                int obstacle_screen_x = (obs->grid_x * OBSTACLE_GAP) - (int)app->scroll_offset;
                 if (obs->type == ObstacleTypeBlock) {
                     int platform_width = obs->length * OBSTACLE_WIDTH;
                     int screen_y = GROUND_Y - (obs->grid_y + 1) * OBSTACLE_HEIGHT;

@@ -257,6 +257,10 @@ int32_t bpm_tapper_app(void* p) {
     furi_message_queue_free(event_queue);
     furi_mutex_free(bpm_state->mutex);
     queue* q = bpm_state->tap_queue;
+    // Free the remaining tap nodes (up to max_size) before the queue itself
+    while(q->size > 0) {
+        queue_remove(q);
+    }
     free(q);
     free(bpm_state);
 

@@ -1,6 +1,9 @@
 #include "../js_modules.h"
 #include <furi_hal_i2c.h>
 
+// Why: script-controlled lengths go straight into malloc (furi_check on OOM = reboot)
+#define JS_I2C_MAX_LEN 8192
+
 static void ret_bad_args(struct mjs* mjs, const char* error) {
     mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "%s", error);
     mjs_return(mjs, MJS_UNDEFINED);
@@ -32,7 +35,12 @@ static void js_i2c_is_device_ready(struct mjs* mjs) {
             ret_bad_args(mjs, "Timeout must be a number");
             return;
         }
-        timeout = mjs_get_int32(mjs, timeout_arg);
+        int32_t timeout_val = mjs_get_int32(mjs, timeout_arg);
+        if(timeout_val <= 0) {
+            ret_bad_args(mjs, "Timeout must be positive");
+            return;
+        }
+        timeout = timeout_val;
     }
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
@@ -60,6 +68,10 @@ static void js_i2c_write(struct mjs* mjs) {
         tx_len = mjs_array_length(mjs, tx_buf_arg);
         if(tx_len == 0) {
             ret_bad_args(mjs, "Data array must not be empty");
+            return;
+        }
+        if(tx_len > JS_I2C_MAX_LEN) {
+            ret_bad_args(mjs, "Data array too long");
             return;
         }
         tx_buf = malloc(tx_len);
@@ -102,7 +114,13 @@ static void js_i2c_write(struct mjs* mjs) {
             if(tx_buf_was_allocated) free(tx_buf);
             return;
         }
-        timeout = mjs_get_int32(mjs, timeout_arg);
+        int32_t timeout_val = mjs_get_int32(mjs, timeout_arg);
+        if(timeout_val <= 0) {
+            ret_bad_args(mjs, "Timeout must be positive");
+            if(tx_buf_was_allocated) free(tx_buf);
+            return;
+        }
+        timeout = timeout_val;
     }
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
@@ -128,11 +146,12 @@ static void js_i2c_read(struct mjs* mjs) {
         ret_bad_args(mjs, "Length must be a number");
         return;
     }
-    size_t rx_len = mjs_get_int32(mjs, rx_len_arg);
-    if(rx_len == 0) {
-        ret_bad_args(mjs, "Length must not zero");
+    int32_t rx_len_val = mjs_get_int32(mjs, rx_len_arg);
+    if(rx_len_val <= 0 || rx_len_val > JS_I2C_MAX_LEN) {
+        ret_bad_args(mjs, "Length must be 1-8192");
         return;
     }
+    size_t rx_len = rx_len_val;
     uint8_t* rx_buf = malloc(rx_len);
 
     uint32_t timeout = 1;
@@ -143,7 +162,13 @@ static void js_i2c_read(struct mjs* mjs) {
             free(rx_buf);
             return;
         }
-        timeout = mjs_get_int32(mjs, timeout_arg);
+        int32_t timeout_val = mjs_get_int32(mjs, timeout_arg);
+        if(timeout_val <= 0) {
+            ret_bad_args(mjs, "Timeout must be positive");
+            free(rx_buf);
+            return;
+        }
+        timeout = timeout_val;
     }
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
@@ -176,6 +201,10 @@ static void js_i2c_write_read(struct mjs* mjs) {
         tx_len = mjs_array_length(mjs, tx_buf_arg);
         if(tx_len == 0) {
             ret_bad_args(mjs, "Data array must not be empty");
+            return;
+        }
+        if(tx_len > JS_I2C_MAX_LEN) {
+            ret_bad_args(mjs, "Data array too long");
             return;
         }
         tx_buf = malloc(tx_len);
@@ -216,12 +245,13 @@ static void js_i2c_write_read(struct mjs* mjs) {
         if(tx_buf_was_allocated) free(tx_buf);
         return;
     }
-    size_t rx_len = mjs_get_int32(mjs, rx_len_arg);
-    if(rx_len == 0) {
-        ret_bad_args(mjs, "Length must not zero");
+    int32_t rx_len_val = mjs_get_int32(mjs, rx_len_arg);
+    if(rx_len_val <= 0 || rx_len_val > JS_I2C_MAX_LEN) {
+        ret_bad_args(mjs, "Length must be 1-8192");
         if(tx_buf_was_allocated) free(tx_buf);
         return;
     }
+    size_t rx_len = rx_len_val;
     uint8_t* rx_buf = malloc(rx_len);
 
     uint32_t timeout = 1;
@@ -233,7 +263,14 @@ static void js_i2c_write_read(struct mjs* mjs) {
             free(rx_buf);
             return;
         }
-        timeout = mjs_get_int32(mjs, timeout_arg);
+        int32_t timeout_val = mjs_get_int32(mjs, timeout_arg);
+        if(timeout_val <= 0) {
+            ret_bad_args(mjs, "Timeout must be positive");
+            if(tx_buf_was_allocated) free(tx_buf);
+            free(rx_buf);
+            return;
+        }
+        timeout = timeout_val;
     }
 
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);

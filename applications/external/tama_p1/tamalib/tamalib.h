@@ -46,7 +46,7 @@ typedef enum {
 } exec_mode_t;
 
 void tamalib_release(void);
-bool_t tamalib_init(const u12_t* program, breakpoint_t* breakpoints, u32_t freq);
+bool_t tamalib_init(const u12_t* program, u32_t words, breakpoint_t* breakpoints, u32_t freq);
 
 void tamalib_set_framerate(u8_t framerate);
 u8_t tamalib_get_framerate(void);

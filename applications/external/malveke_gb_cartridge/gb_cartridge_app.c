@@ -24,6 +24,9 @@ GBCartridge* gb_cartridge_app_app_alloc() {
     app->gui = furi_record_open(RECORD_GUI);
     app->storage = furi_record_open(RECORD_STORAGE);
     app->notification = furi_record_open(RECORD_NOTIFICATION);
+    // The dump File is allocated on demand (OK press in scene 2); UART callbacks check these
+    app->cart_rom = NULL;
+    app->is_writing_rom = false;
 
     //  Create MALVEKE dir
     if(storage_common_stat(app->storage, MALVEKE_APP_FOLDER, NULL) == FSE_NOT_EXIST) {
@@ -154,6 +157,15 @@ void gb_cartridge_app_app_free(GBCartridge* app) {
     //
     uart_free(app->uart);
     uart_free(app->lp_uart);
+
+    // Dump File (if any) must go before the storage record is closed
+    if(app->cart_rom) {
+        if(storage_file_is_open(app->cart_rom)) {
+            storage_file_close(app->cart_rom);
+        }
+        storage_file_free(app->cart_rom);
+        app->cart_rom = NULL;
+    }
 
     furi_record_close(RECORD_DIALOGS);
     furi_record_close(RECORD_GUI);

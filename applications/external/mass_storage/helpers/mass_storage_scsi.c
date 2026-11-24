@@ -168,8 +168,10 @@ bool scsi_cmd_tx_data(SCSISession* scsi, uint8_t* data, uint32_t* len, uint32_t 
 
             // Use configurable serial number
             if(scsi->config && scsi->config->scsi_serial) {
-                size_t serial_len = strlen(scsi->config->scsi_serial);
-                data[3] = serial_len; // Serial len
+                // Bound by the host allocation length (cap >= 36 here) and the 1-byte length field
+                size_t max_len = SCSI_MIN((size_t)(cap - 4), (size_t)255);
+                size_t serial_len = SCSI_MIN(strlen(scsi->config->scsi_serial), max_len);
+                data[3] = (uint8_t)serial_len; // Serial len
                 memcpy(data + 4, scsi->config->scsi_serial, serial_len);
                 *len = 4 + serial_len;
             } else {

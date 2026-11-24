@@ -40,10 +40,16 @@ bool check_collision(GeometryDashApp* app, float scroll_offset) {
     int end_grid_x = start_grid_x + (SCREEN_WIDTH / OBSTACLE_GAP) + 6;
     
     for (int grid_x = start_grid_x; grid_x <= end_grid_x; grid_x++) {
-        int obstacle_screen_x = (grid_x * OBSTACLE_GAP) - (int)scroll_offset;
         for (int j = 0; j < app->current_level.length; j++) {
             Obstacle* obstacle = &app->current_level.obstacles[j];
-            if (obstacle->grid_x == grid_x && obstacle->type != ObstacleTypeNone) {
+            // Long blocks that start before the window but still overlap it must be tested too
+            bool in_window = obstacle->grid_x == grid_x ||
+                             (grid_x == start_grid_x && obstacle->type == ObstacleTypeBlock &&
+                              obstacle->grid_x < start_grid_x &&
+                              obstacle->grid_x * OBSTACLE_GAP + obstacle->length * OBSTACLE_WIDTH >
+                                  start_grid_x * OBSTACLE_GAP);
+            if (in_window && obstacle->type != ObstacleTypeNone) {
+                int obstacle_screen_x = (obstacle->grid_x * OBSTACLE_GAP) - (int)scroll_offset;
                 bool is_special_object = (obstacle->type == ObstacleTypePortalShip ||
                                         obstacle->type == ObstacleTypePortalCube ||
                                         obstacle->type == ObstacleTypePortalBall ||

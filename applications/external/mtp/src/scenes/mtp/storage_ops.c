@@ -22,40 +22,29 @@ char* get_path_from_handle(AppMTP* mtp, uint32_t handle) {
 }
 
 uint32_t issue_object_handle(AppMTP* mtp, char* path) {
-    int handle = 1;
-    int length = strlen(path);
-    char* path_store = malloc(sizeof(char) * (length + 1));
+    // Look up first (every node, including the last) so a known path neither
+    // leaks a copy nor gets a duplicate node.
+    FileHandle* tail = NULL;
+    for(FileHandle* cur = mtp->handles; cur != NULL; cur = cur->next) {
+        if(strcmp(cur->path, path) == 0) {
+            return cur->handle;
+        }
+        tail = cur;
+    }
+
+    char* path_store = malloc(strlen(path) + 1);
     strcpy(path_store, path);
 
-    if(mtp->handles == NULL) {
-        mtp->handles = malloc(sizeof(FileHandle));
-        mtp->handles->handle = handle;
-        mtp->handles->path = path_store;
-        mtp->handles->next = NULL;
-        return handle;
+    FileHandle* node = malloc(sizeof(FileHandle));
+    node->handle = tail ? tail->handle + 1 : 1;
+    node->path = path_store;
+    node->next = NULL;
+    if(tail) {
+        tail->next = node;
+    } else {
+        mtp->handles = node;
     }
-
-    FileHandle* current = mtp->handles;
-    if(strcmp(current->path, path) == 0) {
-        return current->handle;
-    }
-
-    while(current->next != NULL) {
-        if(strcmp(current->path, path) == 0) {
-            return current->handle;
-        }
-        current = current->next;
-        handle++;
-    }
-
-    current->next = malloc(sizeof(FileHandle));
-    current = current->next;
-    handle++;
-
-    current->handle = handle;
-    current->path = path_store;
-    current->next = NULL;
-    return handle;
+    return node->handle;
 }
 
 uint32_t update_object_handle_path(AppMTP* mtp, uint32_t handle, char* path) {
@@ -75,7 +64,8 @@ int list_and_issue_handles(
     AppMTP* mtp,
     uint32_t storage_id,
     uint32_t association,
-    uint32_t* handles) {
+    uint32_t* handles,
+    uint32_t max_handles) {
     Storage* storage = mtp->storage;
     char* base_path = get_base_path_from_storage_id(storage_id);
     if(base_path == NULL) {
@@ -90,6 +80,7 @@ int list_and_issue_handles(
         char* path = get_path_from_handle(mtp, association);
         FURI_LOG_I("MTP", "Association path: %s", path);
         if(path == NULL) {
+            storage_file_free(dir);
             return 0;
         }
         storage_dir_open(dir, path);
@@ -107,11 +98,16 @@ int list_and_issue_handles(
             FURI_LOG_I("MTP", "Found file: %s", file_name);
         }
 
-        merge_path(full_path, base_path, file_name);
+        // Skip entries whose path does not fit (a truncated path would hit the wrong file)
+        if(!merge_path(full_path, MTP_PATH_SIZE, base_path, file_name)) {
+            FURI_LOG_W("MTP", "Path too long, skipping: %s", file_name);
+            continue;
+        }
         FURI_LOG_I("MTP", "Full path: %s", full_path);
 
         uint32_t handle = issue_object_handle(mtp, full_path);
-        if(handles != NULL) {
+        // The caller's buffer holds max_handles entries; keep counting but never write past it
+        if(handles != NULL && (uint32_t)count < max_handles) {
             handles[count] = handle;
         }
         count++;

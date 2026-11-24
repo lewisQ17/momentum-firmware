@@ -92,28 +92,30 @@ int32_t usb_midi_app_reader(void* ctx) {
         size_t size = midi_usb_rx(buffer, sizeof(buffer));
         size_t start = 0;
 
-        while(start < size) {
+        // USB-MIDI event packets are always 4 bytes (CIN + 3 data bytes); step whole
+        // packets and ignore a trailing partial one
+        for(; start + 4 <= size; start += 4) {
             CodeIndex code_index = code_index_from_data(buffer[start]);
             uint8_t data_size = usb_message_data_size(code_index);
-            if(data_size == 0) break;
-            start += 1;
-            for(size_t j = 0; j < data_size; j++) {
+            if(data_size == 0) continue; // reserved/padding packet: skip, keep the rest
+            for(size_t j = 1; j <= data_size; j++) {
                 if(midi_parser_parse(app->parser, buffer[start + j])) {
                     MidiEvent* midi = midi_parser_get_message(app->parser);
                     UsbMidiEvent event;
-                    if(midi->type == NoteOn) {
+                    if(midi->type == NoteOn && midi->data[1] != 0) {
                         event.type = UsbMidiEventTypeNoteOn;
                         event.note.note = midi->data[0];
                         event.note.velocity = midi->data[1];
-                    } else if(midi->type == NoteOff) {
+                    } else if(midi->type == NoteOff || midi->type == NoteOn) {
+                        // NoteOn with velocity 0 is a NoteOff (running-status controllers)
                         event.type = UsbMidiEventTypeNoteOff;
                         event.note.note = midi->data[0];
+                        event.note.velocity = 0;
                     } else
                         continue;
                     furi_message_queue_put(app->events, &event, FuriWaitForever);
                 }
             }
-            start += data_size;
         }
     }
 
@@ -146,7 +148,7 @@ UsbMidiApp* usb_midi_app_alloc() {
 
 void usb_midi_app_process_note_on(UsbMidiApp* app, Note note) {
     app->current_note = note;
-    float freq = (440 / 32) * powf(2, ((note.note - 9) / 12.0));
+    float freq = (440.0f / 32.0f) * powf(2, ((note.note - 9) / 12.0));
     float volume = note.velocity / 100.0f;
     if(furi_hal_speaker_is_mine()) furi_hal_speaker_start(freq, volume);
 }

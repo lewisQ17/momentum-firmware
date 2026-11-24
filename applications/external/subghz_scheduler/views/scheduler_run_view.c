@@ -192,16 +192,31 @@ bool scheduler_scene_run_on_event(void* context, SceneManagerEvent event) {
     SchedulerApp* app = context;
 
     bool consumed = false;
-    bool update = (!app->is_transmitting | scheduler_get_timing_mode(app->scheduler)) &&
-                  !(state->tick_counter % 2);
+
+    if(event.type == SceneManagerEventTypeCustom) {
+        if(event.event == SchedulerCustomEventRunDone) {
+            // OneShot run finished (posted from the TX thread callback)
+            scene_manager_search_and_switch_to_previous_scene(
+                app->scene_manager, SchedulerSceneStart);
+        }
+        return true;
+    }
 
     if(event.type == SceneManagerEventTypeTick) {
+        bool update = (!app->is_transmitting | scheduler_get_timing_mode(app->scheduler)) &&
+                      !(state->tick_counter % 2);
         if(update) {
             update_countdown(app->scheduler);
             bool trig = scheduler_time_to_trigger(app->scheduler);
 
             if(trig) {
-                scheduler_start_tx(app);
+                // Precise mode can trigger while a TX is still running; never start a
+                // second TX thread (overwrites app->thread, double radio use, UAF on exit)
+                if(app->thread == NULL) {
+                    scheduler_start_tx(app);
+                } else {
+                    FURI_LOG_W(TAG, "TX still running, skipping trigger");
+                }
             } else {
                 notification_message(app->notifications, &sequence_blink_red_10);
             }

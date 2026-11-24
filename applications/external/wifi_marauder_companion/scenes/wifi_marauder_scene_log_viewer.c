@@ -152,7 +152,7 @@ bool wifi_marauder_scene_log_viewer_on_event(void* context, SceneManagerEvent ev
             dialog_file_browser_set_basic_options(&browser_options, ".log", &I_Text_10x10);
             if(dialog_file_browser_show(
                    app->dialogs, selected_filepath, predefined_filepath, &browser_options)) {
-                strncpy(
+                strlcpy(
                     app->log_file_path,
                     furi_string_get_cstr(selected_filepath),
                     sizeof(app->log_file_path));

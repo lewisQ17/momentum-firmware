@@ -23,6 +23,8 @@ typedef struct {
 
     JsEventLoopTransformer transformer;
     void* transformer_context;
+
+    bool cancelled; //<! set by `subscription.cancel()`; context is freed on module destroy
 } JsEventLoopCallbackContext;
 
 /**
@@ -35,6 +37,7 @@ typedef struct {
     JsEventLoopCallbackContext* context;
     JsEventLoopContract* contract;
     void* subscriptions; // SubscriptionArray_t, which we can't reference in this definition
+    bool cancelled;
 } JsEventLoopSubscription;
 
 ARRAY_DEF(SubscriptionArray, JsEventLoopSubscription*, M_PTR_OPLIST); //-V575
@@ -68,6 +71,9 @@ static void js_event_loop_callback_generic(void* param) {
     if(is_error || asked_to_stop) {
         furi_event_loop_stop(context->event_loop);
     }
+
+    // the callback may have cancelled its own subscription: values were disowned, don't re-own them
+    if(context->cancelled) return;
 
     // save returned args for next call
     if(mjs_array_length(context->mjs, result) != context->arity - SYSTEM_ARGS) return;
@@ -118,21 +124,24 @@ static void js_event_loop_subscription_cancel(struct mjs* mjs) {
         return;
     }
 
+    // idempotent: a second cancel() must not unsubscribe again
+    if(subscription->cancelled) {
+        mjs_return(mjs, MJS_UNDEFINED);
+        return;
+    }
+    subscription->cancelled = true;
+    subscription->context->cancelled = true;
+
     furi_event_loop_unsubscribe(subscription->loop, subscription->object);
 
-    free(subscription->context->arguments);
-    free(subscription->context);
-
-    // find and remove ourselves from the array
-    SubscriptionArray_it_t iterator;
-    for(SubscriptionArray_it(iterator, subscription->subscriptions);
-        !SubscriptionArray_end_p(iterator);
-        SubscriptionArray_next(iterator)) {
-        JsEventLoopSubscription* item = *SubscriptionArray_cref(iterator);
-        if(item == subscription) break;
+    // Don't free the context here: cancel() may be called from inside the subscribed callback,
+    // which still uses it after returning. js_event_loop_destroy frees it, like for timers.
+    // Release the GC roots so mJS doesn't keep marking values nobody will use.
+    JsEventLoopCallbackContext* context = subscription->context;
+    mjs_disown(mjs, &context->callback);
+    for(size_t i = 0; i < context->arity; i++) {
+        mjs_disown(mjs, &context->arguments[i]);
     }
-    SubscriptionArray_remove(subscription->subscriptions, iterator);
-    free(subscription);
 
     mjs_return(mjs, MJS_UNDEFINED);
 }
@@ -155,9 +164,39 @@ static void js_event_loop_subscribe(struct mjs* mjs) {
     mjs_val_t callback;
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_loop_subscribe_args, &contract, &callback);
 
+    // validate the contract before allocating anything
+    if(contract->magic != JsForeignMagic_JsEventLoopContract ||
+       (contract->object_type != JsEventLoopObjectTypeTimer &&
+        contract->object_type != JsEventLoopObjectTypeQueue &&
+        contract->object_type != JsEventLoopObjectTypeSemaphore)) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "argument must be an event contract");
+    }
+    // subscribing the same object twice crashes the event loop (or leaks a timer)
+    SubscriptionArray_it_t dup_iterator;
+    for(SubscriptionArray_it(dup_iterator, module->subscriptions);
+        !SubscriptionArray_end_p(dup_iterator);
+        SubscriptionArray_next(dup_iterator)) {
+        const JsEventLoopSubscription* existing = *SubscriptionArray_cref(dup_iterator);
+        bool duplicate = false;
+        if(contract->object_type == JsEventLoopObjectTypeTimer) {
+            duplicate = existing->object_type == JsEventLoopObjectTypeTimer &&
+                        existing->contract == contract;
+        } else {
+            // cancelled subscriptions are already unsubscribed and may be subscribed again
+            duplicate = !existing->cancelled && existing->object_type == contract->object_type &&
+                        existing->object == contract->object;
+        }
+        if(duplicate) {
+            JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "already subscribed to this event");
+        }
+    }
+
     // create subscription object
     JsEventLoopSubscription* subscription = malloc(sizeof(JsEventLoopSubscription));
     JsEventLoopCallbackContext* context = malloc(sizeof(JsEventLoopCallbackContext));
+    subscription->cancelled = false;
+    subscription->contract = NULL;
+    context->cancelled = false;
     subscription->loop = module->loop;
     subscription->object_type = contract->object_type;
     subscription->context = context;
@@ -310,12 +349,21 @@ static void js_event_loop_queue_send(struct mjs* mjs) {
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_loop_q_send_args, &message);
 
     JsEventLoopContract* contract = JS_GET_CONTEXT(mjs);
+    // NULL when send() was detached from its queue object
+    if(!contract || contract->magic != JsForeignMagic_JsEventLoopContract ||
+       contract->object_type != JsEventLoopObjectTypeQueue) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "send must be called on a queue");
+    }
 
     // send message
     mjs_val_t* message_ptr = malloc(sizeof(mjs_val_t));
     *message_ptr = message;
     mjs_own(mjs, message_ptr);
-    furi_message_queue_put(contract->object, &message_ptr, 0);
+    if(furi_message_queue_put(contract->object, &message_ptr, 0) != FuriStatusOk) {
+        // queue full: drop the message instead of leaking the cell and its GC root
+        mjs_disown(mjs, message_ptr);
+        free(message_ptr);
+    }
 
     mjs_return(mjs, MJS_UNDEFINED);
 }
@@ -332,6 +380,9 @@ static void js_event_loop_queue(struct mjs* mjs) {
 
     int32_t length;
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_loop_q_args, &length);
+    if(length < 1 || length > 1024) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "queue length must be 1..1024");
+    }
 
     JsEventLoop* module = JS_GET_CONTEXT(mjs);
 
@@ -358,11 +409,25 @@ static void js_event_loop_queue(struct mjs* mjs) {
     mjs_return(mjs, queue);
 }
 
+/**
+ * @brief Wakes the loop when the script is asked to stop, so `run()` can't block `js_thread_stop`
+ */
+static void js_event_loop_thread_flags_callback(void* context) {
+    FuriEventLoop* loop = context;
+    // peek without clearing: ThreadEventStop must stay set for the next js_delay/js_flags_wait
+    uint32_t flags = furi_thread_flags_wait(ThreadEventStop, FuriFlagWaitAny | FuriFlagNoClear, 0);
+    if(!(flags & FuriFlagError) && (flags & ThreadEventStop)) {
+        furi_event_loop_stop(loop);
+    }
+}
+
 static void* js_event_loop_create(struct mjs* mjs, mjs_val_t* object, JsModules* modules) {
     UNUSED(modules);
     mjs_val_t event_loop_obj = mjs_mk_object(mjs);
     JsEventLoop* module = malloc(sizeof(JsEventLoop));
     module->loop = furi_event_loop_alloc();
+    furi_event_loop_subscribe_thread_flags(
+        module->loop, js_event_loop_thread_flags_callback, module->loop);
     SubscriptionArray_init(module->subscriptions);
     ContractArray_init(module->owned_contracts);
 
@@ -400,23 +465,23 @@ static void js_event_loop_destroy(void* inst) {
         ContractArray_it_t iterator;
         for(ContractArray_it(iterator, module->owned_contracts); !ContractArray_end_p(iterator);
             ContractArray_next(iterator)) {
-            // unsubscribe object
             JsEventLoopContract* contract = *ContractArray_cref(iterator);
-            if(contract->object_type == JsEventLoopObjectTypeTimer) {
-                furi_event_loop_timer_stop(contract->object);
-            } else {
-                furi_event_loop_unsubscribe(module->loop, contract->object);
-            }
-
-            // free object
+            // unsubscribe and free object. Tolerate objects that were never subscribed or
+            // already unsubscribed via cancel(). Timers are not in the tree, and
+            // contract->object is NULL for a timer that was never subscribed.
             switch(contract->object_type) {
             case JsEventLoopObjectTypeTimer:
-                furi_event_loop_timer_free(contract->object);
+                if(contract->object) {
+                    furi_event_loop_timer_stop(contract->object);
+                    furi_event_loop_timer_free(contract->object);
+                }
                 break;
             case JsEventLoopObjectTypeSemaphore:
+                furi_event_loop_maybe_unsubscribe(module->loop, contract->object);
                 furi_semaphore_free(contract->object);
                 break;
             case JsEventLoopObjectTypeQueue:
+                furi_event_loop_maybe_unsubscribe(module->loop, contract->object);
                 furi_message_queue_free(contract->object);
                 break;
             default:
@@ -427,6 +492,8 @@ static void js_event_loop_destroy(void* inst) {
         }
         ContractArray_clear(module->owned_contracts);
 
+        // furi_event_loop_free() requires thread flags to be unsubscribed
+        furi_event_loop_unsubscribe_thread_flags(module->loop);
         furi_event_loop_free(module->loop);
         free(module);
     }

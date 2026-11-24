@@ -17,7 +17,9 @@ static int count_playlist_items(Storage* storage, const char* file_path) {
     int count = 0;
 
     if(!flipper_format_file_open_existing(format, file_path)) {
-        return FuriStatusError;
+        flipper_format_free(format);
+        furi_string_free(data);
+        return 0;
     }
     while(flipper_format_read_string(format, "sub", data)) {
         ++count;

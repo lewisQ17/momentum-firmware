@@ -30,6 +30,9 @@ struct InfraredRemote {
     InfraredButtonArray_t buttons;
     FuriString* name;
     FuriString* path;
+    // Set by load when a signal in the file could not be parsed; storing would then
+    // rewrite the file without it (and everything after it), so store is refused.
+    bool truncated;
 };
 
 static void infrared_remote_clear_buttons(InfraredRemote* remote) {
@@ -39,6 +42,7 @@ static void infrared_remote_clear_buttons(InfraredRemote* remote) {
         infrared_remote_button_free(*InfraredButtonArray_cref(it));
     }
     InfraredButtonArray_reset(remote->buttons);
+    remote->truncated = false;
 }
 
 InfraredRemote* infrared_remote_alloc() {
@@ -46,6 +50,7 @@ InfraredRemote* infrared_remote_alloc() {
     InfraredButtonArray_init(remote->buttons);
     remote->name = furi_string_alloc();
     remote->path = furi_string_alloc();
+    remote->truncated = false;
     return remote;
 }
 
@@ -157,6 +162,11 @@ void infrared_remote_move_button(InfraredRemote* remote, size_t index_orig, size
 }
 
 bool infrared_remote_store(InfraredRemote* remote) {
+    // Never overwrite a file that was only partially loaded (would delete signals)
+    if(remote->truncated) {
+        FURI_LOG_W(TAG, "not storing: file has unreadable signals");
+        return false;
+    }
     Storage* storage = furi_record_open(RECORD_STORAGE);
     FlipperFormat* ff = flipper_format_file_alloc(storage);
     const char* path = furi_string_get_cstr(remote->path);
@@ -208,11 +218,18 @@ bool infrared_remote_load(InfraredRemote* remote, FuriString* path) {
 
         for(bool can_read = true; can_read;) {
             InfraredRemoteButton* button = infrared_remote_button_alloc();
+            // infrared_signal_read sets buf (the name) only once a "name" key was read, so a
+            // failure with a non-empty buf means a signal exists but its body is unreadable,
+            // as opposed to a clean end of file.
+            furi_string_reset(buf);
             can_read = infrared_signal_read(infrared_remote_button_get_signal(button), ff, buf);
             if(can_read) {
                 infrared_remote_button_set_name(button, furi_string_get_cstr(buf));
                 InfraredButtonArray_push_back(remote->buttons, button);
             } else {
+                if(!furi_string_empty(buf)) {
+                    remote->truncated = true;
+                }
                 infrared_remote_button_free(button);
             }
         }

@@ -9,4 +9,5 @@ typedef enum {
     SchedulerStartEventSelectFile,
     SchedulerStartRunEvent,
     SchedulerCustomEventErrorBack,
+    SchedulerCustomEventRunDone,
 } SchedulerCustomEvent;

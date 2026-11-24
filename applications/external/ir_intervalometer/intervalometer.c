@@ -711,7 +711,9 @@ int32_t flipvalo_app() {
         if(/* long press back */
            event.type == EventTypeKey && event.input.type == InputTypeLong &&
            event.input.key == InputKeyBack) {
-            goto cleanup;
+            // Release the mutex before cleanup so a blocked timer callback can finish
+            furi_mutex_release(fv_priv->mutex);
+            break;
         }
         switch(fv_priv->ui_scene) {
         case FVSceneMain:
@@ -763,6 +765,13 @@ int32_t flipvalo_app() {
     }
 
 cleanup:
+    // Stop and free the timer first (mutex is released here) so no callback runs
+    // while the view port / mutex are torn down.
+    if(fv_priv && fv_priv->timer) {
+        furi_timer_stop(fv_priv->timer);
+        furi_timer_free(fv_priv->timer);
+        fv_priv->timer = NULL;
+    }
     if(view_port) {
         view_port_enabled_set(view_port, false);
         if(gui) {
@@ -783,8 +792,9 @@ cleanup:
         furi_message_queue_free(event_queue);
     }
     if(fv_priv) {
-        furi_mutex_free(fv_priv->mutex);
-        furi_timer_free(fv_priv->timer);
+        if(fv_priv->mutex) {
+            furi_mutex_free(fv_priv->mutex);
+        }
     }
     free(fv_priv);
     return ret;

@@ -5,6 +5,10 @@
 
 #define TAG "JsMath"
 
+// Why: bound script-controlled sizes (raw timings buffer, max single timing)
+#define JS_IR_MAX_RAW_TIMINGS 1024
+#define JS_IR_MAX_RAW_TIMING_US 1000000
+
 static void ret_bad_args(struct mjs* mjs, const char* error) {
     mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "%s", error);
     mjs_return(mjs, MJS_UNDEFINED);
@@ -47,6 +51,15 @@ void js_send_protocol_signal(struct mjs* mjs) {
     message.repeat = repeat;
     mjs_val_t protocol_arg = mjs_arg(mjs, 0);
     message.protocol = infrared_get_protocol_by_name(mjs_get_cstring(mjs, &protocol_arg));
+    // Why: infrared_send furi_checks a valid protocol and times > 0 (device reboot otherwise)
+    if(message.protocol == InfraredProtocolUnknown) {
+        ret_bad_args(mjs, "Unknown protocol");
+        return;
+    }
+    if(times < 1) {
+        ret_bad_args(mjs, "'times' must be >= 1");
+        return;
+    }
     message.address = mjs_get_int(mjs, mjs_arg(mjs, 1));
     message.command = mjs_get_int(mjs, mjs_arg(mjs, 2));
     infrared_send(&message, times);
@@ -64,11 +77,23 @@ void js_send_raw_signal(struct mjs* mjs) {
         return;
     }
     int array_length = mjs_array_length(mjs, mjs_arg(mjs, 0));
-    uint32_t timings[array_length];
+    if(array_length < 1 || array_length > JS_IR_MAX_RAW_TIMINGS) {
+        ret_bad_args(mjs, "Timings array length must be 1-1024");
+        return;
+    }
+    // Why: heap instead of a script-sized VLA on the 8 KB JS thread stack
+    uint32_t* timings = malloc(array_length * sizeof(uint32_t));
     for(int i = 0; i < array_length; i++) {
         mjs_val_t elem = mjs_array_get(mjs, mjs_arg(mjs, 0), i);
         if(!mjs_is_number(elem)) {
             ret_bad_args(mjs, "Timings array must contain only numbers");
+            free(timings);
+            return;
+        }
+        double timing = mjs_get_double(mjs, elem);
+        if(!(timing >= 0 && timing <= JS_IR_MAX_RAW_TIMING_US)) {
+            ret_bad_args(mjs, "Timings must be 0-1000000");
+            free(timings);
             return;
         }
         timings[i] = mjs_get_int(mjs, elem);
@@ -85,20 +110,34 @@ void js_send_raw_signal(struct mjs* mjs) {
         mjs_val_t frequency_val = mjs_get(mjs, options_obj, "frequency", ~0);
         if(!mjs_is_number(frequency_val)) {
             ret_bad_args(mjs, "Wrong 'frequency' option type");
+            free(timings);
             return;
         }
 
         mjs_val_t duty_val = mjs_get(mjs, options_obj, "dutyCycle", ~0);
         if(!mjs_is_number(duty_val)) {
             ret_bad_args(mjs, "Wrong 'dutyCycle' option type");
+            free(timings);
             return;
         }
-        uint32_t frequency = mjs_get_int(mjs, frequency_val);
+        int frequency = mjs_get_int(mjs, frequency_val);
         float duty_cycle = mjs_get_double(mjs, duty_val);
+        // Why: furi_hal_infrared_async_tx_start furi_crash()es on out-of-range values
+        if(frequency < INFRARED_MIN_FREQUENCY || frequency > INFRARED_MAX_FREQUENCY) {
+            ret_bad_args(mjs, "'frequency' must be 10000-1000000");
+            free(timings);
+            return;
+        }
+        if(!(duty_cycle > 0.0f && duty_cycle <= 1.0f)) {
+            ret_bad_args(mjs, "'dutyCycle' must be >0 and <=1");
+            free(timings);
+            return;
+        }
         infrared_send_raw_ext(timings, array_length, start_from_mark, frequency, duty_cycle);
     } else {
         infrared_send_raw(timings, array_length, start_from_mark);
     }
+    free(timings);
     return;
 }
 

@@ -46,6 +46,7 @@ void t5577_multiwriter_scene_write_first_key_on_enter(void* context) {
     protocol_dict_get_data(app->dict, app->protocol_id, data, size);
 
     uint64_t key = bytes2num(data, size);
+    free(data);
     LFRFIDT5577 data_to_write = {0};
 
     add_em41xx_data(&data_to_write, key, 1);

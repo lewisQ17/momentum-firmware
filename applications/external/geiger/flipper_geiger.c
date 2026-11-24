@@ -400,16 +400,19 @@ int32_t flipper_geiger_app() {
         furi_hal_power_disable_otg();
     }
 
+    // Stop the clock timer first: its callback uses the queue and PWM freed/stopped below
+    furi_timer_stop(timer);
+    furi_timer_free(timer);
     furi_hal_gpio_disable_int_callback(&gpio_ext_pa7);
     furi_hal_gpio_remove_int_callback(&gpio_ext_pa7);
     furi_hal_pwm_stop(FuriHalPwmOutputIdLptim2PA4);
     furi_hal_gpio_init(&gpio_ext_pa7, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
 
-    furi_message_queue_free(event_queue);
-    furi_mutex_free(mutexVal.mutex);
+    // Remove the view port (input/draw callbacks) before freeing the queue and mutex
     gui_remove_view_port(gui, view_port);
     view_port_free(view_port);
-    furi_timer_free(timer);
+    furi_message_queue_free(event_queue);
+    furi_mutex_free(mutexVal.mutex);
     furi_record_close(RECORD_GUI);
 
     expansion_enable(expansion);

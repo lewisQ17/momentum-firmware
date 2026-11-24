@@ -105,7 +105,9 @@ int32_t pc_monitor_app(void* p) {
     // Main loop
     InputEvent event;
     while(true) {
-        if(furi_message_queue_get(app->event_queue, &event, 1) == FuriStatusOk) {
+        // 250 ms poll (was 1 tick) so the CPU can sleep; only Back and the 5 s timeout need checks
+        if(furi_message_queue_get(app->event_queue, &event, furi_ms_to_ticks(250)) ==
+           FuriStatusOk) {
             if(event.type == InputTypeShort && event.key == InputKeyBack) break;
         }
 

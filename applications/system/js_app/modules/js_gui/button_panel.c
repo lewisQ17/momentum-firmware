@@ -4,8 +4,13 @@
 #include <gui/modules/button_panel.h>
 #include <toolbox/str_buffer.h>
 
+// button_panel_reserve() crashes on 0 and the cell grid needs a sane upper bound
+#define JS_BTN_PANEL_MAX_MATRIX 16
+
 typedef struct {
     size_t matrix_x, matrix_y;
+    // occupied cells, fixed stride so it stays valid when matrixSizeX/Y change
+    uint8_t occupied[JS_BTN_PANEL_MAX_MATRIX * JS_BTN_PANEL_MAX_MATRIX / 8];
     int32_t next_index;
     StrBuffer str_buffer;
 
@@ -64,7 +69,10 @@ static bool matrix_size_x_assign(
     ButtonPanel* panel,
     JsViewPropValue value,
     JsBtnPanelContext* context) {
-    UNUSED(mjs);
+    if(value.number < 1 || value.number > JS_BTN_PANEL_MAX_MATRIX) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "matrixSizeX must be 1..16");
+        return false;
+    }
     context->matrix_x = value.number;
     button_panel_reserve(panel, context->matrix_x, context->matrix_y);
     return true;
@@ -75,7 +83,10 @@ static bool matrix_size_y_assign(
     ButtonPanel* panel,
     JsViewPropValue value,
     JsBtnPanelContext* context) {
-    UNUSED(mjs);
+    if(value.number < 1 || value.number > JS_BTN_PANEL_MAX_MATRIX) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "matrixSizeY must be 1..16");
+        return false;
+    }
     context->matrix_y = value.number;
     button_panel_reserve(panel, context->matrix_x, context->matrix_y);
     return true;
@@ -162,6 +173,18 @@ static bool js_button_panel_add_child(
             &icon,
             &icon_selected);
         if(status != JsValueParseStatusOk) return false;
+        // out-of-range or already used cells would trip furi_check in button_panel
+        if(matrix_x < 0 || (size_t)matrix_x >= context->matrix_x || matrix_y < 0 ||
+           (size_t)matrix_y >= context->matrix_y) {
+            mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "button matrixX/matrixY out of range");
+            return false;
+        }
+        size_t cell = (size_t)matrix_y * JS_BTN_PANEL_MAX_MATRIX + (size_t)matrix_x;
+        if(context->occupied[cell / 8] & (1 << (cell % 8))) {
+            mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "button matrix cell already in use");
+            return false;
+        }
+        context->occupied[cell / 8] |= 1 << (cell % 8);
         button_panel_add_item(
             panel,
             context->next_index++,
@@ -213,6 +236,7 @@ static bool js_button_panel_add_child(
 
 static void js_button_panel_reset_children(ButtonPanel* panel, JsBtnPanelContext* context) {
     context->next_index = 0;
+    memset(context->occupied, 0, sizeof(context->occupied));
     button_panel_reset(panel);
     button_panel_reserve(panel, context->matrix_x, context->matrix_y);
     str_buffer_clear_all_clones(&context->str_buffer);

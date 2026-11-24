@@ -183,6 +183,8 @@ void eth_troubleshooter_app_free(EthTroubleshooterApp* app) {
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_NOTIFICATION);
     furi_record_close(RECORD_POWER);
+
+    free(app);
 }
 
 void eth_troubleshooter_app_key_handler(EthTroubleshooterApp* app, InputKey key) {

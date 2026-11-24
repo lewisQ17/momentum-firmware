@@ -64,7 +64,7 @@ struct WifiMarauderApp {
     Storage* storage;
     File* capture_file;
     File* log_file;
-    char log_file_path[100];
+    char log_file_path[256]; // script names can be up to 255 chars
     File* save_pcap_setting_file;
     File* save_logs_setting_file;
     bool need_to_prompt_settings_init;

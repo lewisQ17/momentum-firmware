@@ -141,6 +141,7 @@ static u8_t sp;
 static u4_t flags;
 
 static const u12_t* g_program = NULL;
+static u32_t g_program_words = 0;
 static MEM_BUFFER_TYPE memory[MEM_BUFFER_SIZE];
 
 static input_port_t inputs[INPUT_PORT_NUM] = {{0}};
@@ -1928,8 +1929,9 @@ void cpu_reset(void) {
     cpu_sync_ref_timestamp();
 }
 
-bool_t cpu_init(const u12_t* program, breakpoint_t* breakpoints, u32_t freq) {
+bool_t cpu_init(const u12_t* program, u32_t words, breakpoint_t* breakpoints, u32_t freq) {
     g_program = program;
+    g_program_words = words;
     g_breakpoints = breakpoints;
     ts_freq = freq;
 
@@ -1946,6 +1948,13 @@ int cpu_step(void) {
     u8_t i;
     breakpoint_t* bp = g_breakpoints;
     static u8_t previous_cycles = 0;
+
+    // pc is 13 bits but the ROM may be smaller (or pc corrupted by a bad save): never read past it
+    if(pc >= g_program_words) {
+        g_hal->log(LOG_ERROR, "PC out of ROM - PC = 0x%04X\n", pc);
+        g_hal->halt();
+        return 1;
+    }
 
     op = g_program[pc];
 

@@ -25,6 +25,8 @@ static const JsValueArguments js_storage_2_str_args = JS_VALUE_ARGS(js_storage_2
 // File object operations
 // ======================
 
+static void js_storage_file_destructor(struct mjs* mjs, mjs_val_t obj);
+
 static void js_storage_file_close(struct mjs* mjs) {
     File* file = JS_GET_CONTEXT(mjs);
     mjs_return(mjs, mjs_mk_boolean(mjs, storage_file_close(file)));
@@ -54,14 +56,26 @@ static void js_storage_file_read(struct mjs* mjs) {
     int32_t length;
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_storage_read_args, &read_mode, &length);
 
+    if(length <= 0) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "length must be > 0");
+    }
+
     File* file = JS_GET_CONTEXT(mjs);
-    char buffer[length];
-    size_t actually_read = storage_file_read(file, buffer, length);
+    // Why: never allocate a script-sized buffer on the 8 KB JS thread stack, and never more
+    // than what is left in the file (the read could not return more anyway)
+    uint64_t file_size = storage_file_size(file);
+    uint64_t file_pos = storage_file_tell(file);
+    uint64_t remaining = file_size > file_pos ? file_size - file_pos : 0;
+    if((uint64_t)length > remaining) length = remaining;
+    // malloc(0) is a furi_check failure, so keep at least 1 byte allocated (EOF reads 0 bytes)
+    char* buffer = malloc(length > 0 ? length : 1);
+    size_t actually_read = length > 0 ? storage_file_read(file, buffer, length) : 0;
     if(read_mode == JsStorageReadModeAscii) {
         mjs_return(mjs, mjs_mk_string(mjs, buffer, actually_read, true));
     } else if(read_mode == JsStorageReadModeBinary) {
         mjs_return(mjs, mjs_mk_array_buf(mjs, buffer, actually_read));
     }
+    free(buffer);
 }
 
 static void js_storage_file_write(struct mjs* mjs) {
@@ -135,6 +149,12 @@ static void js_storage_file_copy_to(struct mjs* mjs) {
 
     File* source = JS_GET_CONTEXT(mjs);
     File* destination = JS_GET_INST(mjs, dest_obj);
+    // Why: only accept real File objects (carry the file destructor), not arbitrary values
+    mjs_val_t dest_destructor = mjs_get(mjs, dest_obj, MJS_DESTRUCTOR_PROP_NAME, ~0);
+    if(!destination || !mjs_is_foreign(dest_destructor) ||
+       mjs_get_ptr(mjs, dest_destructor) != (void*)js_storage_file_destructor) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "destination must be a File");
+    }
     mjs_return(mjs, mjs_mk_boolean(mjs, storage_file_copy_to_file(source, destination, bytes)));
 }
 
@@ -180,6 +200,7 @@ static void js_storage_open_file(struct mjs* mjs) {
     Storage* storage = JS_GET_CONTEXT(mjs);
     File* file = storage_file_alloc(storage);
     if(!storage_file_open(file, path, access_mode, open_mode)) {
+        storage_file_free(file);
         mjs_return(mjs, MJS_UNDEFINED);
         return;
     }
@@ -221,6 +242,7 @@ static void js_storage_read_directory(struct mjs* mjs) {
     Storage* storage = JS_GET_CONTEXT(mjs);
     File* dir = storage_file_alloc(storage);
     if(!storage_dir_open(dir, path)) {
+        storage_file_free(dir);
         mjs_return(mjs, MJS_UNDEFINED);
         return;
     }

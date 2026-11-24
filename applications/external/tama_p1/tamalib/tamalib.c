@@ -36,10 +36,10 @@ static u8_t g_framerate = DEFAULT_FRAMERATE;
 
 hal_t* g_hal;
 
-bool_t tamalib_init(const u12_t* program, breakpoint_t* breakpoints, u32_t freq) {
+bool_t tamalib_init(const u12_t* program, u32_t words, breakpoint_t* breakpoints, u32_t freq) {
     bool_t res = 0;
 
-    res |= cpu_init(program, breakpoints, freq);
+    res |= cpu_init(program, words, breakpoints, freq);
     res |= hw_init();
 
     ts_freq = freq;

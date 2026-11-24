@@ -215,7 +215,8 @@ static TerminalViewScrollInfo terminal_view_draw_table(
 
     TerminalViewScrollInfo ret = {
         .position = model->scroll_offset,
-        .total = total_numer_of_rows - info->rows + 1,
+        // Guard against size_t underflow when fewer rows than fit on screen
+        .total = (total_numer_of_rows > info->rows) ? (total_numer_of_rows - info->rows + 1) : 1,
     };
     return ret;
 }

@@ -338,7 +338,11 @@ static int32_t nfc_worker_apdu_thread(void* context) {
         uint32_t flags =
             furi_thread_flags_wait(APDU_POLLER_DONE | APDU_POLLER_ERR, FuriFlagWaitAny, 3000);
 
-        if(flags & APDU_POLLER_ERR) {
+        // furi_thread_flags_wait() timeout/error values have all high bits set and would
+        // otherwise match the ERR bit, making the timeout branch below unreachable
+        const bool wait_failed = (flags & FuriFlagError) != 0;
+
+        if(!wait_failed && (flags & APDU_POLLER_ERR)) {
             // 命令执行出错
             FURI_LOG_E(TAG, "APDU命令执行出错");
 
@@ -355,7 +359,7 @@ static int32_t nfc_worker_apdu_thread(void* context) {
             worker->callback(NfcWorkerEventFail, worker->context);
             response_count++;
             break;
-        } else if(flags & APDU_POLLER_DONE) {
+        } else if(!wait_failed && (flags & APDU_POLLER_DONE)) {
             // 命令执行成功
             size_t rx_bytes_count = bit_buffer_get_size_bytes(apdu_ctx.rx_buffer);
 
@@ -423,17 +427,17 @@ static int32_t nfc_worker_apdu_thread(void* context) {
     // 更新响应计数
     worker->response_count = response_count;
 
-    // 释放资源
-    bit_buffer_free(apdu_ctx.tx_buffer);
-    bit_buffer_free(apdu_ctx.rx_buffer);
-
-    // 停止轮询器
+    // 停止轮询器 (before freeing the buffers: the poller callback may still be using them)
     if(worker->poller) {
         FURI_LOG_I(TAG, "APDU命令执行完成，停止轮询器");
         nfc_poller_stop(worker->poller);
         nfc_poller_free(worker->poller);
         worker->poller = NULL;
     }
+
+    // 释放资源
+    bit_buffer_free(apdu_ctx.tx_buffer);
+    bit_buffer_free(apdu_ctx.rx_buffer);
 
     // 返回结果
     if(!worker->running && !is_error) {
@@ -676,6 +680,10 @@ void nfc_worker_start(
     void* context) {
     furi_assert(worker);
     furi_assert(callback);
+
+    // Drop a stale error from a previous run (leak + suppressed Aborted event otherwise)
+    free(worker->error_message);
+    worker->error_message = NULL;
 
     worker->state = state;
     worker->script = script;

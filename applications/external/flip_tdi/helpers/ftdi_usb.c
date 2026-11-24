@@ -183,10 +183,7 @@ static void ftdi_usb_deinit(usbd_device* dev) {
 
     ftdi_free(ftdi_usb->ftdi);
 
-    free(ftdi_usb->usb.str_prod_descr);
-    ftdi_usb->usb.str_prod_descr = NULL;
-    free(ftdi_usb->usb.str_serial_descr);
-    ftdi_usb->usb.str_serial_descr = NULL;
+    // String descriptors are static const (rodata), never heap-allocated: do not free them
     free(ftdi_usb);
     ftdi_usb = NULL;
 }
@@ -500,8 +497,6 @@ FtdiUsb* ftdi_usb_start(void) {
 
     if(!furi_hal_usb_set_config(&ftdi_usb->usb, ftdi_usb)) {
         FURI_LOG_E(TAG, "USB locked, cannot start Mass Storage");
-        free(ftdi_usb->usb.str_prod_descr);
-        free(ftdi_usb->usb.str_serial_descr);
         free(ftdi_usb);
         return NULL;
     }

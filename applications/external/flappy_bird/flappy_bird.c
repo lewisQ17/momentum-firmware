@@ -558,10 +558,25 @@ int32_t flappy_game_app(void* p) {
     // Call dolphin deed on game start
     dolphin_deed(DolphinDeedPluginGameStart);
 
+    // Guarantee the first frame; later redraws are event-driven
+    view_port_update(view_port);
+
     GameEvent event;
     for(bool processing = true; processing;) {
         FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
         furi_mutex_acquire(game_state->mutex, FuriWaitForever);
+
+        // Only redraw when something can change; computed BEFORE flappy_game_tick() so the
+        // Life->GameOver transition tick and the last collision-flash frame still redraw.
+        bool redraw = false;
+        if(event_status == FuriStatusOk) {
+            if(event.type == EventTypeKey) {
+                redraw = true;
+            } else if(event.type == EventTypeTick) {
+                redraw =
+                    (game_state->state == GameStateLife) || (game_state->collision_frame > 0);
+            }
+        }
 
         if(event_status == FuriStatusOk) {
             // press events
@@ -631,7 +646,7 @@ int32_t flappy_game_app(void* p) {
         }
 
         furi_mutex_release(game_state->mutex);
-        view_port_update(view_port);
+        if(redraw) view_port_update(view_port);
     }
 
     furi_timer_free(timer);

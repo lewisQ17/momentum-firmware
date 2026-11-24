@@ -76,6 +76,7 @@ void scheduler_app_free(SchedulerApp* app) {
 
     view_dispatcher_remove_view(app->view_dispatcher, SchedulerAppViewVarItemList);
     view_dispatcher_remove_view(app->view_dispatcher, SchedulerAppViewRunSchedule);
+    scheduler_run_view_free(app->run_view);
 
     scene_manager_free(app->scene_manager);
     view_dispatcher_free(app->view_dispatcher);

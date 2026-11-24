@@ -10,8 +10,10 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
-const short MAX_TEXT_LENGTH = 20;
+// Macro (not const short) so it is a valid array size; text[] also needs room for the NUL
+#define MAX_TEXT_LENGTH 20
 
 typedef struct {
     short x;
@@ -22,7 +24,7 @@ typedef struct {
     FuriMutex* mutex;
     selectedPosition position;
     //string with the inputted calculator text
-    char text[20];
+    char text[MAX_TEXT_LENGTH + 1];
     short textLength;
     char log[20];
 } Calculator;
@@ -255,6 +257,13 @@ void calculator_input_callback(InputEvent* input_event, void* ctx) {
 void calculate(Calculator* calculator_state) {
     double result;
     result = te_interp(calculator_state->text, 0);
+
+    // NaN/inf/out-of-int-range results would overflow the text buffer in the int conversions below
+    if(!isfinite(result) || fabs(result) >= 2147483647.0) {
+        strcpy(calculator_state->text, "Err");
+        calculator_state->textLength = 3;
+        return;
+    }
 
     calculator_state->textLength = 0;
     calculator_state->text[0] = '\0';

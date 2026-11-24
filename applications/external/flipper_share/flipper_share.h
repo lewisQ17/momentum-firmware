@@ -138,6 +138,7 @@ bool fs_init_from_external_transmit();
 bool fs_init_from_external_receive();
 bool fs_init(const fs_init_params_t* p);
 void fs_deinit(void);
+void fs_map_deinit(void); // frees the received-block map (idempotent)
 void fs_idle(void); // to be called periodically from main loop (50ms?)
 
 // High-level sending (can be called from outside):

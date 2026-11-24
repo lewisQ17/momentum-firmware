@@ -181,14 +181,24 @@ static void hc_sr04_measure(PluginState* const plugin_state) {
         ;
     while(furi_get_tick() - start < timeout_ms && !furi_hal_gpio_read(&gpio_usart_rx))
         ;
+    // Echo line is only high here if a rising edge arrived before the timeout
+    const bool got_rising = furi_hal_gpio_read(&gpio_usart_rx);
 
     const uint32_t pulse_start = DWT->CYCCNT;
 
     while(furi_get_tick() - start < timeout_ms && furi_hal_gpio_read(&gpio_usart_rx))
         ;
     const uint32_t pulse_end = DWT->CYCCNT;
+    const bool got_falling = !furi_hal_gpio_read(&gpio_usart_rx);
 
     //FURI_CRITICAL_EXIT();
+
+    if(!got_rising || !got_falling) {
+        // No (complete) echo: do not report a bogus 0.00 reading
+        plugin_state->measurement_made = false;
+        notification_message(plugin_state->notification, &sequence_blink_stop);
+        return;
+    }
 
     plugin_state->echo =
         (pulse_end - pulse_start) / furi_hal_cortex_instructions_per_microsecond();

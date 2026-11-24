@@ -42,6 +42,7 @@ bool weebo_load_key_retail(Weebo* weebo) {
     } while(false);
 
     file_stream_close(stream);
+    stream_free(stream); // before the storage record is closed
     furi_record_close(RECORD_STORAGE);
     furi_string_free(path);
 

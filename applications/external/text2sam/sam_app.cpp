@@ -1,6 +1,7 @@
 #include <furi.h>
 #include <furi_hal_speaker.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <input/input.h>
 #include <dialogs/dialogs.h>
@@ -71,8 +72,9 @@ static void sam_state_init(AppState* const app_state) {
 }
 
 static void sam_state_free(AppState* const app_state) {
-    text_input_free(app_state->text_input);
+    // remove the view before freeing it (remove_view touches the View)
     view_dispatcher_remove_view(app_state->view_dispatcher, 0);
+    text_input_free(app_state->text_input);
     view_dispatcher_free(app_state->view_dispatcher);
     free(app_state);
 }
@@ -96,6 +98,8 @@ static bool load_messages() {
     if(storage_file_open(file, SAM_SAVE_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
         bytes_read = storage_file_read(file, app_state->input, TEXT_BUFFER_SIZE);
     }
+    // always NUL-terminate: a full 256-byte file would otherwise leave the string unterminated
+    app_state->input[bytes_read < TEXT_BUFFER_SIZE ? bytes_read : TEXT_BUFFER_SIZE - 1] = '\0';
     storage_file_close(file);
     storage_file_free(file);
     furi_record_close(RECORD_STORAGE);
@@ -105,6 +109,7 @@ static bool load_messages() {
 extern "C" int32_t sam_app(void* p) {
     UNUSED(p);
     app_state = (AppState*)malloc(sizeof(AppState));
+    memset(app_state, 0, sizeof(AppState));
 
     FURI_LOG_D(TAG, "Running sam_state_init");
     sam_state_init(app_state);

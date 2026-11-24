@@ -256,6 +256,9 @@ void bt_mouse_thread_stop(BtMouse* bt_mouse) {
 
 void bt_mouse_tick_event_callback(void* context) {
     furi_assert(context);
+    BtMouse* bt_mouse = context;
+    // Skip the I2C IMU read + tracker math while only advertising / not connected
+    if(!bt_mouse->connected) return;
     tracking_step(bt_mouse_move, context);
 }
 

@@ -358,8 +358,9 @@ static void
         app->thread = NULL;
         app->is_transmitting = false;
         if(scheduler_get_mode(app->scheduler) == SchedulerTxModeOneShot) {
-            scene_manager_search_and_switch_to_previous_scene(
-                app->scene_manager, SchedulerSceneStart);
+            // this callback runs on the thread-scrub thread: hand the scene switch
+            // to the GUI thread instead of switching (and freeing UI state) from here
+            view_dispatcher_send_custom_event(app->view_dispatcher, SchedulerCustomEventRunDone);
         }
     } else if(state == FuriThreadStateStarting) {
         FURI_LOG_I(TAG, "Thread starting");

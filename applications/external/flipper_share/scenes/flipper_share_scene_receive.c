@@ -385,4 +385,9 @@ void flipper_share_scene_receive_on_exit(void* context) {
         furi_timer_free(app->timer);
         app->timer = NULL;
     }
+
+    // Free the received-block map if the user left mid-transfer. Only after the
+    // timer/subghz worker are gone so nothing can touch the map concurrently.
+    // (Not fs_deinit(): it would close g.file / the storage record.)
+    fs_map_deinit();
 }

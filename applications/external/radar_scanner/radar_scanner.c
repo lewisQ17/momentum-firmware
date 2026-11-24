@@ -165,11 +165,13 @@ int32_t app_radar_scanner(void* p) {
             if(continuous && !alarming) {
                 presenceDetected = true;
                 start_feedback(notifications);
+                view_port_update(view_port);
 
             } else if(!continuous && alarming) {
                 presenceDetected = false;
                 stop_feedback(notifications); // Green LED if clear/no presence
                 notification_message_block(notifications, &sequence_set_only_green_255);
+                view_port_update(view_port);
             }
             alarming = continuous;
         }
@@ -183,14 +185,20 @@ int32_t app_radar_scanner(void* p) {
                 }
                 if(event.key == InputKeyOk) {
                     active = !active; // Toggle the value of 'active'
+                    // drop stale detection state so a re-enable starts clean
+                    presenceDetected = false;
+                    alarming = false;
                     stop_feedback(notifications);
+                    view_port_update(view_port);
                 }
                 if(event.key == InputKeyDown) {
                     muted = !muted; // Toggle the value of 'muted'
                     stop_feedback(notifications);
+                    view_port_update(view_port);
                 }
                 if(event.key == InputKeyRight) {
                     altPinout = !altPinout; // Toggle alternate pinout
+                    view_port_update(view_port);
                 }
             }
         }

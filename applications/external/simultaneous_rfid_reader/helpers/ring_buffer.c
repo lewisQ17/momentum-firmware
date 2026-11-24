@@ -128,7 +128,8 @@ size_t ring_buffer_find_delim(RingBuffer* rb) {
 }
 
 void ring_buffer_extract_line(RingBuffer* rb, size_t delim_index, FuriString* line) {
-    if(delim_index > rb->ring_buffer_read) {
+    // >= : a delimiter at the read index is an empty line, not a full-buffer wrap
+    if(delim_index >= rb->ring_buffer_read) {
         // line is in one chunk
         furi_string_set_strn(
             line,

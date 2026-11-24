@@ -60,7 +60,9 @@ MassStorageApp* mass_storage_app_alloc(char* arg) {
             app->create_image_max = 4LL * 1024 * 1024 * 1024;
             break;
         default:
-            app->create_image_max = 0;
+            // exFAT etc.: cap at 4 GiB, the largest image whose LBA*512 byte offset
+            // still fits the 32-bit seek in the work scene
+            app->create_image_max = 4LL * 1024 * 1024 * 1024;
             break;
         }
     }

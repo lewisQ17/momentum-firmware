@@ -9,6 +9,10 @@
 
 #define INTERRUPT_QUEUE_LEN 16
 
+// Why: the EXTI callback table is indexed by pin number only (PB3/PC3 share a line) and
+// furi_hal_gpio_add_int_callback furi_checks the slot is free; track claimed lines here
+static uint16_t js_gpio_used_exti_mask = 0;
+
 /**
  * Per-pin control structure
  */
@@ -229,25 +233,31 @@ static void js_gpio_interrupt(struct mjs* mjs) {
 
     // interrupt handling
     if(!manager_data->had_interrupt) {
+        uint16_t exti_bit = manager_data->pin->pin;
+        if(js_gpio_used_exti_mask & exti_bit)
+            JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "EXTI line already in use");
+        js_gpio_used_exti_mask |= exti_bit;
         furi_hal_gpio_add_int_callback(
             manager_data->pin, js_gpio_int_cb, manager_data->interrupt_semaphore);
         furi_hal_gpio_enable_int_callback(manager_data->pin);
         manager_data->had_interrupt = true;
     }
 
-    // make contract
-    JsEventLoopContract* contract = malloc(sizeof(JsEventLoopContract));
-    *contract = (JsEventLoopContract){
-        .magic = JsForeignMagic_JsEventLoopContract,
-        .object_type = JsEventLoopObjectTypeSemaphore,
-        .object = manager_data->interrupt_semaphore,
-        .non_timer =
-            {
-                .event = FuriEventLoopEventIn,
-            },
-    };
-    manager_data->interrupt_contract = contract;
-    mjs_return(mjs, mjs_mk_foreign(mjs, contract));
+    // make contract (once per pin, later calls return the same one instead of leaking a new one)
+    if(!manager_data->interrupt_contract) {
+        JsEventLoopContract* contract = malloc(sizeof(JsEventLoopContract));
+        *contract = (JsEventLoopContract){
+            .magic = JsForeignMagic_JsEventLoopContract,
+            .object_type = JsEventLoopObjectTypeSemaphore,
+            .object = manager_data->interrupt_semaphore,
+            .non_timer =
+                {
+                    .event = FuriEventLoopEventIn,
+                },
+        };
+        manager_data->interrupt_contract = contract;
+    }
+    mjs_return(mjs, mjs_mk_foreign(mjs, manager_data->interrupt_contract));
 }
 
 /**
@@ -265,6 +275,9 @@ static void js_gpio_interrupt(struct mjs* mjs) {
 static void js_gpio_read_analog(struct mjs* mjs) {
     // get mV (ADC is configured for 12 bits and 2048 mV max)
     JsGpioPinInst* manager_data = JS_GET_CONTEXT(mjs);
+    // Why: furi_hal_adc_read furi_checks the channel; pins without ADC have FuriHalAdcChannelNone
+    if(manager_data->adc_channel == FuriHalAdcChannelNone)
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "Pin has no ADC channel");
     uint16_t millivolts =
         furi_hal_adc_read(manager_data->adc_handle, manager_data->adc_channel) / 2;
     mjs_return(mjs, mjs_mk_number(mjs, (double)millivolts));
@@ -399,6 +412,8 @@ static void js_gpio_get(struct mjs* mjs) {
     mjs_val_t manager = mjs_mk_object(mjs);
     JsGpioPinInst* manager_data = malloc(sizeof(JsGpioPinInst));
     manager_data->pin = pin_record->pin;
+    manager_data->had_interrupt = false;
+    manager_data->interrupt_contract = NULL;
     manager_data->interrupt_semaphore = furi_semaphore_alloc(UINT32_MAX, 0);
     manager_data->adc_handle = module->adc_handle;
     manager_data->adc_channel = pin_record->channel;
@@ -452,6 +467,7 @@ static void js_gpio_destroy(void* inst) {
             if(manager_data->had_interrupt) {
                 furi_hal_gpio_disable_int_callback(manager_data->pin);
                 furi_hal_gpio_remove_int_callback(manager_data->pin);
+                js_gpio_used_exti_mask &= ~manager_data->pin->pin;
             }
             if(manager_data->pwm_output != FuriHalPwmOutputIdNone) {
                 if(furi_hal_pwm_is_running(manager_data->pwm_output))

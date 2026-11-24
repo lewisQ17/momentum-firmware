@@ -112,7 +112,6 @@ void save_all_image(void* context) {
 
     for(int page = 0; page < 30; page++) {
         int count = GB_FIRST_PHOTO_OFFSET + page * GB_PHOTO_SIZE;
-        storage_file_seek(app->camera_ram_sav, count, true);
         // create file name
         FuriString* file_name = furi_string_alloc();
         get_timefilename(file_name, page);
@@ -134,25 +133,36 @@ void save_all_image(void* context) {
 
             UNUSED(palette);
 
-            for(int y = 0; y < 14; y++) {
-                for(int x = 0; x < 16; x++) {
-                    storage_file_read(app->camera_ram_sav, app->tile_data, sizeof(app->tile_data));
-                    for(int row = 0; row < 8; row++) {
-                        uint8_t temp1 = app->tile_data[row * 2];
-                        uint8_t temp2 = app->tile_data[row * 2 + 1];
+            // Hold the view model lock while seeking/reading the shared .sav File so the
+            // draw callback (draw_thumbnail) cannot move the file pointer mid-photo.
+            with_view_model(
+                instance->view,
+                BoilerplateScene2Model * m,
+                {
+                    UNUSED(m);
+                    storage_file_seek(app->camera_ram_sav, count, true);
+                    for(int y = 0; y < 14; y++) {
+                        for(int x = 0; x < 16; x++) {
+                            storage_file_read(
+                                app->camera_ram_sav, app->tile_data, sizeof(app->tile_data));
+                            for(int row = 0; row < 8; row++) {
+                                uint8_t temp1 = app->tile_data[row * 2];
+                                uint8_t temp2 = app->tile_data[row * 2 + 1];
 
-                        for(int pixel = 7; pixel >= 0; pixel--) {
-                            bmp_set(
-                                bmp,
-                                (x * 8) + pixel,
-                                (y * 8) + row,
-                                palette[((temp1 & 1) + ((temp2 & 1) * 2))]);
-                            temp1 >>= 1;
-                            temp2 >>= 1;
+                                for(int pixel = 7; pixel >= 0; pixel--) {
+                                    bmp_set(
+                                        bmp,
+                                        (x * 8) + pixel,
+                                        (y * 8) + row,
+                                        palette[((temp1 & 1) + ((temp2 & 1) * 2))]);
+                                    temp1 >>= 1;
+                                    temp2 >>= 1;
+                                }
+                            }
                         }
                     }
-                }
-            }
+                },
+                false);
 
             storage_file_write(file, bmp, sizeof(bmp));
 
@@ -171,6 +181,7 @@ void save_all_image(void* context) {
         storage_file_close(file);
         // Freeing up memory
         storage_file_free(file);
+        furi_string_free(file_name);
     }
     notification_message(notifications, &sequence_success);
     with_view_model(

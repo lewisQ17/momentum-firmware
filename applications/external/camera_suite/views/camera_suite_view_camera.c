@@ -518,7 +518,7 @@ static void process_ringbuffer(UartDumpModel* model, uint8_t const byte) {
 
         // Ensure the row start index is within the valid range.
         if(row_start_index > LAST_ROW_INDEX) {
-            row_start_index = 0; // Reset to a safe value in case of an overflow.
+            return; // Drop the row instead of overwriting row 0.
         }
 
         // Flush the contents of the ring buffer to the pixel buffer.

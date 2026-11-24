@@ -32,9 +32,6 @@ typedef enum {
 static PlaylistEditDialogType playlist_edit_dialog_type = PlaylistEditDialog_None;
 static uint32_t playlist_edit_selected_index = 0;
 
-// Add a static flag to indicate we should show menu after popup
-static bool playlist_edit_show_menu_after_popup = false;
-
 // Helper to read a line from file (since storage_file_read_line is not available)
 // static bool file_read_line(File* file, char* buffer, size_t max_len) { ... }
 
@@ -85,7 +82,6 @@ static void edit_dialog_callback(DialogExResult result, void* context) {
             app->playlist_entries = NULL;
             app->playlist_entry_count = 0;
             app->playlist_entry_capacity = 0;
-            playlist_edit_show_menu_after_popup = true;
             scene_popup_show(app, "Success", "Playlist saved!");
             return;
         } else if(result == DialogExResultLeft) {
@@ -167,11 +163,6 @@ static void playlist_edit_submenu_callback(void* context, uint32_t index) {
 
 // Show PlaylistEdit scene using SubMenu
 void scene_playlist_edit_show(SubGhzPlaylistCreator* app) {
-    if(playlist_edit_show_menu_after_popup) {
-        playlist_edit_show_menu_after_popup = false;
-        scene_menu_show(app);
-        return;
-    }
     app->current_view = SubGhzPlaylistCreatorViewPlaylistEdit;
     submenu_reset(app->playlist_edit_submenu);
     // Set header to playlist name with extension

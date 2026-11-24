@@ -41,13 +41,11 @@ void print_bytes(char* tag, uint8_t* bytes, size_t len) {
     FURI_LOG_I("MTP", "End of dump - TAG: %s", tag);
 }
 
-void merge_path(char* target, char* base, char* name) {
-    char* ptr = target;
-    strcpy(target, base);
-    ptr += strlen(base);
-    strcpy(ptr, "/");
-    ptr++;
-    strcpy(ptr, name);
+bool merge_path(char* target, size_t target_size, const char* base, const char* name) {
+    // Bounded: a truncated path would map the handle to the wrong file, so report failure.
+    if(base == NULL || name == NULL) return false;
+    int n = snprintf(target, target_size, "%s/%s", base, name);
+    return n >= 0 && (size_t)n < target_size;
 }
 
 bool CheckMTPStringHasUnicode(uint8_t* buffer) {

@@ -41,6 +41,7 @@ typedef struct {
     Co2LoggerView current_view;
     LogIntervalOption log_interval_option;
     bool auto_dim_enabled;
+    bool backlight_lock_held; // true while our enforce_on is outstanding
     bool csv_logging_enabled;
     int settings_selection; // 0 = interval, 1 = auto_dim, 2 = csv_logging
 } co2_loggerUart;
@@ -100,13 +101,20 @@ static void co2_logger_uart_apply_auto_dim(co2_loggerUart* state) {
     FURI_LOG_D("AutoDim", "Applying auto-dim setting: %s", 
                state->auto_dim_enabled ? "ON" : "OFF");
     
+    // enforce_on / enforce_auto are a counted lock: keep them strictly paired
     if(state->auto_dim_enabled) {
         // Enable auto-dim: let system handle dimming naturally
-        notification_message(state->notification, &sequence_display_backlight_enforce_auto);
+        if(state->backlight_lock_held) {
+            notification_message(state->notification, &sequence_display_backlight_enforce_auto);
+            state->backlight_lock_held = false;
+        }
         FURI_LOG_D("AutoDim", "Auto-dim enabled - system will handle backlight dimming");
     } else {
         // Disable auto-dim: force backlight to stay on
-        notification_message(state->notification, &sequence_display_backlight_enforce_on);
+        if(!state->backlight_lock_held) {
+            notification_message(state->notification, &sequence_display_backlight_enforce_on);
+            state->backlight_lock_held = true;
+        }
         FURI_LOG_D("AutoDim", "Auto-dim disabled - backlight will stay on");
     }
 }
@@ -520,8 +528,7 @@ int32_t co2_logger_app(void* p) {
     state->csv_logging_enabled = true; // CSV logging ON by default
     state->settings_selection = 0; // Start with interval selection
     
-    // Apply initial auto-dim setting
-    co2_logger_uart_apply_auto_dim(state);
+    // Auto-dim starts ON (no backlight lock held), so there is nothing to apply initially
 
     FURI_LOG_D("App", "=== APP SETUP COMPLETE - ENTERING MAIN LOOP ===");
 
@@ -673,6 +680,11 @@ int32_t co2_logger_app(void* p) {
     furi_message_queue_free(state->event_queue);
     view_port_free(state->view_port);
     furi_record_close(RECORD_STORAGE);
+    // Release our backlight lock before the notification record is closed
+    if(state->backlight_lock_held) {
+        notification_message_block(state->notification, &sequence_display_backlight_enforce_auto);
+        state->backlight_lock_held = false;
+    }
     furi_record_close(RECORD_NOTIFICATION);
     furi_record_close(RECORD_GUI);
     free(state);

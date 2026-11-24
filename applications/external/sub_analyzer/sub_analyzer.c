@@ -51,8 +51,6 @@ typedef struct {
     FuriString* text_buffer;
     FuriString* file_path;
     SubGhzEnvironment* environment;
-    SubGhzReceiver* receiver;
-    SubGhzSetting* setting;
     const SubGhzProtocolRegistry* protocol_registry;
 } SubAnalyzerApp;
 
@@ -96,6 +94,18 @@ static void sub_analyzer_submenu_callback(void* context, uint32_t index) {
 static void sub_analyzer_popup_callback(void* context) {
     SubAnalyzerApp* app = context;
     view_dispatcher_switch_to_view(app->view_dispatcher, SubAnalyzerViewSubmenu);
+}
+
+// Clamp a 64-bit intermediate back to 32 bit (file values are untrusted)
+static uint32_t sub_analyzer_clamp_u32(uint64_t value) {
+    return value > UINT32_MAX ? UINT32_MAX : (uint32_t)value;
+}
+
+static int sub_analyzer_hex_nibble(char c) {
+    if(c >= '0' && c <= '9') return c - '0';
+    if(c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if(c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return -1;
 }
 
 // Main analysis function
@@ -420,8 +430,9 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
                 furi_string_cat_printf(app->text_buffer, "  4-PWM: %lu bps\n", symbol_rate / 4);
             } else {
                 // Determine encoding from Te and baud
-                uint32_t symbols_per_bit = (baud * te) / 1000000;
-                uint32_t symbols_per_bit_frac = ((baud * te) % 1000000) / 100000;
+                uint64_t baud_te = (uint64_t)baud * te; // 64 bit: baud * te overflows uint32
+                uint32_t symbols_per_bit = sub_analyzer_clamp_u32(baud_te / 1000000);
+                uint32_t symbols_per_bit_frac = (baud_te % 1000000) / 100000;
                 
                 const char* encoding = "Unknown";
                 if(symbols_per_bit == 1 || (symbols_per_bit == 0 && symbols_per_bit_frac >= 9)) {
@@ -464,10 +475,10 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
             
             uint32_t tx_time_us;
             if(baud > 0) {
-                tx_time_us = (bits * 1000000) / baud;
+                tx_time_us = sub_analyzer_clamp_u32((uint64_t)bits * 1000000 / baud);
             } else {
                 // Estimate with Te (assume 4Te per bit for 4-PWM)
-                tx_time_us = bits * te * 4;
+                tx_time_us = sub_analyzer_clamp_u32((uint64_t)bits * te * 4);
             }
             
             uint32_t tx_time_ms = tx_time_us / 1000;
@@ -476,22 +487,23 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
                                   tx_time_ms, tx_time_us_frac / 10);
             
             if(repeat > 1) {
-                uint32_t total_time_ms = tx_time_ms * repeat;
+                uint64_t total_time_ms_64 = (uint64_t)tx_time_ms * repeat;
                 if(delay > 0) {
-                    total_time_ms += delay * (repeat - 1);
+                    total_time_ms_64 += (uint64_t)delay * (repeat - 1);
                 }
+                uint32_t total_time_ms = sub_analyzer_clamp_u32(total_time_ms_64);
                 furi_string_cat_printf(app->text_buffer, "Total TX: %lu ms\n", total_time_ms);
                 
-                if(delay > 0 && total_time_ms > 0) {
-                    uint32_t duty = (tx_time_ms * repeat * 100) / total_time_ms;
+                if(delay > 0 && total_time_ms_64 > 0) {
+                    uint32_t duty = (uint64_t)tx_time_ms * repeat * 100 / total_time_ms_64;
                     furi_string_cat_printf(app->text_buffer, "Duty cycle: %lu%%\n", duty);
                 }
             }
             
             // Power consumption estimate
             if(repeat > 1 && delay > 0) {
-                uint32_t active_time = tx_time_ms * repeat;
-                uint32_t total_time = active_time + delay * (repeat - 1);
+                uint64_t active_time = (uint64_t)tx_time_ms * repeat;
+                uint64_t total_time = active_time + (uint64_t)delay * (repeat - 1);
                 // Average current = 30mA * duty + 1mA * (1-duty)
                 uint32_t avg_current_ua = (30000 * active_time + 1000 * (total_time - active_time)) / total_time;
                 furi_string_cat_printf(app->text_buffer, "Avg current: %lu.%lu mA\n", 
@@ -503,14 +515,28 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
         if(!furi_string_empty(key_data)) {
             furi_string_cat_printf(app->text_buffer, "\nKey Analysis:\n");
             
-            size_t hex_len = furi_string_size(key_data);
-            size_t byte_len = hex_len / 2;
+            // The Key is stored as space-separated hex ("AA BB CC"): parse real bytes
+            // instead of indexing the raw string.
+            uint8_t kb[128];
+            size_t byte_len = 0;
+            const char* hex = furi_string_get_cstr(key_data);
+            int hi_nibble = -1;
+            for(size_t i = 0; hex[i] != '\0' && byte_len < sizeof(kb); i++) {
+                int nib = sub_analyzer_hex_nibble(hex[i]);
+                if(nib < 0) continue; // skip spaces / non-hex characters
+                if(hi_nibble < 0) {
+                    hi_nibble = nib;
+                } else {
+                    kb[byte_len++] = (uint8_t)((hi_nibble << 4) | nib);
+                    hi_nibble = -1;
+                }
+            }
             
-            furi_string_cat_printf(app->text_buffer, "Hex chars: %zu\n", hex_len);
+            furi_string_cat_printf(app->text_buffer, "Hex chars: %zu\n", byte_len * 2);
             furi_string_cat_printf(app->text_buffer, "Bytes: %zu\n", byte_len);
             
             if(bits > 0) {
-                size_t expected_bytes = (bits + 7) / 8;
+                size_t expected_bytes = ((size_t)bits + 7) / 8;
                 if(byte_len == expected_bytes) {
                     furi_string_cat_printf(app->text_buffer, "Matches bit count: Yes\n");
                 } else {
@@ -520,16 +546,14 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
             }
             
             // Check for patterns
-            const char* hex = furi_string_get_cstr(key_data);
-            bool all_same = true;
-            bool all_zero = true;
-            bool all_ff = true;
+            bool all_same = byte_len > 0;
+            bool all_zero = byte_len > 0;
+            bool all_ff = byte_len > 0;
             
-            for(size_t i = 0; i < hex_len - 1; i += 2) {
-                if(hex[i] != hex[0] || hex[i+1] != hex[1]) all_same = false;
-                if(hex[i] != '0' || hex[i+1] != '0') all_zero = false;
-                if((hex[i] != 'F' && hex[i] != 'f') || 
-                   (hex[i+1] != 'F' && hex[i+1] != 'f')) all_ff = false;
+            for(size_t i = 0; i < byte_len; i++) {
+                if(kb[i] != kb[0]) all_same = false;
+                if(kb[i] != 0x00) all_zero = false;
+                if(kb[i] != 0xFF) all_ff = false;
             }
             
             if(all_same) {
@@ -541,21 +565,9 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
             }
             
             // Calculate entropy (randomness)
-            uint8_t byte_count[256] = {0};
-            for(size_t i = 0; i < hex_len - 1; i += 2) {
-                uint8_t byte_val = 0;
-                char c1 = hex[i];
-                char c2 = hex[i+1];
-                
-                if(c1 >= '0' && c1 <= '9') byte_val = (c1 - '0') << 4;
-                else if(c1 >= 'A' && c1 <= 'F') byte_val = (c1 - 'A' + 10) << 4;
-                else if(c1 >= 'a' && c1 <= 'f') byte_val = (c1 - 'a' + 10) << 4;
-                
-                if(c2 >= '0' && c2 <= '9') byte_val |= (c2 - '0');
-                else if(c2 >= 'A' && c2 <= 'F') byte_val |= (c2 - 'A' + 10);
-                else if(c2 >= 'a' && c2 <= 'f') byte_val |= (c2 - 'a' + 10);
-                
-                byte_count[byte_val]++;
+            uint16_t byte_count[256] = {0};
+            for(size_t i = 0; i < byte_len; i++) {
+                byte_count[kb[i]]++;
             }
             
             // Simple entropy calculation
@@ -565,10 +577,12 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
             }
             
             float entropy = 0.0f;
-            for(int i = 0; i < 256; i++) {
-                if(byte_count[i] > 0) {
-                    float p = (float)byte_count[i] / (float)byte_len;
-                    entropy -= p * log2f(p);
+            if(byte_len > 0) {
+                for(int i = 0; i < 256; i++) {
+                    if(byte_count[i] > 0) {
+                        float p = (float)byte_count[i] / (float)byte_len;
+                        entropy -= p * log2f(p);
+                    }
                 }
             }
             
@@ -676,9 +690,6 @@ static SubAnalyzerApp* sub_analyzer_app_alloc() {
     subghz_environment_set_protocol_registry(app->environment, (void*)&subghz_protocol_registry);
     
     app->protocol_registry = &subghz_protocol_registry;
-    app->receiver = subghz_receiver_alloc_init(app->environment);
-    app->setting = subghz_setting_alloc();
-    subghz_setting_load(app->setting, EXT_PATH("subghz/assets/setting_user"));
 
     view_set_previous_callback(submenu_get_view(app->submenu), sub_analyzer_exit_callback);
     view_set_previous_callback(popup_get_view(app->popup), sub_analyzer_exit_to_submenu_callback);
@@ -707,9 +718,7 @@ static void sub_analyzer_app_free(SubAnalyzerApp* app) {
     text_box_free(app->text_box);
     loading_free(app->loading);
 
-    subghz_receiver_free(app->receiver);
     subghz_environment_free(app->environment);
-    subghz_setting_free(app->setting);
 
     furi_string_free(app->text_buffer);
     furi_string_free(app->file_path);

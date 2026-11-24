@@ -7,6 +7,8 @@
 #define TAG "JsSerial"
 
 #define RX_BUF_LEN 2048
+// Why: read()/readBytes() malloc this size; furi malloc(0)/huge crashes the device
+#define JS_SERIAL_MAX_READ (16 * 1024)
 
 typedef struct {
     bool setup_done;
@@ -91,6 +93,16 @@ static void js_serial_setup(struct mjs* mjs) {
 
     if(serial->setup_done)
         JS_ERROR_AND_RETURN(mjs, MJS_INTERNAL_ERROR, "Serial is already configured");
+
+    // Why: mirror the furi_checks in furi_hal_serial_configure_framing so a bad combination
+    // raises a JS error instead of rebooting (and before expansion_disable() has side effects)
+    if(data_bits == FuriHalSerialDataBits9 && parity != FuriHalSerialParityNone)
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "9 data bits requires parity none");
+    if(data_bits == FuriHalSerialDataBits6 && parity == FuriHalSerialParityNone)
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "6 data bits requires parity even/odd");
+    if(serial_id == FuriHalSerialIdLpuart &&
+       (stop_bits == FuriHalSerialStopBits0_5 || stop_bits == FuriHalSerialStopBits1_5))
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "lpuart supports only 1 or 2 stop bits");
 
     expansion_disable(furi_record_open(RECORD_EXPANSION));
     furi_record_close(RECORD_EXPANSION);
@@ -236,6 +248,8 @@ static void js_serial_read(struct mjs* mjs) {
 
     int32_t read_len, timeout;
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_serial_read_args, &read_len, &timeout);
+    if(read_len <= 0 || read_len > JS_SERIAL_MAX_READ)
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "Invalid read length");
 
     char* read_buf = malloc(read_len);
     size_t bytes_read = js_serial_receive(serial, read_buf, read_len, timeout);
@@ -295,6 +309,8 @@ static void js_serial_read_bytes(struct mjs* mjs) {
 
     int32_t read_len, timeout;
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_serial_read_args, &read_len, &timeout);
+    if(read_len <= 0 || read_len > JS_SERIAL_MAX_READ)
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "Invalid read length");
 
     char* read_buf = malloc(read_len);
     size_t bytes_read = js_serial_receive(serial, read_buf, read_len, timeout);

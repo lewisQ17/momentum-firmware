@@ -207,7 +207,7 @@ void cpu_refresh_hw(void);
 
 void cpu_reset(void);
 
-bool_t cpu_init(const u12_t* program, breakpoint_t* breakpoints, u32_t freq);
+bool_t cpu_init(const u12_t* program, u32_t words, breakpoint_t* breakpoints, u32_t freq);
 void cpu_release(void);
 
 int cpu_step(void);

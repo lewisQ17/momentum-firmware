@@ -38,8 +38,11 @@ static bool min_len_assign(
     TextInput* input,
     JsViewPropValue value,
     JsKbdContext* context) {
-    UNUSED(mjs);
     UNUSED(context);
+    if(value.number < 0) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "minLength must not be negative");
+        return false;
+    }
     text_input_set_minimum_length(input, (size_t)value.number);
     return true;
 }
@@ -49,8 +52,11 @@ static bool max_len_assign(
     TextInput* input,
     JsViewPropValue value,
     JsKbdContext* context) {
-    UNUSED(mjs);
-    size_t new_buffer_size = value.number + 1;
+    if(value.number < 1 || value.number > 1024) { // generous cap; avoids int32 overflow and OOM
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "maxLength must be 1..1024");
+        return false;
+    }
+    size_t new_buffer_size = (size_t)value.number + 1;
     if(new_buffer_size < context->default_text_size) {
         // Avoid confusing parameters from user
         mjs_prepend_errorf(

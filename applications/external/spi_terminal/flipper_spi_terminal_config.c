@@ -312,7 +312,7 @@ void flipper_spi_terminal_config_debug_print_saved() {
                     break;
                 }
                 buffer[read] = '\0';
-                printf(buffer);
+                printf("%s", buffer); // never use file contents as the format string
             }
         } else {
             printf("Can not open file %s", SPI_TERM_LAST_SETTINGS_PATH);

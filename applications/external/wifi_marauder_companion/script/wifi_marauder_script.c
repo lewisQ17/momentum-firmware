@@ -481,6 +481,7 @@ WifiMarauderScript* wifi_marauder_script_parse_raw(const char* json_raw) {
     }
     cJSON* json = cJSON_Parse(json_raw);
     if(json == NULL) {
+        wifi_marauder_script_free(script);
         return NULL;
     }
     cJSON* meta = cJSON_GetObjectItem(json, "meta");
@@ -496,6 +497,8 @@ WifiMarauderScript* wifi_marauder_script_parse_raw(const char* json_raw) {
         _wifi_marauder_script_load_stages(script, stages);
     }
 
+    // all values were copied (strdup etc.), so the JSON tree can be released
+    cJSON_Delete(json);
     return script;
 }
 
@@ -507,11 +510,18 @@ WifiMarauderScript* wifi_marauder_script_parse_json(Storage* storage, const char
 
     if(storage_file_open(script_file, file_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
         uint32_t file_size = storage_file_size(script_file);
-        char* json_buffer = (char*)malloc(file_size + 1);
-        uint16_t bytes_read = storage_file_read(script_file, json_buffer, file_size);
-        json_buffer[bytes_read] = '\0';
+        // storage_file_read takes a uint16_t length: larger files would be truncated,
+        // so only accept scripts up to 65535 bytes (empty-script fallback otherwise)
+        if(file_size > 0 && file_size <= 65535) {
+            char* json_buffer = (char*)malloc(file_size + 1);
+            if(json_buffer != NULL) {
+                size_t bytes_read = storage_file_read(script_file, json_buffer, file_size);
+                json_buffer[bytes_read] = '\0';
 
-        script = wifi_marauder_script_parse_raw(json_buffer);
+                script = wifi_marauder_script_parse_raw(json_buffer);
+                free(json_buffer);
+            }
+        }
     }
     if(script == NULL) {
         script = wifi_marauder_script_create(furi_string_get_cstr(script_name));

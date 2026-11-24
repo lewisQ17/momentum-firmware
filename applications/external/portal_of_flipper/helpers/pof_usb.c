@@ -172,7 +172,7 @@ static void pof_usb_deinit(usbd_device* dev) {
     furi_thread_free(pof_usb->thread);
     pof_usb->thread = NULL;
 
-    free(pof_usb->usb.str_prod_descr);
+    // str_manuf_descr/str_prod_descr point at static const descriptors; never free them
     pof_usb->usb.str_prod_descr = NULL;
     free(pof_usb->usb.str_serial_descr);
     pof_usb->usb.str_serial_descr = NULL;
@@ -399,12 +399,7 @@ PoFUsb* pof_usb_start(VirtualPortal* virtual_portal) {
 
     if(!furi_hal_usb_set_config(&pof_usb->usb, pof_usb)) {
         FURI_LOG_E(TAG, "USB locked, can not start");
-        if(pof_usb->usb.str_manuf_descr) {
-            free(pof_usb->usb.str_manuf_descr);
-        }
-        if(pof_usb->usb.str_prod_descr) {
-            free(pof_usb->usb.str_prod_descr);
-        }
+        // manuf/prod descriptors are static const (flash), not heap: nothing to free
         if(pof_usb->usb.str_serial_descr) {
             free(pof_usb->usb.str_serial_descr);
         }

@@ -20,7 +20,8 @@ static uint32_t xremote_edit_view_exit_callback(void* context) {
 
 static void xremote_edit_buttons_store(XRemoteAppButtons* buttons) {
     FuriString* path = buttons->app_ctx->file_path;
-    infrared_remote_store(buttons->remote);
+    // Don't append the extension block to a file that was left untouched (refused store)
+    if(!infrared_remote_store(buttons->remote)) return;
     xremote_app_extension_store(buttons, path);
 }
 

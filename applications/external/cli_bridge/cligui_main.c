@@ -3,6 +3,9 @@
 #include "text_input.h"
 #include "console_output.h"
 
+// Cap on retained console scrollback; streaming commands would otherwise grow it until OOM
+#define TEXT_BOX_STORE_MAX (8192)
+
 static bool cligui_custom_event_cb(void* context, uint32_t event) {
     UNUSED(event);
     CliguiApp* app = context;
@@ -25,11 +28,20 @@ static void cligui_tick_event_cb(void* context) {
         }
     }
     if(available > 0) {
+        size_t sz = furi_string_size(app->text_box_store);
+        if(sz > TEXT_BOX_STORE_MAX) {
+            // Drop the oldest output, cutting at a line boundary
+            size_t keep_from = sz - TEXT_BOX_STORE_MAX;
+            size_t nl = furi_string_search_char(app->text_box_store, '\n', keep_from);
+            furi_string_right(
+                app->text_box_store, (nl == FURI_STRING_FAILURE) ? keep_from : nl + 1);
+        }
         text_box_set_text(app->text_box, furi_string_get_cstr(app->text_box_store));
     }
     // Set input header stuff
     size_t len = furi_string_size(app->text_box_store);
-    size_t idx = len - 2;
+    // len < 2 (nothing received yet) would underflow len - 2
+    size_t idx = (len >= 2) ? len - 2 : 0;
     while(idx > 0) {
         if(furi_string_get_char(app->text_box_store, idx) == '\n') {
             idx++;

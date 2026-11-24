@@ -240,6 +240,8 @@ int32_t zeitraffer_app(void* p) {
                     if(furi_timer_is_running(timer)) {
                         notification_message(notifications, &sequence_click);
                         furi_timer_stop(timer);
+                        // Release the shutter pins too (BULB holds them high); keep Bulb as is
+                        gpio_item_set_all_pins(false);
                         Work = false;
                     } else {
                         furi_timer_start(timer, 1000);

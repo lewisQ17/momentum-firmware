@@ -157,21 +157,21 @@ void uhf_reader_kill_password_updated(void* context) {
                     uhf_tag_reset(TempTag);
 
                     hex_string_to_uint16(
-                        furi_string_get_cstr(Model->Pc), App->PcBytes, &App->PcBytesLen);
+                        furi_string_get_cstr(Model->Pc), App->PcBytes, 2, &App->PcBytesLen);
                     hex_string_to_uint16(
-                        furi_string_get_cstr(Model->Crc), App->CrcBytes, &App->CrcBytesLen);
+                        furi_string_get_cstr(Model->Crc), App->CrcBytes, 2, &App->CrcBytesLen);
 
                     uint16_t combinedPc = 0;
                     uint16_t combinedCrc = 0;
 
-                    for(size_t i = 0; i < 4; i++) {
+                    for(size_t i = 0; i < App->PcBytesLen; i++) {
                         combinedPc |= App->PcBytes[i];
                     }
 
-                    for(size_t i = 0; i < 4; i++) {
+                    for(size_t i = 0; i < App->CrcBytesLen; i++) {
                         combinedCrc |= App->CrcBytes[i];
                     }
-                    hex_string_to_bytes(tempBuffer, App->ResBytes, &App->ResBytesLen);
+                    hex_string_to_bytes(tempBuffer, App->ResBytes, 8, &App->ResBytesLen);
                     uhf_tag_set_kill_pwd(TempTag, App->KillPwdTempBuffer, 4);
                     uhf_tag_set_epc_pc(TempTag, combinedPc);
                     uhf_tag_set_epc_crc(TempTag, combinedCrc);
@@ -253,21 +253,21 @@ void uhf_reader_kill_confirm_password_updated(void* context) {
                     uhf_tag_reset(TempTag);
 
                     hex_string_to_uint16(
-                        furi_string_get_cstr(Model->Pc), App->PcBytes, &App->PcBytesLen);
+                        furi_string_get_cstr(Model->Pc), App->PcBytes, 2, &App->PcBytesLen);
                     hex_string_to_uint16(
-                        furi_string_get_cstr(Model->Crc), App->CrcBytes, &App->CrcBytesLen);
+                        furi_string_get_cstr(Model->Crc), App->CrcBytes, 2, &App->CrcBytesLen);
 
                     uint16_t combinedPc = 0;
                     uint16_t combinedCrc = 0;
 
-                    for(size_t i = 0; i < 4; i++) {
+                    for(size_t i = 0; i < App->PcBytesLen; i++) {
                         combinedPc |= App->PcBytes[i];
                     }
 
-                    for(size_t i = 0; i < 4; i++) {
+                    for(size_t i = 0; i < App->CrcBytesLen; i++) {
                         combinedCrc |= App->CrcBytes[i];
                     }
-                    hex_string_to_bytes(tempBuffer, App->ResBytes, &App->ResBytesLen);
+                    hex_string_to_bytes(tempBuffer, App->ResBytes, 8, &App->ResBytesLen);
 
                     uhf_tag_set_kill_pwd(TempTag, App->ResBytes, 4);
                     uhf_tag_set_epc_pc(TempTag, combinedPc);

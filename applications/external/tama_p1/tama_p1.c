@@ -585,6 +585,9 @@ static void tama_p1_load_state() {
 }
 
 static void tama_p1_save_state() {
+    // Without a ROM tamalib never ran: saving would overwrite a valid save.bin with a blank state
+    if(g_ctx == NULL || g_ctx->rom == NULL) return;
+
     // Saving state
     FURI_LOG_D(TAG, "Saving Gamestate");
     uint8_t buf[4];
@@ -715,6 +718,8 @@ static int32_t tama_p1_worker(void* context) {
             tamalib_step(); // tamalib_mainloop();
         }
     }
+    // Stop and release the speaker on the thread that owns it (no-op if the buzzer is off)
+    if(g_ctx && g_ctx->hal.play_frequency) g_ctx->hal.play_frequency(false);
     LL_TIM_DisableCounter(TIM2);
     furi_mutex_release(mutex);
     return 0;
@@ -783,7 +788,7 @@ static void tama_p1_init(TamaApp* const ctx) {
 
         // Init TamaLIB
         tamalib_register_hal(&ctx->hal);
-        tamalib_init((u12_t*)ctx->rom, NULL, 64000);
+        tamalib_init((u12_t*)ctx->rom, tama_rom_words, NULL, 64000);
         tamalib_set_speed(speed);
 
         // TODO: implement fast forwarding

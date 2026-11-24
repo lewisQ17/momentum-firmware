@@ -53,7 +53,7 @@
 #define FRAME_HEIGHT         64
 #define FRAME_WIDTH          128
 #define HEADER_LENGTH        3 // 'Y', ':', and row identifier
-#define LAST_ROW_INDEX       (2 * 1008)
+#define LAST_ROW_INDEX       (FRAME_BUFFER_LENGTH - ROW_BUFFER_LENGTH)
 #define RING_BUFFER_LENGTH   19
 #define ROW_BUFFER_LENGTH    16
 

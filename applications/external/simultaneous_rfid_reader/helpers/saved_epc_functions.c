@@ -152,12 +152,13 @@ uint8_t hex_char_to_int(char c) {
  * @details    This function converts a hex string to a byte array
  * @param      char hex_string  - The string to convert
  * @param      the byte_array - the allocated byte array that should be empty and passed in   
+ * @param      the byte_array_cap - capacity of byte_array in bytes
  * @param      the lenght - The length variable fort the byte array     
 */
-void hex_string_to_bytes(const char* hex_string, uint8_t* byte_array, size_t* byte_array_len) {
+void hex_string_to_bytes(const char* hex_string, uint8_t* byte_array, size_t byte_array_cap, size_t* byte_array_len) {
     size_t hex_len = strlen(hex_string);
-    if (hex_len % 2 != 0) {
-        // Handle error: hex string length must be even
+    // Reject (len = 0) odd or oversized input: the callers' buffers are fixed-size heap blocks
+    if (hex_len % 2 != 0 || hex_len / 2 > byte_array_cap) {
         *byte_array_len = 0;
         return;
     }
@@ -175,10 +176,10 @@ void hex_string_to_bytes(const char* hex_string, uint8_t* byte_array, size_t* by
  * @param      the byte_array - the allocated byte array that should be empty and passed in   
  * @param      the lenght - The length variable fort the byte array     
 */
-void hex_string_to_uint16(const char* hex_string, uint16_t* uint16_array, size_t* uint16_array_len) {
+void hex_string_to_uint16(const char* hex_string, uint16_t* uint16_array, size_t uint16_array_cap, size_t* uint16_array_len) {
     size_t hex_len = strlen(hex_string);
-    if (hex_len % 4 != 0) {
-        // Handle error: hex string length must be a multiple of 4 for uint16_t conversion
+    // Reject (len = 0) input that is not a multiple of 4 or exceeds the buffer capacity
+    if (hex_len % 4 != 0 || hex_len / 4 > uint16_array_cap) {
         *uint16_array_len = 0;
         return;
     }

@@ -121,7 +121,8 @@ WifiMarauderScriptStageSelect* _wifi_marauder_script_get_stage_select(cJSON* sta
 
     if(cJSON_IsArray(indexes_json)) {
         int indexes_size = cJSON_GetArraySize(indexes_json);
-        int* indexes = (int*)malloc(indexes_size * sizeof(int));
+        // calloc: non-number entries are skipped below, so unfilled slots must be 0, not garbage
+        int* indexes = (int*)calloc(indexes_size > 0 ? indexes_size : 1, sizeof(int));
         for(int i = 0; i < indexes_size; i++) {
             cJSON* index_item = cJSON_GetArrayItem(indexes_json, i);
             if(cJSON_IsNumber(index_item)) {
@@ -305,11 +306,13 @@ WifiMarauderScriptStageBeaconList* _wifi_marauder_script_get_stage_beacon_list(c
     }
     cJSON* ssids = cJSON_GetObjectItem(stage_beaconlist, "ssids");
     if(ssids == NULL) {
+        free(beaconlist_stage);
         return NULL;
     }
     // SSID count
     int ssid_count = cJSON_GetArraySize(ssids);
     if(ssid_count == 0) {
+        free(beaconlist_stage);
         return NULL;
     }
     beaconlist_stage->ssid_count = ssid_count;
@@ -318,6 +321,7 @@ WifiMarauderScriptStageBeaconList* _wifi_marauder_script_get_stage_beacon_list(c
     // slots must be NULL (else free()/use of garbage pointers). free(NULL) is safe.
     beaconlist_stage->ssids = (char**)calloc(ssid_count, sizeof(char*));
     if(beaconlist_stage->ssids == NULL) {
+        free(beaconlist_stage);
         return NULL;
     }
     for(int i = 0; i < ssid_count; i++) {
@@ -487,6 +491,7 @@ WifiMarauderScript* wifi_marauder_script_parse_raw(const char* json_raw) {
     }
     cJSON* json = cJSON_Parse(json_raw);
     if(json == NULL) {
+        free(script);
         return NULL;
     }
     cJSON* meta = cJSON_GetObjectItem(json, "meta");
@@ -502,6 +507,8 @@ WifiMarauderScript* wifi_marauder_script_parse_raw(const char* json_raw) {
         _wifi_marauder_script_load_stages(script, stages);
     }
 
+    // all values were copied (strdup etc.), so the JSON tree can be released
+    cJSON_Delete(json);
     return script;
 }
 
@@ -527,6 +534,7 @@ WifiMarauderScript* wifi_marauder_script_parse_json(Storage* storage, const char
     if(script == NULL) {
         script = wifi_marauder_script_create(furi_string_get_cstr(script_name));
     }
+    free(script->name); // set by wifi_marauder_script_create; free(NULL) is safe
     script->name = strdup(furi_string_get_cstr(script_name));
 
     furi_string_free(script_name);

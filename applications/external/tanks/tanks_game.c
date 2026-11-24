@@ -143,6 +143,8 @@ char thisMap[11][16 + 1] = {
 };
 
 static void tanks_game_write_cell(unsigned char* data, int8_t x, int8_t y, GameCellState cell) {
+    // Out-of-field projectiles (uint8 wrapped to negative) would index past the serialize buffer
+    if(x < 0 || x >= FIELD_WIDTH || y < 0 || y >= FIELD_HEIGHT) return;
     uint8_t index = y * 16 + x;
     data[index] = cell;
     //    if (x % 2) {
@@ -680,19 +682,14 @@ static bool tanks_get_cell_is_free(TanksState* const tanks_state, Point point) {
     return true;
 }
 
-static uint8_t tanks_get_random_free_respawn_point_index(
+static int8_t tanks_get_random_free_respawn_point_index(
     TanksState* const tanks_state,
     Point respawn_points[3]) {
     uint8_t first = rand() % 3;
     int8_t add = rand() % 2 ? +1 : -1;
-    int8_t second = first + add;
-    uint8_t third;
-
-    if(second == 4) {
-        second = 0;
-    } else if(second == -1) {
-        second = 3;
-    }
+    // wrap within 0..2 (array has 3 entries)
+    int8_t second = (first + add + 3) % 3;
+    uint8_t third = 0;
 
     for(uint8_t i = 0; i < 3; i++) {
         if(i != first && i != second) {
@@ -762,8 +759,9 @@ static void tanks_game_init_game(TanksState* const tanks_state, GameState type) 
         }
     }
 
-    uint8_t index1 = tanks_get_random_free_respawn_point_index(
+    int8_t index1 = tanks_get_random_free_respawn_point_index(
         tanks_state, tanks_state->team_one_respawn_points);
+    if(index1 < 0) index1 = 0; // all blocked: fall back instead of indexing with 255
     Point c = {
         tanks_state->team_one_respawn_points[index1].x,
         tanks_state->team_one_respawn_points[index1].y};
@@ -788,6 +786,7 @@ static void tanks_game_init_game(TanksState* const tanks_state, GameState type) 
     if(type == GameStateCooperativeServer) {
         int8_t index2 = tanks_get_random_free_respawn_point_index(
             tanks_state, tanks_state->team_one_respawn_points);
+        if(index2 < 0) index2 = 0;
         Point c = {
             tanks_state->team_one_respawn_points[index2].x,
             tanks_state->team_one_respawn_points[index2].y};
@@ -1086,6 +1085,13 @@ static void tanks_game_process_game_step(TanksState* const tanks_state) {
             ProjectileState* projectile = tanks_state->projectiles[x];
             Point c = projectile->coordinates;
 
+            // Projectile left the field (uint8 coords, wrapped negatives are >= FIELD_*): drop it
+            if(c.x >= FIELD_WIDTH || c.y >= FIELD_HEIGHT) {
+                free(tanks_state->projectiles[x]);
+                tanks_state->projectiles[x] = NULL;
+                continue;
+            }
+
             if(projectile->explosion) {
                 // Break a wall
                 if(tanks_state->thisMap[c.x][c.y] == '-') {
@@ -1220,14 +1226,9 @@ int32_t tanks_game_app(void* p) {
     SubGhzTxRxWorker* subghz_txrx = subghz_tx_rx_worker_alloc();
 
     subghz_devices_init();
-    const SubGhzDevice* subghz_device =
-        radio_device_loader_set(NULL, SubGhzRadioDeviceTypeExternalCC1101);
-
-    subghz_devices_reset(subghz_device);
-    subghz_devices_load_preset(subghz_device, FuriHalSubGhzPresetOok650Async, NULL);
-
-    subghz_tx_rx_worker_start(subghz_txrx, subghz_device, frequency);
-    furi_hal_power_suppress_charge_enter();
+    // Radio is started lazily on the first co-op game start (single player never needs it)
+    const SubGhzDevice* subghz_device = NULL;
+    bool radio_started = false;
 
     for(bool processing = true; processing;) {
         FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
@@ -1335,10 +1336,26 @@ int32_t tanks_game_app(void* p) {
                                 break;
                             } else if(tanks_state->menu_state == MenuStateCooperativeServerMode) {
                                 tanks_state->server = true;
+                                if(!radio_started) {
+                                    subghz_device = radio_device_loader_set(
+                                        NULL, SubGhzRadioDeviceTypeExternalCC1101);
+                                    subghz_tx_rx_worker_start(
+                                        subghz_txrx, subghz_device, frequency);
+                                    furi_hal_power_suppress_charge_enter();
+                                    radio_started = true;
+                                }
                                 tanks_game_init_game(tanks_state, GameStateCooperativeServer);
                                 break;
                             } else if(tanks_state->menu_state == MenuStateCooperativeClientMode) {
                                 tanks_state->server = false;
+                                if(!radio_started) {
+                                    subghz_device = radio_device_loader_set(
+                                        NULL, SubGhzRadioDeviceTypeExternalCC1101);
+                                    subghz_tx_rx_worker_start(
+                                        subghz_txrx, subghz_device, frequency);
+                                    furi_hal_power_suppress_charge_enter();
+                                    radio_started = true;
+                                }
                                 tanks_game_init_game(tanks_state, GameStateCooperativeClient);
                                 break;
                             }
@@ -1444,7 +1461,10 @@ int32_t tanks_game_app(void* p) {
     }
 
     furi_delay_ms(10);
-    furi_hal_power_suppress_charge_exit();
+    // Both calls only balance what the lazy start did (suppress_charge is a counter)
+    if(radio_started) {
+        furi_hal_power_suppress_charge_exit();
+    }
 
     if(subghz_tx_rx_worker_is_running(subghz_txrx)) {
         subghz_tx_rx_worker_stop(subghz_txrx);
@@ -1452,7 +1472,9 @@ int32_t tanks_game_app(void* p) {
     subghz_tx_rx_worker_free(subghz_txrx);
 
     // switches the external module's 5V (OTG) off again and ends the device
-    radio_device_loader_end(subghz_device);
+    if(radio_started) {
+        radio_device_loader_end(subghz_device);
+    }
     subghz_devices_deinit();
 
     furi_timer_free(timer);
@@ -1462,6 +1484,18 @@ int32_t tanks_game_app(void* p) {
     view_port_free(view_port);
     furi_message_queue_free(event_queue);
     furi_mutex_free(tanks_state->mutex);
+
+    // free bots/projectiles still alive at exit (arrays are NULL-initialised)
+    for(uint8_t i = 0; i < 6; i++) {
+        if(tanks_state->bots[i] != NULL) {
+            free(tanks_state->bots[i]);
+        }
+    }
+    for(uint8_t i = 0; i < 100; i++) {
+        if(tanks_state->projectiles[i] != NULL) {
+            free(tanks_state->projectiles[i]);
+        }
+    }
 
     if(tanks_state->p1 != NULL) {
         free(tanks_state->p1);

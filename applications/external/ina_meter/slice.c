@@ -126,7 +126,11 @@ Slice tok_until_eol(Slice* slice) {
     // Trim the trailing '\r' character
     if(result.start < result.end && *(result.end - 1) == '\r') {
         result.end--;
-        slice->start--;
+        // Only step back when a '\n' follows (so tok_skip_eol can consume "\r\n"); a lone
+        // trailing '\r' at end of input would otherwise never be consumed (endless parse loop)
+        if(slice->start < slice->end) {
+            slice->start--;
+        }
     }
 
     return result;

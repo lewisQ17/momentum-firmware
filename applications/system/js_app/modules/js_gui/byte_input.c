@@ -37,9 +37,12 @@ static bool header_assign(
 
 static bool
     len_assign(struct mjs* mjs, ByteInput* input, JsViewPropValue value, JsByteKbContext* context) {
-    UNUSED(mjs);
     UNUSED(input);
-    size_t new_buffer_size = value.number;
+    if(value.number < 1 || value.number > 255) { // bytes_count is a uint8_t
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "length must be 1..255");
+        return false;
+    }
+    size_t new_buffer_size = (size_t)value.number;
     if(new_buffer_size < context->default_data_size) {
         // Avoid confusing parameters from user
         mjs_prepend_errorf(

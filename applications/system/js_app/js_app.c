@@ -107,9 +107,10 @@ int32_t js_app(void* arg) {
             DialogsFileBrowserOptions browser_options;
             dialog_file_browser_set_basic_options(&browser_options, ".js", &I_js_script_10px);
             DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
-            if(!dialog_file_browser_show(dialogs, script_path, script_path, &browser_options))
-                break;
-            furi_record_close(RECORD_DIALOGS);
+            bool picked =
+                dialog_file_browser_show(dialogs, script_path, script_path, &browser_options);
+            furi_record_close(RECORD_DIALOGS); // also on cancel, otherwise the record leaks
+            if(!picked) break;
         }
         FuriString* name = furi_string_alloc();
         path_extract_filename(script_path, name, false);

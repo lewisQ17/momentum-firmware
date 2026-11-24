@@ -434,7 +434,22 @@ static int32_t hc11_rx_tx_thread(void *ctx) {
       get_pkt_size = true;
       leave_bytes_in_fifo = 1;
 
+      /* Bound the loop: a dropped/short packet (address mismatch, FIFO
+         overflow...) would leave the FIFO below the expected size forever
+         while we hold the SPI bus at ISR priority. The deadline is pushed
+         back whenever bytes are read, so slow but valid packets complete. */
+      uint32_t rx_deadline = furi_get_tick() + 100;
+
       while(leave_bytes_in_fifo) {
+
+        /* Timed out waiting for bytes: abort this packet */
+        if((int32_t)(furi_get_tick() - rx_deadline) > 0) {
+          cc1101_set_idle(spi);
+          cc1101_strobe(spi, CC1101_STROBE_SFRX);
+          cc1101_enable_rx(spi);
+          furi_hal_spi_release(spi);
+          goto rx_done;
+        }
 
         /* Get the number of bytes in the RX FIFO.
            Since the CC1101 might still be in the RX state, get the
@@ -482,6 +497,9 @@ static int32_t hc11_rx_tx_thread(void *ctx) {
           num_rxbytes--;
           pkt_bytes_remaining--;
         }
+
+        /* Progress was made, give the rest of the packet more time */
+        rx_deadline = furi_get_tick() + 100;
       }
 
       /* We should never get here with bytes remaining in the RX FIFO. But if
@@ -572,6 +590,9 @@ static int32_t hc11_rx_tx_thread(void *ctx) {
 
        break;
       }
+
+rx_done:
+      ;
     }
 
     /* Should we start sending data, or have we received a GDO0 fall interrupt

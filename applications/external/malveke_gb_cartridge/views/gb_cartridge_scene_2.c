@@ -37,7 +37,9 @@ void dump_handle_rx_data_cb(uint8_t* buf, size_t len, void* context) {
     UNUSED(len);
     UNUSED(buf);
     GBCartridge* instance = context;
-    if(instance->is_writing_rom) {
+    // cart_rom only exists/is open after OK was pressed
+    if(instance->is_writing_rom && instance->cart_rom &&
+       storage_file_is_open(instance->cart_rom)) {
         storage_file_write(instance->cart_rom, buf, len);
     }
     with_view_model(
@@ -254,8 +256,12 @@ bool gb_cartridge_scene_2_input(InputEvent* event, void* context) {
                     uart_set_handle_rx_data_cb(app->lp_uart, NULL);
                     //  Close file
                     app->is_writing_rom = false;
-                    if(app->cart_rom && storage_file_is_open(app->cart_rom)) {
-                        storage_file_close(app->cart_rom);
+                    if(app->cart_rom) {
+                        if(storage_file_is_open(app->cart_rom)) {
+                            storage_file_close(app->cart_rom);
+                        }
+                        storage_file_free(app->cart_rom);
+                        app->cart_rom = NULL;
                     }
                     notification_message(
                         app->notification, &sequence_display_backlight_enforce_auto);
@@ -277,13 +283,20 @@ bool gb_cartridge_scene_2_input(InputEvent* event, void* context) {
                     UNUSED(app);
                     model->start_time =
                         furi_hal_rtc_get_timestamp(); // Registra el tiempo de inicio
-                    app->cart_rom = storage_file_alloc(app->storage);
+                    // Reuse one File: a repeated OK restarts the dump instead of leaking
+                    app->is_writing_rom = false;
+                    if(!app->cart_rom) {
+                        app->cart_rom = storage_file_alloc(app->storage);
+                    } else if(storage_file_is_open(app->cart_rom)) {
+                        storage_file_close(app->cart_rom);
+                    }
 
                     if(storage_file_open(
                            app->cart_rom,
                            model->cart_dump_rom_filename_sequential,
                            FSAM_WRITE,
                            FSOM_CREATE_ALWAYS)) {
+                        app->is_writing_rom = true;
                         const char gbcartridge_command[] = "gbcartridge -d -o\n";
                         uart_tx(
                             app->uart, (uint8_t*)gbcartridge_command, strlen(gbcartridge_command));
@@ -331,6 +344,7 @@ void gb_cartridge_scene_2_enter(void* context) {
                 MALVEKE_APP_FOLDER_ROMS,
                 app->cart_dump_rom_filename,
                 model->cart_dump_rom_extension);
+            free(model->cart_dump_rom_filename_sequential); // previous enter's path
             model->cart_dump_rom_filename_sequential = filename;
             // Register callbacks to receive data
             uart_set_handle_rx_data_cb(
@@ -338,7 +352,8 @@ void gb_cartridge_scene_2_enter(void* context) {
                 gameboy_rom_backup_handle_rx_data_cb); // setup callback for general log rx thread
             uart_set_handle_rx_data_cb(
                 app->lp_uart, dump_handle_rx_data_cb); // setup callback for general log rx thread
-            app->is_writing_rom = true;
+            // Set to true only once OK opened the dump file
+            app->is_writing_rom = false;
         },
         false);
 }
@@ -366,6 +381,14 @@ GBCartridgeScene2* gb_cartridge_scene_2_alloc() {
 void gb_cartridge_scene_2_free(GBCartridgeScene2* instance) {
     furi_assert(instance);
 
+    with_view_model(
+        instance->view,
+        GameBoyCartridgeROMBackupModel * model,
+        {
+            free(model->cart_dump_rom_filename_sequential);
+            model->cart_dump_rom_filename_sequential = NULL;
+        },
+        false);
     view_free(instance->view);
     free(instance);
 }

@@ -168,6 +168,8 @@ static void js_badusb_setup(struct mjs* mjs) {
     size_t num_args = mjs_nargs(mjs);
     if(num_args == 0) {
         // No arguments: start USB HID with default settings
+        // Why: the layout is only filled by setup_parse_params; without it all keys map to 0
+        memcpy(badusb->layout, hid_asciimap, MIN(sizeof(hid_asciimap), sizeof(badusb->layout)));
         args_correct = true;
     } else if(num_args == 1) {
         badusb->hid_cfg = malloc(sizeof(FuriHalUsbHidConfig));
@@ -175,6 +177,9 @@ static void js_badusb_setup(struct mjs* mjs) {
         args_correct = setup_parse_params(badusb, mjs, mjs_arg(mjs, 0), badusb->hid_cfg);
     }
     if(!args_correct) {
+        // Why: don't leak (or keep a stale) hid_cfg when parsing failed
+        free(badusb->hid_cfg);
+        badusb->hid_cfg = NULL;
         mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "");
         mjs_return(mjs, MJS_UNDEFINED);
         return;
@@ -407,8 +412,9 @@ static void badusb_print(struct mjs* mjs, bool ln, bool alt) {
     const char* text_str = NULL;
     size_t text_len = 0;
     uint32_t delay_val = 0;
+    // Why: function scope, mjs_get_string points into this value for short (inline) strings
+    mjs_val_t obj_string = MJS_UNDEFINED;
     do {
-        mjs_val_t obj_string = MJS_UNDEFINED;
         size_t num_args = mjs_nargs(mjs);
         if(num_args == 1) {
             obj_string = mjs_arg(mjs, 0);

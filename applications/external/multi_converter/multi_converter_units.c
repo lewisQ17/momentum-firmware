@@ -11,7 +11,8 @@
 // DEC / HEX / BIN conversion
 //
 void multi_converter_unit_dec_hex_bin_convert(MultiConverterState* const multi_converter_state) {
-    char dest[MULTI_CONVERTER_NUMBER_DIGITS];
+    // +1: the overflow check runs after dest[i] is written, so index NUMBER_DIGITS must exist
+    char dest[MULTI_CONVERTER_NUMBER_DIGITS + 1];
 
     int i = 0;
     uint8_t overflow = 0;
