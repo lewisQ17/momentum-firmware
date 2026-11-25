@@ -165,6 +165,10 @@ void nfc_app_free(NfcApp* instance) {
     slix_unlock_free(instance->slix_unlock);
     mf_classic_key_cache_free(instance->mfc_key_cache);
     nfc_supported_cards_free(instance->nfc_supported_cards);
+    // The resolver is allocated in nfc_app_alloc and only used by the supported-cards
+    // plugins (freed just above), but was never released: ~64 B leaked on every NFC
+    // app launch (measured on device: -1608 B over 25 open/close cycles).
+    composite_api_resolver_free(instance->api_resolver);
     if(instance->protocol_support) {
         nfc_protocol_support_free(instance);
     }
