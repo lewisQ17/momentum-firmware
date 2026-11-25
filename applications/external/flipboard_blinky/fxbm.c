@@ -31,6 +31,7 @@ FxbmFile* fxbm_alloc(const char* path) {
     } while(false);
 
     storage_file_free(file);
+    furi_record_close(RECORD_STORAGE); // Leak fix: balance furi_record_open
     return fxbm;
 }
 

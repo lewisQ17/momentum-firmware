@@ -65,5 +65,7 @@ void updater_scene_error_on_exit(void* context) {
 
     if(updater->loaded_manifest) {
         update_manifest_free(updater->loaded_manifest);
+        // NULL after free so updater_free() does not double free
+        updater->loaded_manifest = NULL;
     }
 }

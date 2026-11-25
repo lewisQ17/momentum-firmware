@@ -76,6 +76,7 @@ void uart_terminal_app_free(UART_TerminalApp* app) {
     text_box_free(app->text_box);
     furi_string_free(app->text_box_store);
     text_input_free(app->text_input);
+    variable_item_list_free(app->var_item_list); // Leak fix: list was never freed
 
     // View dispatcher
     view_dispatcher_free(app->view_dispatcher);

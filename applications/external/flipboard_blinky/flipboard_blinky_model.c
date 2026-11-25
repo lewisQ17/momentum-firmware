@@ -76,5 +76,9 @@ void flipboard_blinky_model_free(FlipboardBlinkyModel* fbm) {
     if(fbm->timer) {
         furi_timer_free(fbm->timer);
     }
+    // Leak fix: the loaded blinky.fxbm bitmap was never released
+    if(fbm->fxbm) {
+        fxbm_free(fbm->fxbm);
+    }
     free(fbm);
 }

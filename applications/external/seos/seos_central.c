@@ -42,6 +42,8 @@ void seos_central_free(SeosCentral* seos_central) {
     furi_assert(seos_central);
     seos_att_free(seos_central->seos_att);
     bit_buffer_free(seos_central->rx_buffer);
+    // Leak fix: secure_messaging was never freed (att already freed above, no more callbacks)
+    if(seos_central->secure_messaging) secure_messaging_free(seos_central->secure_messaging);
     free(seos_central);
 }
 
@@ -119,6 +121,8 @@ void seos_central_notify(void* context, const uint8_t* buffer, size_t buffer_len
 
             view_dispatcher_send_custom_event(
                 seos_central->seos->view_dispatcher, SeosCustomEventAuthenticated);
+            // Leak fix: free any previous session before re-alloc on re-auth
+            if(seos_central->secure_messaging) secure_messaging_free(seos_central->secure_messaging);
             seos_central->secure_messaging = secure_messaging_alloc(&seos_central->params);
             bit_buffer_append_bytes(response, (uint8_t*)success, sizeof(success));
         } else {

@@ -3209,6 +3209,7 @@ int32_t swd_probe_app_main(void* p) {
     for(int io = 0; io < 8; io++) {
         furi_hal_gpio_init(gpios[io], GpioModeAnalog, GpioPullNo, GpioSpeedLow);
     }
+    free(app->commandline); // Leak fix: ScriptContext was never freed (uart rx cb stopped above)
     free(app);
 
     furi_record_close(RECORD_GUI);

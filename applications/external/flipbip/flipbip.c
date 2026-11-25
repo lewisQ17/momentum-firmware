@@ -198,6 +198,9 @@ void flipbip_app_free(FlipBip* app) {
     view_dispatcher_remove_view(app->view_dispatcher, FlipBipViewIdSettings);
     view_dispatcher_remove_view(app->view_dispatcher, FlipBipViewIdTextInput);
     submenu_free(app->submenu);
+    // Leak fix: scene_1 and settings list were never freed (also wipes key data)
+    flipbip_scene_1_free(app->flipbip_scene_1);
+    variable_item_list_free(app->variable_item_list);
 
     view_dispatcher_remove_view(app->view_dispatcher, FlipBipViewRenewConfirm);
     dialog_ex_free(app->renew_dialog);

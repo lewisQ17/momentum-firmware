@@ -85,6 +85,7 @@ Settings* load_settings(Settings* settings) {
     settings->save_key = strdup(settings->save_key);
     settings->save_event = strdup(settings->save_event);
 
+    furi_string_free(string_value); // Leak fix: header buffer was never freed
     furi_string_free(text_ssid_value);
     furi_string_free(text_password_value);
     furi_string_free(text_key_value);

@@ -139,6 +139,7 @@ static void game_destroy(GameState* game) {
     furi_assert(game);
     free(game->field[0]);
     free(game->field);
+    free(game->person); // Leak fix: person was never freed
     free(game);
 }
 

@@ -229,6 +229,8 @@ void subghz_cli_command_tx(PipeSide* pipe, FuriString* args, void* context) {
     Stream* stream = flipper_format_get_raw_stream(flipper_format);
     stream_clean(stream);
     stream_write_cstring(stream, furi_string_get_cstr(flipper_format_string));
+    // Stream copied the text; free the source string
+    furi_string_free(flipper_format_string);
 
     SubGhzEnvironment* environment = subghz_environment_alloc();
     subghz_environment_set_protocol_registry(environment, (void*)&subghz_protocol_registry);

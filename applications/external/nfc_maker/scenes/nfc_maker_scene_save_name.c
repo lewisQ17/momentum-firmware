@@ -64,5 +64,9 @@ bool nfc_maker_scene_save_name_on_event(void* context, SceneManagerEvent event) 
 
 void nfc_maker_scene_save_name_on_exit(void* context) {
     NfcMaker* app = context;
+    // Leak fix: free the ValidatorIsFile (read before text_input_reset clears the context)
+    void* validator_context = text_input_get_validator_callback_context(app->text_input);
+    text_input_set_validator(app->text_input, NULL, NULL);
+    if(validator_context) validator_is_file_free(validator_context);
     text_input_reset(app->text_input);
 }

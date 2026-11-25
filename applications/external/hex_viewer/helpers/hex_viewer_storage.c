@@ -43,8 +43,8 @@ void hex_viewer_save_settings(void* context) {
     }
 
     if(!flipper_format_file_open_new(fff_file, HEX_VIEWER_SETTINGS_SAVE_PATH)) {
-        //totp_close_config_file(fff_file);
         FURI_LOG_E(TAG, "Error creating new file %s", HEX_VIEWER_SETTINGS_SAVE_PATH);
+        hex_viewer_close_config_file(fff_file); // Leak fix: FlipperFormat was leaked on this path
         hex_viewer_close_storage();
         return;
     }
@@ -84,6 +84,7 @@ void hex_viewer_read_settings(void* context) {
 
     if(!flipper_format_file_open_existing(fff_file, HEX_VIEWER_SETTINGS_SAVE_PATH)) {
         FURI_LOG_E(TAG, "Cannot open file %s", HEX_VIEWER_SETTINGS_SAVE_PATH);
+        furi_string_free(temp_str); // Leak fix
         hex_viewer_close_config_file(fff_file);
         hex_viewer_close_storage();
         return;

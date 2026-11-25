@@ -116,6 +116,8 @@ static void
                                 break;
                             }
                         }
+                        // Free the temporary path copy (leaked on every folder load)
+                        furi_string_free(selected);
                     }
                 }
                 if(model->item_idx < 0) {

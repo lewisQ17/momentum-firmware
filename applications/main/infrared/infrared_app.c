@@ -299,6 +299,10 @@ static void infrared_free(InfraredApp* infrared) {
     infrared_remote_free(infrared->remote);
     infrared_worker_free(infrared->worker);
 
+    // Close the storage record opened in infrared_alloc
+    furi_record_close(RECORD_STORAGE);
+    infrared->storage = NULL;
+
     furi_record_close(RECORD_NOTIFICATION);
     infrared->notifications = NULL;
 

@@ -111,6 +111,10 @@ void seos_native_peripheral_free(SeosNativePeripheral* seos_native_peripheral) {
 
     bit_buffer_free(seos_native_peripheral->rx_buffer);
 
+    // Leak fix: secure_messaging was never freed (worker thread is joined in _stop)
+    if(seos_native_peripheral->secure_messaging)
+        secure_messaging_free(seos_native_peripheral->secure_messaging);
+
     free(seos_native_peripheral);
 }
 
@@ -188,6 +192,7 @@ void seos_native_peripheral_process_message_cred(
     // Check for error flag
     if((flags & BLE_FLAG_ERR) == BLE_FLAG_ERR) {
         seos_log_buffer(TAG, "Received error response", message.buf + 1, message.len - 1);
+        bit_buffer_free(response); // Leak fix: response was never freed on early return
         return;
     }
 
@@ -197,6 +202,7 @@ void seos_native_peripheral_process_message_cred(
     } else {
         if(bit_buffer_get_size_bytes(seos_native_peripheral->rx_buffer) == 0) {
             FURI_LOG_W(TAG, "Expected start of BLE packet");
+            bit_buffer_free(response); // Leak fix: response was never freed on early return
             return;
         }
     }
@@ -204,7 +210,10 @@ void seos_native_peripheral_process_message_cred(
     bit_buffer_append_bytes(seos_native_peripheral->rx_buffer, message.buf + 1, message.len - 1);
 
     // Only parse if end-of-message flag found
-    if((flags & BLE_FLAG_EOM) != BLE_FLAG_EOM) return;
+    if((flags & BLE_FLAG_EOM) != BLE_FLAG_EOM) {
+        bit_buffer_free(response); // Leak fix: response was never freed on non-final fragments
+        return;
+    }
 
     const uint8_t* apdu = bit_buffer_get_data(seos_native_peripheral->rx_buffer);
     const size_t apdu_len = bit_buffer_get_size_bytes(seos_native_peripheral->rx_buffer);
@@ -253,6 +262,9 @@ void seos_native_peripheral_process_message_cred(
         view_dispatcher_send_custom_event(
             seos_native_peripheral->seos->view_dispatcher, SeosCustomEventAuthenticated);
         // Prepare for future communication
+        // Leak fix: free any previous session before re-alloc on re-auth
+        if(seos_native_peripheral->secure_messaging)
+            secure_messaging_free(seos_native_peripheral->secure_messaging);
         seos_native_peripheral->secure_messaging =
             secure_messaging_alloc(&seos_native_peripheral->params);
     } else if(memcmp(apdu, secure_messaging_header, sizeof(secure_messaging_header)) == 0) {
@@ -414,6 +426,9 @@ void seos_native_peripheral_process_message_reader(
             FURI_LOG_W(TAG, "Unhandled card cryptogram size %d", rx_data[3]);
         }
 
+        // Leak fix: free any previous session before re-alloc on re-auth
+        if(seos_native_peripheral->secure_messaging)
+            secure_messaging_free(seos_native_peripheral->secure_messaging);
         seos_native_peripheral->secure_messaging =
             secure_messaging_alloc(&seos_native_peripheral->params);
 

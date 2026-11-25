@@ -168,6 +168,14 @@ bool subghz_protocol_raw_save_to_file_init(
 
     furi_string_free(temp_str);
 
+    if(!init) {
+        // Failed init leaves file_is_open == Close, so save_to_file_stop() would not free these
+        flipper_format_free(instance->flipper_file); // also closes the file if open
+        instance->flipper_file = NULL;
+        furi_record_close(RECORD_STORAGE);
+        instance->storage = NULL;
+    }
+
     return init;
 }
 

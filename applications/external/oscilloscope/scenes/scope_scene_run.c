@@ -712,6 +712,7 @@ void scope_scene_run_on_enter(void* context) {
         view_port_enabled_set(view_port, false);
         gui_remove_view_port(gui, view_port);
         view_port_free(view_port);
+        furi_message_queue_free(event_queue); // Leak fix: queue freed after view port (input cb uses it)
 
         free_all();
 
@@ -723,7 +724,9 @@ void scope_scene_run_on_enter(void* context) {
         view_port_enabled_set(view_port, false);
         gui_remove_view_port(gui, view_port);
         view_port_free(view_port);
+        furi_message_queue_free(event_queue); // Leak fix: queue freed after view port (input cb uses it)
 
+        if(app->data) free(app->data); // Leak fix: drop any previous unsaved capture
         app->data = malloc(sizeof(uint16_t) * adc_buffer);
         memcpy(app->data, (uint16_t*)mvoltDisplay, sizeof(uint16_t) * adc_buffer);
         free_all();

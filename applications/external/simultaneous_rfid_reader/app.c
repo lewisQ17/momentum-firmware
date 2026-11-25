@@ -187,6 +187,17 @@ static void uhf_reader_app_free(UHFReaderApp* App) {
     free(App->ResValues);
     free(App->MemValues);
     free(App->EpcToSave);
+    // Leak fix: FileName and strdup'd labels/placeholders (views using them are freed above)
+    free(App->FileName);
+    free(App->ReadAccessPasswordLabel);
+    free(App->AccessPasswordPlaceHolder);
+    free(App->DefaultAccessPassword);
+    free(App->SetAccessPasswordPlaceHolder);
+    free(App->SettingApDefaultPassword);
+    free(App->SettingLockExecuteResult);
+    free(App->KillPasswordPlaceHolder);
+    free(App->KillConfirmPasswordPlaceHolder);
+    free(App->DefaultKillPassword);
     free(App);
 }
 

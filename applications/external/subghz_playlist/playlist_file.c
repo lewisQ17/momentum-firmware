@@ -6,6 +6,7 @@
 int playlist_count_playlist_items(Storage* storage, const char* file_path) {
     FlipperFormat* format = flipper_format_file_alloc(storage);
     if(!flipper_format_file_open_existing(format, file_path)) {
+        flipper_format_free(format); // Leak fix: format leaked when the file can't be opened
         return -1;
     }
     int count = 0;

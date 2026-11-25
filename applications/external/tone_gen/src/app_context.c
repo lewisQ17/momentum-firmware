@@ -135,6 +135,7 @@ AppContextStatus freeAppContext(struct AppContext_t** context) {
     FURI_LOG_I(TAG, "Freeing the view dispatcher");
     view_dispatcher_free((*context)->view_dispatcher);
     FURI_LOG_I(TAG, "Freeing the app context");
+    free((*context)->additionalData); // Leak fix: ToneData_t was never freed (scenes already gone)
     free((*context));
     return APP_CONTEXT_OK;
 }

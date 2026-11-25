@@ -472,6 +472,7 @@ void* rpc_system_app_alloc(RpcSession* session) {
 
     RpcAppSystem* rpc_app = malloc(sizeof(RpcAppSystem));
     rpc_app->session = session;
+    rpc_app->error_text = NULL; // freed in rpc_system_app_free()
 
     RpcHandler rpc_handler = {
         .message_handler = NULL,
@@ -531,5 +532,7 @@ void rpc_system_app_free(void* context) {
         furi_delay_tick(1);
     }
 
+    // callback is NULL now, nobody can set error_text anymore
+    free(rpc_app->error_text);
     free(rpc_app);
 }

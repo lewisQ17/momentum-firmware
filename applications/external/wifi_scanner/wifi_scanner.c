@@ -1063,6 +1063,11 @@ int32_t wifi_scanner_app(void* p) {
 
     furi_mutex_free(app->mutex);
 
+    // Leak fix: AP description strings were never freed (worker joined, view port freed)
+    furi_string_free(app->m_currentAccesspointDescription.m_accessPointName);
+    furi_string_free(app->m_currentAccesspointDescription.m_bssid);
+    furi_string_free(app->m_currentAccesspointDescription.m_secType);
+
     // Free rest
     free(app);
 

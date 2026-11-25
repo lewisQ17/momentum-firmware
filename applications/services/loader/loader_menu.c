@@ -109,6 +109,7 @@ typedef struct {
     const char* name;
     const Icon* icon;
     const char* path;
+    bool owns_icon; // heap Icon (FAP meta) vs const flash icon
 } MenuApp;
 
 LIST_DEF(MenuAppList, MenuApp, M_POD_OPLIST)
@@ -220,8 +221,9 @@ static void loader_menu_add_app_entry(
     LoaderMenuApp* app,
     const char* name,
     const Icon* icon,
-    const char* path) {
-    MenuAppList_push_back(app->apps_list, (MenuApp){name, icon, path});
+    const char* path,
+    bool owns_icon) {
+    MenuAppList_push_back(app->apps_list, (MenuApp){name, icon, path, owns_icon});
     menu_add_item(
         app->primary_menu,
         name,
@@ -265,9 +267,11 @@ static void loader_menu_find_add_app(LoaderMenuApp* app, Storage* storage, FuriS
     const char* name = NULL;
     const Icon* icon = NULL;
     const char* path = NULL;
+    bool owns_icon = false;
     if(furi_string_start_with(line, "/")) {
         path = strdup(furi_string_get_cstr(line));
-        if(!loader_menu_load_fap_meta(storage, line, line, &icon)) {
+        owns_icon = loader_menu_load_fap_meta(storage, line, line, &icon);
+        if(!owns_icon) {
             icon = loader_menu_get_ext_icon(storage, path);
         }
         name = strdup(furi_string_get_cstr(line));
@@ -287,7 +291,7 @@ static void loader_menu_find_add_app(LoaderMenuApp* app, Storage* storage, FuriS
     }
     // Path only set for FAPs
     if(name && icon) {
-        loader_menu_add_app_entry(app, name, icon, path);
+        loader_menu_add_app_entry(app, name, icon, path, owns_icon);
     }
 }
 
@@ -324,12 +328,13 @@ static void loader_menu_build_menu(LoaderMenuApp* app, LoaderMenu* menu) {
         }
     } else {
         for(size_t i = 0; i < FLIPPER_APPS_COUNT; i++) {
-            loader_menu_add_app_entry(app, FLIPPER_APPS[i].name, FLIPPER_APPS[i].icon, NULL);
+            loader_menu_add_app_entry(
+                app, FLIPPER_APPS[i].name, FLIPPER_APPS[i].icon, NULL, false);
         }
         // Until count - 1 because last app is hardcoded below
         for(size_t i = 0; i < FLIPPER_EXTERNAL_APPS_COUNT - 1; i++) {
             loader_menu_add_app_entry(
-                app, FLIPPER_EXTERNAL_APPS[i].name, FLIPPER_EXTERNAL_APPS[i].icon, NULL);
+                app, FLIPPER_EXTERNAL_APPS[i].name, FLIPPER_EXTERNAL_APPS[i].icon, NULL, false);
         }
     }
     furi_string_free(line);
@@ -402,13 +407,16 @@ static void loader_menu_app_free(LoaderMenuApp* app) {
         menu_free(app->primary_menu);
         for
             M_EACH(menu_app, app->apps_list, MenuAppList_t) {
-                // Path only set for FAPs, if unset then name and
+                // Path only set for strdup'd entries, if unset then name and
                 // icon point to flash and must not be freed
                 if(menu_app->path) {
                     free((void*)menu_app->name);
-                    free((void*)menu_app->icon->frames[0]);
-                    free((void*)menu_app->icon->frames);
-                    free((void*)menu_app->icon);
+                    // Non-FAP entries use const flash icons, only free heap icons
+                    if(menu_app->owns_icon) {
+                        free((void*)menu_app->icon->frames[0]);
+                        free((void*)menu_app->icon->frames);
+                        free((void*)menu_app->icon);
+                    }
                     free((void*)menu_app->path);
                 }
             }

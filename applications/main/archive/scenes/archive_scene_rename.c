@@ -111,5 +111,10 @@ bool archive_scene_rename_on_event(void* context, SceneManagerEvent event) {
 
 void archive_scene_rename_on_exit(void* context) {
     ArchiveApp* archive = context;
+    // Free validator allocated in on_enter (text_input_reset only clears the pointer)
+    void* validator = text_input_get_validator_callback_context(archive->text_input);
+    if(validator) {
+        validator_is_file_free((ValidatorIsFile*)validator);
+    }
     text_input_reset(archive->text_input);
 }

@@ -6,18 +6,21 @@
 typedef struct {
     FuriThread* thread;
     volatile PlatformIrqCallback callback;
+    volatile bool stop;
     bool need_spi_lock;
 } RfalPlatform;
 
 static volatile RfalPlatform rfal_platform = {
     .thread = NULL,
     .callback = NULL,
+    .stop = false,
     .need_spi_lock = true,
 };
 
 void nfc_isr(void* _ctx) {
     UNUSED(_ctx);
-    if(rfal_platform.callback && platformGpioIsHigh(ST25R_INT_PORT, ST25R_INT_PIN)) {
+    if(rfal_platform.callback && rfal_platform.thread &&
+       platformGpioIsHigh(ST25R_INT_PORT, ST25R_INT_PIN)) {
         furi_thread_flags_set(furi_thread_get_id(rfal_platform.thread), 0x1);
     }
 }
@@ -27,10 +30,16 @@ int32_t rfal_platform_irq_thread(void* context) {
 
     while(1) {
         uint32_t flags = furi_thread_flags_wait(0x1, FuriFlagWaitAny, FuriWaitForever);
-        if(flags & 0x1) {
+        // Leak fix: let platformUnsetIrqCallback() stop this thread
+        if(rfal_platform.stop) {
+            break;
+        }
+        if((flags & 0x1) && rfal_platform.callback) {
             rfal_platform.callback();
         }
     }
+
+    return 0;
 }
 
 void platformEnableIrqCallback() {
@@ -59,6 +68,27 @@ void platformSetIrqCallback(PlatformIrqCallback callback) {
     // Disable interrupt callback as the pin is shared between 2 apps
     // It is enabled in rfalLowPowerModeStop()
     furi_hal_gpio_disable_int_callback(&gpio_nfc_irq_rfid_pull);
+}
+
+// Leak fix: stop and free the RfalIrqDriver thread and drop the GPIO callback (called from deinit)
+void platformUnsetIrqCallback() {
+    if(!rfal_platform.thread) {
+        return;
+    }
+
+    // No more ISRs may reach the thread once it is going away
+    furi_hal_gpio_disable_int_callback(&gpio_nfc_irq_rfid_pull);
+    furi_hal_gpio_remove_int_callback(&gpio_nfc_irq_rfid_pull);
+    rfal_platform.callback = NULL;
+    rfal_platform.stop = true;
+
+    FuriThread* thread = rfal_platform.thread;
+    furi_thread_flags_set(furi_thread_get_id(thread), 0x1);
+    furi_thread_join(thread);
+    rfal_platform.thread = NULL;
+    furi_thread_free(thread);
+
+    rfal_platform.stop = false;
 }
 
 bool platformSpiTxRx(const uint8_t* txBuf, uint8_t* rxBuf, uint16_t len) {

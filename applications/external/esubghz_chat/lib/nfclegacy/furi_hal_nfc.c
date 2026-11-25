@@ -3,6 +3,7 @@
 #include "ST25RFAL002/source/st25r3916/st25r3916.h"
 #include "ST25RFAL002/source/st25r3916/st25r3916_irq.h"
 #include "ST25RFAL002/include/rfal_rf.h"
+#include "ST25RFAL002/platform.h"
 #include <furi.h>
 
 #include "digital_signal/digital_signal.h"
@@ -43,6 +44,9 @@ void furry_hal_nfc_deinit() {
     } else {
         FURI_LOG_W(TAG, "Deinit Failed, RFAL returned: %d", ret);
     }
+
+    // Leak fix: stop the IRQ driver thread; next init recreates it
+    platformUnsetIrqCallback();
 
     if(event) {
         furi_event_flag_free(event);

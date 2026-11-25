@@ -18,7 +18,7 @@ static NfcDevice* eink_goodisplay_nfc_device_4a_alloc() {
     _4aAtsData->tb_1 = 0xA0;
     _4aAtsData->tc_1 = 0x02;
 
-    _4aAtsData->t1_tk = simple_array_alloc(&simple_array_config_uint8_t);
+    // Leak fix: iso14443_4a_alloc() already allocated t1_tk; don't orphan it by re-allocating
     simple_array_init(_4aAtsData->t1_tk, sizeof(ats_data));
     SimpleArrayData* ats_array = simple_array_get_data(_4aAtsData->t1_tk);
     memcpy(ats_array, ats_data, sizeof(ats_data));

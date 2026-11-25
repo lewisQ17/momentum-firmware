@@ -579,6 +579,9 @@ void animation_manager_load_and_continue_animation(AnimationManager* animation_m
                             animation_manager->idle_animation_timer,
                             (duration > 0) ? (duration * 1000) : 0);
                     }
+                } else {
+                    // Not adopted by the manager, free it (no-op for built-in animations)
+                    animation_storage_free_storage_animation(&restore_animation);
                 }
             } else {
                 FURI_LOG_E(

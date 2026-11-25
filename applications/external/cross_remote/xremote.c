@@ -137,6 +137,10 @@ void xremote_app_free(XRemote* app) {
 
     xremote_cross_remote_free(app->cross_remote);
 
+    // Leak fix: free remote buffers (items own copies, no aliasing)
+    xremote_ir_remote_free(app->ir_remote_buffer);
+    xremote_sg_remote_free(app->sg_remote_buffer);
+
     subghz_free(app->subghz);
 
     // View Dispatcher
@@ -161,6 +165,9 @@ void xremote_app_free(XRemote* app) {
     view_stack_free(app->view_stack);
     popup_free(app->popup);
     submenu_free(app->submenu);
+    // Leak fix: editmenu and settings list were never freed
+    submenu_free(app->editmenu);
+    variable_item_list_free(app->variable_item_list);
     xremote_infoscreen_free(app->xremote_infoscreen);
     xremote_pause_set_free(app->xremote_pause_set);
     xremote_transmit_free(app->xremote_transmit);

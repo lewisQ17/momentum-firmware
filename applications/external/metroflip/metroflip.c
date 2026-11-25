@@ -72,7 +72,6 @@ Metroflip* metroflip_alloc() {
 
     app->popup = popup_alloc();
     view_dispatcher_add_view(app->view_dispatcher, MetroflipViewPopup, popup_get_view(app->popup));
-    app->nfc_device = nfc_device_alloc();
 
     // TextBox
     app->text_box = text_box_alloc();
@@ -303,6 +302,10 @@ KeyfileManager manage_keyfiles(
             FURI_LOG_I("TAG", "assets dont exist, prompting user to fix..");
             storage_file_close(source);
             storage_file_close(dest);
+            // Leak fix: release both File objects and the storage record before returning
+            storage_file_free(source);
+            storage_file_free(dest);
+            furi_record_close(RECORD_STORAGE);
             return MISSING_KEYFILE;
         } else {
             size_t dest_file_length = storage_file_size(dest);
@@ -324,6 +327,10 @@ KeyfileManager manage_keyfiles(
             free(cloned_buffer);
             storage_file_close(source);
             storage_file_close(dest);
+            // Leak fix: release both File objects and the storage record before returning
+            storage_file_free(source);
+            storage_file_free(dest);
+            furi_record_close(RECORD_STORAGE);
             return SUCCESSFUL;
         }
     } else {
@@ -347,18 +354,30 @@ KeyfileManager manage_keyfiles(
             free(cloned_buffer);
             storage_file_close(source);
             storage_file_close(dest);
+            // Leak fix: release both File objects and the storage record before returning
+            storage_file_free(source);
+            storage_file_free(dest);
+            furi_record_close(RECORD_STORAGE);
             return SUCCESSFUL;
 
         } else {
             FURI_LOG_I("TAG", "incomplete cache file, aborting.");
             storage_file_close(source);
             storage_file_close(dest);
+            // Leak fix: release both File objects and the storage record before returning
+            storage_file_free(source);
+            storage_file_free(dest);
+            furi_record_close(RECORD_STORAGE);
             return INCOMPLETE_KEYFILE;
         }
     }
     FURI_LOG_I("TAG", "proceeding to read");
     storage_file_close(source);
     storage_file_close(dest);
+    storage_file_free(source);
+    storage_file_free(dest);
+    furi_record_close(RECORD_STORAGE);
+    return SUCCESSFUL;
 }
 
 void uid_to_string(const uint8_t* uid, size_t uid_len, char* uid_str, size_t max_len) {

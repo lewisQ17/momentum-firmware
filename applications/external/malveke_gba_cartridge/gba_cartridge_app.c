@@ -84,6 +84,10 @@ void gba_cartridge_app_app_free(GBACartridge* app) {
     uart_free(app->uart);
     uart_free(app->lp_uart);
 
+    // Leak fix: free views only after UART RX callbacks are gone
+    gba_cartridge_startscreen_free(app->gba_cartridge_startscreen);
+    gba_cartridge_scene_1_free(app->gba_cartridge_scene_1);
+
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_STORAGE);
     furi_record_close(RECORD_DIALOGS);

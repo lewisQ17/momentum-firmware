@@ -542,6 +542,7 @@ void variable_item_list_enter_callback(void* context, uint32_t index) {
         break;
     case OptionsIndexOpeningKey:
         // This option can't be clicked (it's just a boolean, there's no need)
+        furi_string_free(label); // Leak fix: label was not freed on this early return
         return;
 
     case OptionsIndexKeyLockID:
@@ -570,6 +571,7 @@ void variable_item_list_enter_callback(void* context, uint32_t index) {
 
     case OptionsIndexDeadboltOverride:
         // This option can't be clicked (it's just a boolean, there's no need)
+        furi_string_free(label); // Leak fix: label was not freed on this early return
         return;
 
     case OptionsIndexRestrictedDays:

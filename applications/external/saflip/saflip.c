@@ -48,6 +48,7 @@ void saflip_reset_data(SaflipApp* app) {
     app->data->expire.day = datetime->day;
     app->data->expire.hour = datetime->hour;
     app->data->expire.minute = datetime->minute;
+    free(datetime); // Leak fix: temporary DateTime was never freed
 
     // Use default credential type (Mifare Classic) and UID
     app->data->format = SaflipFormatMifareClassic;

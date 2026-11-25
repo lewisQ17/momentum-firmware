@@ -441,6 +441,10 @@ static void rpc_system_storage_read_process(const PB_Main* request, void* contex
 
             if(fs_operation_success) {
                 rpc_send_and_release(session, response);
+            } else {
+                // Short read: chunk is never sent, so release_and_send won't free it
+                free(response->content.storage_read_response.file.data);
+                response->content.storage_read_response.file.data = NULL;
             }
         } while((size_left != 0) && fs_operation_success);
     }

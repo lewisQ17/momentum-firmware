@@ -2384,6 +2384,8 @@ void cipher_learn_scene_on_enter(void* context) {
 
 // NFC functionality on output screen
 void create_nfc_tag(App* app, const char* message) {
+    // Leak fix: release the device from app_alloc / the previous export (listener is already freed on scene exit)
+    if(app->nfc_device) nfc_device_free(app->nfc_device);
     app->nfc_device = nfc_device_alloc();
     nfc_data_generator_fill_data(NfcDataGeneratorTypeNTAG215, app->nfc_device);
 
@@ -2461,103 +2463,127 @@ void create_nfc_tag(App* app, const char* message) {
     free(isodata);
 }
 
+// Leak fix: load_result_generic() returns a heap buffer that every caller used to drop; load, use, free
+static char* flip_crypt_load_or_error(const char* path) {
+    char* text = load_result_generic(path);
+    return text ? text : strdup("ERROR");
+}
+
+static void flip_crypt_nfc_from_file(App* app, const char* path) {
+    char* text = flip_crypt_load_or_error(path);
+    create_nfc_tag(app, text);
+    free(text);
+}
+
+static void flip_crypt_qr_from_file(App* app, const char* path) {
+    char* text = flip_crypt_load_or_error(path);
+    qrcodegen_encodeText(text, app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+    free(text);
+}
+
+static void flip_crypt_save_from_file(const char* path, char* file_name) {
+    char* text = flip_crypt_load_or_error(path);
+    save_result(text, file_name);
+    free(text);
+}
+
 void flip_crypt_nfc_scene_on_enter(void* context) {
     App* app = context;
     widget_reset(app->widget);
     widget_add_icon_element(app->widget, 0, 3, &I_NFC_dolphin_emulation_51x64);
     widget_add_string_element(app->widget, 90, 25, AlignCenter, AlignTop, FontPrimary, "Emulating...");
     if (strcmp(app->last_output_scene, "AES") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("aes.txt")));    
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("aes.txt"));    
     } else if (strcmp(app->last_output_scene, "AESDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("aes_decrypt.txt")));    
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("aes_decrypt.txt"));    
     } else if (strcmp(app->last_output_scene, "Atbash") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("atbash.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("atbash.txt"));
     } else if (strcmp(app->last_output_scene, "AtbashDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("atbash_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("atbash_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Affine") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("affine.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("affine.txt"));
     } else if (strcmp(app->last_output_scene, "AffineDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("affine_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("affine_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Baconian") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("baconian.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("baconian.txt"));
     } else if (strcmp(app->last_output_scene, "BaconianDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("baconian_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("baconian_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Beaufort") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("beaufort.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("beaufort.txt"));
     } else if (strcmp(app->last_output_scene, "BeaufortDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("beaufort_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("beaufort_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Caesar") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("caesar.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("caesar.txt"));
     } else if (strcmp(app->last_output_scene, "CaesarDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("caesar_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("caesar_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Playfair") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("playfair.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("playfair.txt"));
     } else if (strcmp(app->last_output_scene, "PlayfairDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("playfair_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("playfair_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Polybius") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("polybius.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("polybius.txt"));
     } else if (strcmp(app->last_output_scene, "PolybiusDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("polybius_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("polybius_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Porta") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("porta.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("porta.txt"));
     } else if (strcmp(app->last_output_scene, "PortaDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("porta_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("porta_decrypt.txt"));
     }  else if (strcmp(app->last_output_scene, "Railfence") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("railfence.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("railfence.txt"));
     } else if (strcmp(app->last_output_scene, "RailfenceDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("railfence_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("railfence_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "RC4") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("rc4.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("rc4.txt"));
     } else if (strcmp(app->last_output_scene, "RC4Decrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("rc4_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("rc4_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "ROT13") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("rot13.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("rot13.txt"));
     } else if (strcmp(app->last_output_scene, "ROT13Decrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("rot13_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("rot13_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Scytale") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("scytale.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("scytale.txt"));
     } else if (strcmp(app->last_output_scene, "ScytaleDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("scytale_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("scytale_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Vigenere") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("vigenere.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("vigenere.txt"));
     } else if (strcmp(app->last_output_scene, "VigenereDecrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("vigenere_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("vigenere_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Blake2") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("blake2.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("blake2.txt"));
     } else if (strcmp(app->last_output_scene, "FNV1A") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("fnv1a.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("fnv1a.txt"));
     } else if (strcmp(app->last_output_scene, "MD2") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("md2.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("md2.txt"));
     } else if (strcmp(app->last_output_scene, "MD5") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("md5.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("md5.txt"));
     } else if (strcmp(app->last_output_scene, "Murmur3") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("murmur3.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("murmur3.txt"));
     } else if (strcmp(app->last_output_scene, "Sip") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("sip.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("sip.txt"));
     } else if (strcmp(app->last_output_scene, "SHA1") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("sha1.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("sha1.txt"));
     } else if (strcmp(app->last_output_scene, "SHA224") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("sha224.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("sha224.txt"));
     } else if (strcmp(app->last_output_scene, "SHA256") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("sha256.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("sha256.txt"));
     } else if (strcmp(app->last_output_scene, "SHA384") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("sha384.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("sha384.txt"));
     } else if (strcmp(app->last_output_scene, "SHA512") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("sha512.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("sha512.txt"));
     } else if (strcmp(app->last_output_scene, "XX") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("xx.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("xx.txt"));
     } else if (strcmp(app->last_output_scene, "Base32") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("base32.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("base32.txt"));
     } else if (strcmp(app->last_output_scene, "Base32Decrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("base32_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("base32_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Base58") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("base58.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("base58.txt"));
     } else if (strcmp(app->last_output_scene, "Base58Decrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("base58_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("base58_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Base64") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("base64.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("base64.txt"));
     } else if (strcmp(app->last_output_scene, "Base64Decrypt") == 0) {
-        create_nfc_tag(context, load_result_generic(APP_DATA_PATH("base64_decrypt.txt")));
+        flip_crypt_nfc_from_file(app, APP_DATA_PATH("base64_decrypt.txt"));
     } else {
         create_nfc_tag(context, "ERROR");
     }
@@ -2585,97 +2611,97 @@ void flip_crypt_qr_scene_on_enter(void* context) {
     bool isTooLong = false;
     widget_reset(app->widget);
     if (strcmp(app->last_output_scene, "AES") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("aes.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true ); 
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("aes.txt")); 
     } else if (strcmp(app->last_output_scene, "AESDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("aes_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);  
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("aes_decrypt.txt"));  
     } else if (strcmp(app->last_output_scene, "Atbash") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("atbash.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("atbash.txt"));
     } else if (strcmp(app->last_output_scene, "AtbashDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("atbash_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("atbash_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Affine") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("affine.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("affine.txt"));
     } else if (strcmp(app->last_output_scene, "AffineDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("affine_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("affine_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Baconian") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("baconian.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("baconian.txt"));
     } else if (strcmp(app->last_output_scene, "BaconianDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("baconian_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("baconian_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Beaufort") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("beaufort.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("beaufort.txt"));
     } else if (strcmp(app->last_output_scene, "BeaufortDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("beaufort_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("beaufort_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Caesar") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("caesar.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("caesar.txt"));
     } else if (strcmp(app->last_output_scene, "CaesarDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("caesar_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("caesar_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Playfair") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("playfair.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("playfair.txt"));
     } else if (strcmp(app->last_output_scene, "PlayfairDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("playfair_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("playfair_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Polybius") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("polybius.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("polybius.txt"));
     } else if (strcmp(app->last_output_scene, "PolybiusDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("polybius_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("polybius_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Porta") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("porta.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("porta.txt"));
     } else if (strcmp(app->last_output_scene, "PortaDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("porta_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("porta_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Railfence") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("railfence.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("railfence.txt"));
     } else if (strcmp(app->last_output_scene, "RailfenceDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("railfence_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("railfence_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "RC4") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("rc4.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("rc4.txt"));
     } else if (strcmp(app->last_output_scene, "RC4Decrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("rc4_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("rc4_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "ROT13") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("rot13.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("rot13.txt"));
     } else if (strcmp(app->last_output_scene, "ROT13Decrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("rot13_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("rot13_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Scytale") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("scytale.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("scytale.txt"));
     } else if (strcmp(app->last_output_scene, "ScytaleDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("scytale_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("scytale_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Vigenere") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("vigenere.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("vigenere.txt"));
     } else if (strcmp(app->last_output_scene, "VigenereDecrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("vigenere_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("vigenere_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Blake2") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("blake2.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("blake2.txt"));
     } else if (strcmp(app->last_output_scene, "FNV1A") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("fnv1a.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("fnv1a.txt"));
     } else if (strcmp(app->last_output_scene, "MD2") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("md2.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("md2.txt"));
     } else if (strcmp(app->last_output_scene, "MD5") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("md5.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("md5.txt"));
     } else if (strcmp(app->last_output_scene, "Murmur3") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("murmur3.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("murmur3.txt"));
     } else if (strcmp(app->last_output_scene, "Sip") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("sip.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("sip.txt"));
     } else if (strcmp(app->last_output_scene, "SHA1") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("sha1.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("sha1.txt"));
     } else if (strcmp(app->last_output_scene, "SHA224") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("sha224.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("sha224.txt"));
     } else if (strcmp(app->last_output_scene, "SHA256") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("sha256.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("sha256.txt"));
     } else if (strcmp(app->last_output_scene, "SHA384") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("sha384.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("sha384.txt"));
     } else if (strcmp(app->last_output_scene, "SHA512") == 0) {
         isTooLong = true;
     } else if (strcmp(app->last_output_scene, "XX") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("xx.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("xx.txt"));
     } else if (strcmp(app->last_output_scene, "Base32") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("base32.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("base32.txt"));
     } else if (strcmp(app->last_output_scene, "Base32Decrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("base32_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("base32_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Base58") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("base58.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("base58.txt"));
     } else if (strcmp(app->last_output_scene, "Base58Decrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("base58_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("base58_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Base64") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("base64.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("base64.txt"));
     } else if (strcmp(app->last_output_scene, "Base64Decrypt") == 0) {
-        qrcodegen_encodeText(load_result_generic(APP_DATA_PATH("base64_decrypt.txt")), app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+        flip_crypt_qr_from_file(app, APP_DATA_PATH("base64_decrypt.txt"));
     } else {
         qrcodegen_encodeText("ERROR", app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
     }
@@ -2707,97 +2733,97 @@ void flip_crypt_save_scene_on_enter(void* context) {
     App* app = context;
     widget_reset(app->widget);
     if (strcmp(app->last_output_scene, "AES") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("aes.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("aes.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "AESDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("aes_decrypt.txt")), app->save_name_input);  
+        flip_crypt_save_from_file(APP_DATA_PATH("aes_decrypt.txt"), app->save_name_input);  
     } else if (strcmp(app->last_output_scene, "Atbash") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("atbash.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("atbash.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "AtbashDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("atbash_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("atbash_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Affine") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("affine.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("affine.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "AffineDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("affine_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("affine_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Baconian") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("baconian.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("baconian.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "BaconianDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("baconian_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("baconian_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Beaufort") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("beaufort.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("beaufort.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "BeaufortDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("beaufort_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("beaufort_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Caesar") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("caesar.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("caesar.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "CaesarDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("caesar_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("caesar_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Playfair") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("playfair.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("playfair.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "PlayfairDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("playfair_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("playfair_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Polybius") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("polybius.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("polybius.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "PolybiusDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("polybius_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("polybius_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Porta") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("porta.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("porta.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "PortaDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("porta_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("porta_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Railfence") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("railfence.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("railfence.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "RailfenceDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("railfence_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("railfence_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "RC4") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("rc4.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("rc4.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "RC4Decrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("rc4_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("rc4_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "ROT13") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("rot13.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("rot13.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "ROT13Decrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("rot13_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("rot13_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Scytale") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("scytale.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("scytale.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "ScytaleDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("scytale_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("scytale_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Vigenere") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("vigenere.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("vigenere.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "VigenereDecrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("vigenere_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("vigenere_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Blake2") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("blake2.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("blake2.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "FNV1A") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("fnv1a.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("fnv1a.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "MD2") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("md2.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("md2.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "MD5") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("md5.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("md5.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Murmur3") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("murmur3.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("murmur3.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Sip") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("sip.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("sip.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "SHA1") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("sha1.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("sha1.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "SHA224") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("sha224.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("sha224.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "SHA256") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("sha256.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("sha256.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "SHA384") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("sha384.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("sha384.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "SHA512") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("sha512.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("sha512.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "XX") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("xx.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("xx.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Base32") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("base32.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("base32.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Base32Decrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("base32_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("base32_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Base58") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("base58.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("base58.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Base58Decrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("base58_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("base58_decrypt.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Base64") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("base64.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("base64.txt"), app->save_name_input);
     } else if (strcmp(app->last_output_scene, "Base64Decrypt") == 0) {
-        save_result(load_result_generic(APP_DATA_PATH("base64_decrypt.txt")), app->save_name_input);
+        flip_crypt_save_from_file(APP_DATA_PATH("base64_decrypt.txt"), app->save_name_input);
     } else {
         save_result("ERROR", app->save_name_input);
     }
@@ -3466,6 +3492,10 @@ static App* app_alloc() {
     app->rc4_keyword_input = malloc(app->rc4_keyword_input_size);
     app->scytale_keyword_input = 0;
     app->vigenere_keyword_input = malloc(app->vigenere_keyword_input_size);
+    // Leak/NULL fix: app_free frees sip_keyword_input but it was never allocated
+    app->sip_keyword_input_size = 64;
+    app->sip_keyword_input = malloc(app->sip_keyword_input_size);
+    memset(app->sip_keyword_input, 0, app->sip_keyword_input_size);
     // Other
     app->scene_manager = scene_manager_alloc(&flip_crypt_scene_manager_handlers, app);
     app->view_dispatcher = view_dispatcher_alloc();
@@ -3513,6 +3543,8 @@ static void app_free(App* app) {
     free(app->qrcode);
     free(app->last_output_scene);
     free(app->universal_input);
+    // Leak fix: save_name_input was never freed
+    free(app->save_name_input);
     free(app->aes_key_input);
     free(app->beaufort_key_input);
     free(app->playfair_keyword_input);

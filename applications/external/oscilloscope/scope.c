@@ -37,6 +37,7 @@ static void scope_app_tick_event_callback(void* context) {
 
 ScopeApp* scope_app_alloc() {
     ScopeApp* app = malloc(sizeof(ScopeApp));
+    app->data = NULL; // capture buffer is only set after a capture
 
     // GUI
     app->gui = furi_record_open(RECORD_GUI);
@@ -117,6 +118,7 @@ void scope_app_free(ScopeApp* app) {
     // Close records
     furi_record_close(RECORD_GUI);
 
+    if(app->data) free(app->data); // Leak fix: unsaved capture buffer
     free(app);
 }
 

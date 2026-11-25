@@ -17,6 +17,7 @@ void nfc_eink_scene_delete_on_enter(void* context) {
     furi_string_printf(temp_str, "\e#Delete %s?\e#", furi_string_get_cstr(app->file_name));
     widget_add_text_box_element(
         app->widget, 0, 0, 128, 23, AlignCenter, AlignCenter, furi_string_get_cstr(temp_str), false);
+    furi_string_free(temp_str); // Leak fix: widget copies the text, temp_str was never freed
     widget_add_button_element(
         app->widget, GuiButtonTypeLeft, "Cancel", nfc_eink_scene_delete_widget_callback, app);
     widget_add_button_element(

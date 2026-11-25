@@ -32,6 +32,9 @@ static void xremote_ir_remote_clear_buttons(InfraredRemote* remote) {
 }
 
 void xremote_ir_remote_free(InfraredRemote* remote) {
+    // Leak fix: free owned buttons and the array storage
+    xremote_ir_remote_clear_buttons(remote);
+    InfraredButtonArray_clear(remote->buttons);
     furi_string_free(remote->path);
     furi_string_free(remote->name);
     free(remote);

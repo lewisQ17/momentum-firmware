@@ -128,6 +128,7 @@ bool infrared_utils_read_signal_at_index(
         }
     } while(false);
 
+    furi_string_free(temp_str); // Leak fix: temp_str was never freed on any path
     return success;
 }
 

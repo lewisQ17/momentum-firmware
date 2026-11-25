@@ -202,5 +202,8 @@ int gpio_diag_lights_app(void* p) {
 
     // Remove the directions from the screen.
     gui_remove_view_port(gui, view_port);
+    // Leak fix: free the view port and close the GUI record
+    view_port_free(view_port);
+    furi_record_close(RECORD_GUI);
     return 0;
 }

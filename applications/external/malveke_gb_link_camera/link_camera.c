@@ -68,10 +68,31 @@ static bool view_input_callback(InputEvent* event, void* context) {
     }
     return false;
 }
+// Static fallbacks (never heap-allocated, never freed)
+static char link_camera_ip_default[] = "0.0.0.0";
+static char link_camera_ssid_default[] = " - ";
+static char link_camera_password_default[] = "******";
+
+// Leak fix: replace a model string, freeing the previous strdup (but never a static fallback)
+static void link_camera_model_set_str(char** slot, const char* value, char* fallback) {
+    if(*slot && *slot != fallback) free(*slot);
+    *slot = value ? strdup(value) : fallback;
+}
+
 static void link_camera_free(LinkCameraApp* app) {
     furi_assert(app);
     // Free views
     view_dispatcher_remove_view(app->view_dispatcher, 0);
+    // Leak fix: release the strdup'd connection strings before the model goes away
+    with_view_model(
+        app->view,
+        LinkCameraModel * model,
+        {
+            link_camera_model_set_str(&model->ip, NULL, link_camera_ip_default);
+            link_camera_model_set_str(&model->ssid, NULL, link_camera_ssid_default);
+            link_camera_model_set_str(&model->password, NULL, link_camera_password_default);
+        },
+        false);
     view_free(app->view);
     view_dispatcher_free(app->view_dispatcher);
     // Close gui record
@@ -112,23 +133,20 @@ void handle_rx_data_cb(uint8_t* buf, size_t len, void* context) {
 
                 if(strcmp(model->event_type, "connected") == 0) {
                     cJSON* ip = cJSON_GetObjectItemCaseSensitive(json, "ip");
-                    if(cJSON_IsString(ip) && (ip->valuestring != NULL)) {
-                        model->ip = strdup(ip->valuestring);
-                    } else {
-                        model->ip = "0.0.0.0";
-                    }
+                    link_camera_model_set_str(
+                        &model->ip,
+                        (cJSON_IsString(ip) ? ip->valuestring : NULL),
+                        link_camera_ip_default);
                     cJSON* ssid = cJSON_GetObjectItemCaseSensitive(json, "ssid");
-                    if(cJSON_IsString(ssid) && (ssid->valuestring != NULL)) {
-                        model->ssid = strdup(ssid->valuestring);
-                    } else {
-                        model->ssid = " - ";
-                    }
+                    link_camera_model_set_str(
+                        &model->ssid,
+                        (cJSON_IsString(ssid) ? ssid->valuestring : NULL),
+                        link_camera_ssid_default);
                     cJSON* password = cJSON_GetObjectItemCaseSensitive(json, "password");
-                    if(cJSON_IsString(password) && (password->valuestring != NULL)) {
-                        model->password = strdup(password->valuestring);
-                    } else {
-                        model->password = "******";
-                    }
+                    link_camera_model_set_str(
+                        &model->password,
+                        (cJSON_IsString(password) ? password->valuestring : NULL),
+                        link_camera_password_default);
                     model->connected = true;
                 }
                 cJSON_Delete(json);
@@ -156,6 +174,16 @@ static LinkCameraApp* link_camera_alloc() {
     view_set_draw_callback(app->view, view_draw_callback);
     view_set_input_callback(app->view, view_input_callback);
     view_allocate_model(app->view, ViewModelTypeLocking, sizeof(LinkCameraModel));
+    // Leak fix: the model is freed/replaced on use, so its string slots must start as NULL
+    with_view_model(
+        app->view,
+        LinkCameraModel * model,
+        {
+            model->ip = NULL;
+            model->ssid = NULL;
+            model->password = NULL;
+        },
+        false);
 
     view_set_previous_callback(app->view, link_camera_exit);
     view_dispatcher_add_view(app->view_dispatcher, 0, app->view);

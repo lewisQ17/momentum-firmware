@@ -246,6 +246,8 @@ static void gpio_explorer_app_free(struct gpio_explorer_app_struct * app) {
     view_dispatcher_free(app->view_dispatcher);
     furi_record_close(RECORD_GUI);
     free_storage_manager();
+    // allocated once per launch in the alloc path, previously never released
+    free(app->configuration_settings);
     free(app);
 }
 

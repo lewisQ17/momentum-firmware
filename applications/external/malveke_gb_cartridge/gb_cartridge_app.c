@@ -158,6 +158,18 @@ void gb_cartridge_app_app_free(GBCartridge* app) {
     uart_free(app->uart);
     uart_free(app->lp_uart);
 
+    // Leak fix: free views/scenes only after UART RX callbacks are gone
+    gb_cartridge_startscreen_free(app->gb_cartridge_startscreen);
+    gb_cartridge_scene_1_free(app->gb_cartridge_scene_1);
+    gb_cartridge_scene_2_free(app->gb_cartridge_scene_2);
+    gb_cartridge_scene_3_free(app->gb_cartridge_scene_3);
+    gb_cartridge_scene_4_free(app->gb_cartridge_scene_4);
+    gb_cartridge_scene_5_free(app->gb_cartridge_scene_5);
+    variable_item_list_free(app->variable_item_list);
+    furi_string_free(app->file_path);
+    // Pairs with insomnia_enter in alloc
+    furi_hal_power_insomnia_exit();
+
     // Dump File (if any) must go before the storage record is closed
     if(app->cart_rom) {
         if(storage_file_is_open(app->cart_rom)) {

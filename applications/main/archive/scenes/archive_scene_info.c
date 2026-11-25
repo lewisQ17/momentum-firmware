@@ -110,6 +110,8 @@ static uint32_t archive_scene_info_md5sum(void* context) {
             }
             furi_string_cat(md5, "\e*");
             widget_element_text_box_set_text(instance->size_element, furi_string_get_cstr(md5));
+            // Text box copies the string; free ours to avoid a leak per MD5
+            furi_string_free(md5);
         }
         free(md5_ctx);
         free(data);

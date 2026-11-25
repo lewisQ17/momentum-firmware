@@ -44,9 +44,10 @@ bool mag_state_load(MagState* out_state) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     if(storage_file_exists(storage, MAG_STATE_PATH)) {
         FlipperFormat* file = flipper_format_file_alloc(storage);
+        // Leak fix: allocate outside the loop so every break path frees it
+        FuriString* str = furi_string_alloc();
         do {
             uint32_t tmp;
-            FuriString* str = furi_string_alloc();
             if(!flipper_format_file_open_existing(file, MAG_STATE_PATH)) break;
             if(!flipper_format_read_header(file, str, &tmp)) break;
             if(furi_string_cmp_str(str, MAG_STATE_HEADER)) break;
@@ -88,6 +89,7 @@ bool mag_state_load(MagState* out_state) {
 
             loaded_from_file = true;
         } while(0);
+        furi_string_free(str);
         flipper_format_free(file);
     }
     furi_record_close(RECORD_STORAGE);

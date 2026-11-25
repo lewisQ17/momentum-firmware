@@ -68,6 +68,7 @@ bool scope_scene_save_on_event(void* context, SceneManagerEvent event) {
             storage_file_close(file);
             storage_file_free(file);
             furi_record_close(RECORD_STORAGE);
+            furi_string_free(temp_str); // Leak fix: temp_str was never freed
             free(app->data);
             app->data = NULL;
             scene_manager_previous_scene(app->scene_manager);
@@ -82,4 +83,9 @@ void scope_scene_save_on_exit(void* context) {
     ScopeApp* app = context;
     // Clear views
     text_input_reset(app->text_input);
+    // Leak fix: capture buffer stays allocated if the user backs out without saving
+    if(app->data) {
+        free(app->data);
+        app->data = NULL;
+    }
 }

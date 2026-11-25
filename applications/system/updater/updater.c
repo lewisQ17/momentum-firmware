@@ -97,6 +97,11 @@ void updater_free(Updater* updater) {
     furi_assert(updater);
 
     furi_string_free(updater->startup_arg);
+    // Free manifest left over when user cancels/backs out (scene on_exit is not run)
+    if(updater->loaded_manifest) {
+        update_manifest_free(updater->loaded_manifest);
+        updater->loaded_manifest = NULL;
+    }
     if(updater->update_task) {
         update_task_set_progress_cb(updater->update_task, NULL, NULL);
         update_task_free(updater->update_task);

@@ -73,7 +73,8 @@ static void LidarEmulatorApp_free(LidarEmulatorApp* lidaremulator) {
     furi_record_close(RECORD_GUI);
     lidaremulator->gui = NULL;
 
-//    free_view_hijacker(lidaremulator->view_hijacker);
+    // Leak fix: hijacker is detached in the guns scene on_exit, so safe to free here
+    free_view_hijacker(lidaremulator->view_hijacker);
 
     free(lidaremulator);
 }

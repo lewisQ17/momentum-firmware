@@ -719,7 +719,8 @@ static LoaderMessageLoaderStatusResult loader_do_start_by_name(
         if(strcmp(name, LOADER_APPLICATIONS_NAME) == 0) {
             loader_do_applications_show(loader);
             status.value = loader_make_success_status(error_message);
-            break;
+            // No app thread starts here, so launch_path would never be freed
+            return status;
         }
 
         LoaderEvent event;
@@ -864,6 +865,7 @@ static void loader_do_app_closed(Loader* loader) {
     }
 
     furi_string_free(loader->app.launch_path);
+    loader->app.launch_path = NULL;
 
     FURI_LOG_I(TAG, "Application stopped. Free heap: %zu", memmgr_get_free_heap());
 

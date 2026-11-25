@@ -185,6 +185,9 @@ void usb_midi_app_free(UsbMidiApp* app) {
     furi_record_close(RECORD_GUI);
     furi_message_queue_free(app->events);
     furi_hal_speaker_release();
+    // Leak fix: reader thread (already joined in run) and app struct were never freed
+    furi_thread_free(app->reader);
+    free(app);
 }
 
 int32_t usb_midi_app(void* p) {

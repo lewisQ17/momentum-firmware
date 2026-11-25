@@ -324,7 +324,7 @@ void free_store(void) {
     }
     if(WriteStart) {
         furi_string_free(WriteStart);
-        WriteDefault = NULL;
+        WriteStart = NULL; // Leak fix: was resetting WriteDefault, leaving WriteStart dangling
     }
     if(ListenFields) {
         free(ListenFields);
@@ -827,7 +827,7 @@ bool Run_WriteBatch_cmd() {
     FURI_LOG_D(
         TAG, "%cBatch: =%d, (%d)%s", rw_type == rwt_write_batch ? 'W' : 'S', (int)new, len, p);
     char *w, *delim_col, i, size;
-    FuriString* str = furi_string_alloc();
+    FuriString* str = furi_string_alloc(); // Leak fix: freed before every return below
     stream_rewind(file_stream);
     while(stream_read_line(file_stream, str)) {
         w = (char*)furi_string_get_cstr(str);
@@ -855,10 +855,12 @@ bool Run_WriteBatch_cmd() {
             if(WriteDefault &&
                !fill_payload((char*)furi_string_get_cstr(WriteDefault), NULL, new)) {
                 view_Batch = cmd_curr;
+                furi_string_free(str);
                 return false;
             }
             if(!fill_payload(delim_col, &cmd_array_idx, VAR_EMPTY)) {
                 view_Batch = cmd_curr;
+                furi_string_free(str);
                 return false;
             }
             if(cmd_array && cmd_array_idx != 255) {
@@ -898,14 +900,17 @@ bool Run_WriteBatch_cmd() {
         if(send_status != sst_ok) {
             send_status = sst_error;
             view_Batch = cmd_curr;
+            furi_string_free(str);
             return false;
         }
+        furi_string_free(str);
         return true;
     }
     ERR = 7;
     strcpy(ERR_STR, "NOT FOUND!");
     send_status = sst_error;
     view_Batch = cmd_curr;
+    furi_string_free(str);
     return false;
 }
 

@@ -131,11 +131,12 @@ static void key_copier_file_saver(void* context) {
     storage_simply_mkdir(storage, STORAGE_APP_DATA_PATH_PREFIX);
     FURI_LOG_D(TAG, "mkdir finished");
     FlipperFormat* flipper_format = flipper_format_file_alloc(storage);
+    // Leak fix: allocate outside the loop so every break path frees it
+    FuriString* buffer = furi_string_alloc();
     do {
         const uint32_t version = 1;
         const uint32_t pin_num_buffer = (uint32_t)model->format.pin_num;
         const uint32_t macs_buffer = (uint32_t)model->format.macs;
-        FuriString* buffer = furi_string_alloc();
         if(!flipper_format_file_open_always(flipper_format, furi_string_get_cstr(file_path)))
             break;
         if(!flipper_format_write_header_cstr(flipper_format, "Flipper Key Copier File", version))
@@ -162,10 +163,11 @@ static void key_copier_file_saver(void* context) {
             }
         }
         if(!flipper_format_write_string(flipper_format, "Bitting Pattern", buffer)) break;
-        furi_string_free(buffer);
         // signal that the file was written successfully
     } while(0);
+    furi_string_free(buffer);
     flipper_format_free(flipper_format);
+    furi_string_free(file_path); // Leak fix: per-save path string
 
     view_dispatcher_switch_to_view(app->view_dispatcher, KeyCopierViewSubmenu);
 }
@@ -708,8 +710,8 @@ static KeyCopierApp* key_copier_app_alloc() {
     view_set_enter_callback(app->view_config_e, key_copier_config_enter_callback);
     view_dispatcher_add_view(app->view_dispatcher, KeyCopierViewConfigure_e, app->view_config_e);
 
-    View* view_buffer = view_alloc();
-    view_dispatcher_add_view(app->view_dispatcher, KeyCopierViewConfigure_i, view_buffer);
+    app->view_config_i = view_alloc();
+    view_dispatcher_add_view(app->view_dispatcher, KeyCopierViewConfigure_i, app->view_config_i);
 
     app->view_save = view_alloc();
     view_set_context(app->view_save, app);
@@ -803,6 +805,8 @@ static void key_copier_app_free(KeyCopierApp* app) {
             if(model->depth != NULL) {
                 free(model->depth);
             }
+            // Leak fix: key_name_str was never freed
+            furi_string_free(model->key_name_str);
         },
         false);
     view_free(app->view_measure);
@@ -810,6 +814,11 @@ static void key_copier_app_free(KeyCopierApp* app) {
     view_dispatcher_remove_view(app->view_dispatcher, KeyCopierViewConfigure_i);
     view_dispatcher_remove_view(app->view_dispatcher, KeyCopierViewSave);
     view_dispatcher_remove_view(app->view_dispatcher, KeyCopierViewLoad);
+    // Leak fix: these four views were removed but never freed
+    view_free(app->view_config_e);
+    view_free(app->view_config_i);
+    view_free(app->view_save);
+    view_free(app->view_load);
     variable_item_list_free(app->variable_item_list_config);
     view_dispatcher_remove_view(app->view_dispatcher, KeyCopierViewSubmenu);
     submenu_free(app->submenu);
@@ -819,6 +828,7 @@ static void key_copier_app_free(KeyCopierApp* app) {
     submenu_free(app->format_list);
     view_dispatcher_free(app->view_dispatcher);
     furi_record_close(RECORD_GUI);
+    furi_string_free(app->file_path); // Leak fix
 
     free(app);
 }

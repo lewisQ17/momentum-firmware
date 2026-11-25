@@ -396,6 +396,7 @@ void totp_scene_add_new_token_deactivate(PluginState* plugin_state) {
     SceneState* scene_state = plugin_state->current_scene_state;
     free(scene_state->token_name);
     free(scene_state->token_secret);
+    free(scene_state->initial_counter); // Leak fix: initial_counter was never freed
 
     furi_string_free(scene_state->duration_text);
 

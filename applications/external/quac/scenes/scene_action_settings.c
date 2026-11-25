@@ -280,6 +280,7 @@ bool scene_action_settings_on_event(void* context, SceneManagerEvent event) {
                     }
                     furi_string_free(file_name);
                     furi_string_free(full_path);
+                    furi_string_free(current_path); // Leak fix: current_path was never freed
                 }
                 furi_string_free(import_file);
             } else {
@@ -356,6 +357,7 @@ bool scene_action_settings_on_event(void* context, SceneManagerEvent event) {
 
                     furi_string_free(file_name);
                     furi_string_free(full_path);
+                    furi_string_free(current_path); // Leak fix: current_path was never freed
                 }
                 furi_string_free(import_file);
             } else {

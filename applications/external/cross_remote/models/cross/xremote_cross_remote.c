@@ -120,7 +120,7 @@ bool xremote_cross_remote_add_subghz(CrossRemote* remote, SubGhzRemote* subghz) 
     xremote_cross_remote_item_set_name(item, xremote_sg_remote_get_name(subghz));
     xremote_cross_remote_item_set_filename(item, xremote_sg_remote_get_filename(subghz));
     FURI_LOG_D(TAG, "add subghz: %s", xremote_sg_remote_get_filename(subghz));
-    xremote_cross_remote_item_set_sg_signal(item, subghz);
+    // Leak fix: keep the item's own sg_signal; aliasing the caller's buffer caused a double free
 
     CrossRemoteItemArray_push_back(remote->items, item);
     return true;
@@ -136,7 +136,11 @@ CrossRemoteItem* xremote_cross_remote_get_item(CrossRemote* remote, size_t index
 }
 
 void xremote_cross_remote_remove_item(CrossRemote* remote, size_t index) {
+    furi_assert(index < CrossRemoteItemArray_size(remote->items));
+    // Leak fix: erase on a pointer array does not free the item
+    CrossRemoteItem* item = *CrossRemoteItemArray_get(remote->items, index);
     CrossRemoteItemArray_erase(remote->items, index);
+    xremote_cross_remote_item_free(item);
 }
 
 void xremote_cross_remote_rename_item(CrossRemote* remote, size_t index, const char* name) {

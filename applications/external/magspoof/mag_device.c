@@ -36,14 +36,13 @@ void mag_device_clear(MagDevice* mag_dev) {
 void mag_device_free(MagDevice* mag_dev) {
     furi_assert(mag_dev);
 
-    mag_device_clear(mag_dev);
+    // Leak fix: free the track strings directly; mag_device_clear() memsets their pointers away
+    furi_string_free(mag_dev->dev_data.track[0].str);
+    furi_string_free(mag_dev->dev_data.track[1].str);
+    furi_string_free(mag_dev->dev_data.track[2].str);
     furi_record_close(RECORD_STORAGE);
     furi_record_close(RECORD_DIALOGS);
     furi_string_free(mag_dev->load_path);
-
-    //furi_string_free(mag_dev->dev_data.track[0].str);
-    //furi_string_free(mag_dev->dev_data.track[1].str);
-    //furi_string_free(mag_dev->dev_data.track[2].str);
 
     free(mag_dev);
 }

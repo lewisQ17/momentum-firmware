@@ -48,6 +48,9 @@ void seos_characteristic_free(SeosCharacteristic* seos_characteristic) {
     furi_assert(seos_characteristic);
     seos_att_free(seos_characteristic->seos_att);
     bit_buffer_free(seos_characteristic->rx_buffer);
+    // Leak fix: secure_messaging was never freed (att already freed above, no more callbacks)
+    if(seos_characteristic->secure_messaging)
+        secure_messaging_free(seos_characteristic->secure_messaging);
     free(seos_characteristic);
 }
 
@@ -138,6 +141,9 @@ void seos_characteristic_reader_flow(
             FURI_LOG_W(TAG, "Unhandled card cryptogram size %d", rx_data[3]);
         }
 
+        // Leak fix: free any previous session before re-alloc on re-auth
+        if(seos_characteristic->secure_messaging)
+            secure_messaging_free(seos_characteristic->secure_messaging);
         seos_characteristic->secure_messaging =
             secure_messaging_alloc(&seos_characteristic->params);
 
@@ -238,6 +244,9 @@ void seos_characteristic_cred_flow(
         view_dispatcher_send_custom_event(
             seos_characteristic->seos->view_dispatcher, SeosCustomEventAuthenticated);
         // Prepare for future communication
+        // Leak fix: free any previous session before re-alloc on re-auth
+        if(seos_characteristic->secure_messaging)
+            secure_messaging_free(seos_characteristic->secure_messaging);
         seos_characteristic->secure_messaging =
             secure_messaging_alloc(&seos_characteristic->params);
     } else if(memcmp(apdu, secure_messaging_header, sizeof(secure_messaging_header)) == 0) {
@@ -337,6 +346,7 @@ void seos_characteristic_write_request(void* context, BitBuffer* attribute_value
     // Check for error flag
     if((flags & BLE_FLAG_ERR) == BLE_FLAG_ERR) {
         seos_log_buffer(TAG, "Received error response", (uint8_t*)(data + 1), len - 1);
+        bit_buffer_free(payload); // Leak fix: payload was never freed on early return
         return;
     }
 
@@ -346,6 +356,7 @@ void seos_characteristic_write_request(void* context, BitBuffer* attribute_value
     } else {
         if(bit_buffer_get_size_bytes(seos_characteristic->rx_buffer) == 0) {
             FURI_LOG_W(TAG, "Expected start of BLE packet");
+            bit_buffer_free(payload); // Leak fix: payload was never freed on early return
             return;
         }
     }
@@ -353,7 +364,10 @@ void seos_characteristic_write_request(void* context, BitBuffer* attribute_value
     bit_buffer_append_bytes(seos_characteristic->rx_buffer, data + 1, len - 1);
 
     // Only parse if end-of-message flag found
-    if((flags & BLE_FLAG_EOM) != BLE_FLAG_EOM) return;
+    if((flags & BLE_FLAG_EOM) != BLE_FLAG_EOM) {
+        bit_buffer_free(payload); // Leak fix: payload was never freed on non-final fragments
+        return;
+    }
 
     if(seos_characteristic->flow_mode == FLOW_READER) {
         seos_characteristic_reader_flow(

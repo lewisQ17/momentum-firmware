@@ -215,6 +215,15 @@ void protoview_app_free(ProtoViewApp* app) {
     raw_samples_free(DetectedSamples);
     furi_hal_power_suppress_charge_exit();
 
+    /* Leak fix: run memory-only exit callbacks (radio already torn down, so skip the
+     * direct sampling/settings ones), then free view_privdata and msg_info. */
+    if(app->current_view == ViewBuildMessage) view_exit_build_message(app);
+    if(app->current_view == ViewInfo) view_exit_info(app);
+    free(app->view_privdata);
+    app->view_privdata = NULL;
+    free_msg_info(app->msg_info);
+    app->msg_info = NULL;
+
     free(app);
 }
 

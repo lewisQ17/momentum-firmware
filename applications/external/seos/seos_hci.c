@@ -138,6 +138,7 @@ void seos_hci_stop(SeosHci* seos_hci) {
             sizeof(seos_hci->connection_handle));
         bit_buffer_append_byte(disconnect, 0x00);
         seos_hci_h5_send(seos_hci->seos_hci_h5, HCI_COMMAND_PKT, disconnect);
+        bit_buffer_free(disconnect); // Leak fix: h5_send copies the bytes, buffer was never freed
     }
 
     seos_hci->device_found = false;

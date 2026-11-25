@@ -19,6 +19,7 @@ void saflip_scene_file_select_on_enter(void* context) {
             scene_manager_next_scene(app->scene_manager, SaflipSceneInfo);
         }
     }
+    furi_string_free(path); // Leak fix: path was never freed
     furi_string_free(saflip_app_folder);
 
     if(!success) {

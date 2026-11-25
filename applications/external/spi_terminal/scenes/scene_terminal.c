@@ -55,6 +55,10 @@ void flipper_spi_terminal_scene_terminal_free(FlipperSPITerminalApp* app) {
 
     view_dispatcher_remove_view(app->view_dispatcher, FlipperSPITerminalAppSceneTerminal);
 
+    // Leak fix: recv_timer was never freed; stop/free it before the buffer it reads
+    furi_timer_stop(app->terminal_screen.recv_timer);
+    furi_timer_free(app->terminal_screen.recv_timer);
+
     furi_stream_buffer_free(app->terminal_screen.rx_buffer_stream);
 
     terminal_view_free(app->terminal_screen.view);
