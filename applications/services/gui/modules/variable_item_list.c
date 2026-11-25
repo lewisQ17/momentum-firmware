@@ -146,7 +146,8 @@ static void variable_item_list_draw_callback(Canvas* canvas, void* _model) {
 
     elements_scrollbar(canvas, model->position, VariableItemArray_size(model->items));
 
-    if(model->locked_message_visible) {
+    // why: position can be stale after items were reset; get() would assert
+    if(model->locked_message_visible && model->position < VariableItemArray_size(model->items)) {
         if(momentum_settings.popup_overlay) {
             canvas_draw_overlay(canvas);
         }
@@ -300,7 +301,10 @@ void variable_item_list_process_up(VariableItemList* variable_item_list) {
         VariableItemListModel * model,
         {
             uint8_t items_on_screen = variable_item_list_items_on_screen(model);
-            if(model->position > 0) {
+            // why: empty list would underflow size - 1 and leave position out of range
+            if(VariableItemArray_size(model->items) == 0) {
+                // nothing to select
+            } else if(model->position > 0) {
                 model->position--;
 
                 if((model->position == model->window_position) && (model->window_position > 0)) {
@@ -323,7 +327,10 @@ void variable_item_list_process_down(VariableItemList* variable_item_list) {
         VariableItemListModel * model,
         {
             uint8_t items_on_screen = variable_item_list_items_on_screen(model);
-            if(model->position < (VariableItemArray_size(model->items) - 1)) {
+            // why: empty list would underflow size - 1 and bump position forever
+            if(VariableItemArray_size(model->items) == 0) {
+                // nothing to select
+            } else if(model->position < (VariableItemArray_size(model->items) - 1)) {
                 model->position++;
                 if((model->position - model->window_position) > (items_on_screen - 2) &&
                    model->window_position <
@@ -342,6 +349,11 @@ void variable_item_list_process_down(VariableItemList* variable_item_list) {
 VariableItem* variable_item_list_get_selected_item(VariableItemListModel* model) {
     VariableItem* item = NULL;
 
+    // why: position can be stale (e.g. list rebuilt with fewer items); don't return the end iterator
+    if(model->position >= VariableItemArray_size(model->items)) {
+        return NULL;
+    }
+
     VariableItemArray_it_t it;
     uint8_t position = 0;
     for(VariableItemArray_it(it, model->items); !VariableItemArray_end_p(it);
@@ -354,7 +366,6 @@ VariableItem* variable_item_list_get_selected_item(VariableItemListModel* model)
 
     item = VariableItemArray_ref(it);
 
-    furi_assert(item);
     return item;
 }
 
@@ -364,7 +375,9 @@ void variable_item_list_process_left(VariableItemList* variable_item_list) {
         VariableItemListModel * model,
         {
             VariableItem* item = variable_item_list_get_selected_item(model);
-            if(item->locked) {
+            if(!item) {
+                // stale position, nothing selected
+            } else if(item->locked) {
                 model->locked_message_visible = true;
                 furi_timer_start(
                     variable_item_list->locked_timer, furi_kernel_get_tick_frequency() * 3);
@@ -385,7 +398,9 @@ void variable_item_list_process_right(VariableItemList* variable_item_list) {
         VariableItemListModel * model,
         {
             VariableItem* item = variable_item_list_get_selected_item(model);
-            if(item->locked) {
+            if(!item) {
+                // stale position, nothing selected
+            } else if(item->locked) {
                 model->locked_message_visible = true;
                 furi_timer_start(
                     variable_item_list->locked_timer, furi_kernel_get_tick_frequency() * 3);
@@ -406,7 +421,9 @@ void variable_item_list_process_ok(VariableItemList* variable_item_list) {
         VariableItemListModel * model,
         {
             VariableItem* item = variable_item_list_get_selected_item(model);
-            if(item->locked) {
+            if(!item) {
+                // stale position, nothing selected
+            } else if(item->locked) {
                 model->locked_message_visible = true;
                 furi_timer_start(
                     variable_item_list->locked_timer, furi_kernel_get_tick_frequency() * 3);

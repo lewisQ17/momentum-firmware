@@ -548,11 +548,8 @@ static void notification_init_settings(NotificationApp* app) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     furi_pubsub_subscribe(storage_get_pubsub(storage), notification_storage_callback, app);
 
-    if(storage_sd_status(storage) != FSE_OK) {
-        FURI_LOG_D(TAG, "SD Card not ready, skipping settings");
-        return;
-    }
-
+    // Settings live on /int, so apply them even without an SD card. Skipping left
+    // zeroed values that a later save would write over the persisted file.
     notification_apply_settings(app);
 }
 
@@ -588,6 +585,7 @@ int32_t notification_srv(void* p) {
             break;
         case LoadSettingsMessage:
             notification_load_settings(app);
+            notification_apply_lcd_contrast(app);
             break;
         }
 

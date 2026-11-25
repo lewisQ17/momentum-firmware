@@ -333,6 +333,11 @@ NfcCommand passy_reader_read_binary(
     if(print_logs) {
         passy_log_bitbuffer(TAG, "NFC response (decrypted)", passy_reader->rx_buffer);
     }
+    // rx_buffer = decrypted data + 2 byte SW; a short answer would copy stale bytes.
+    if(bit_buffer_get_size_bytes(passy_reader->rx_buffer) < (size_t)Le + 2) {
+        FURI_LOG_W(TAG, "Short read");
+        return NfcCommandStop;
+    }
     const uint8_t* decrypted_data = bit_buffer_get_data(passy_reader->rx_buffer);
     memcpy(output_buffer, decrypted_data, Le);
 
@@ -351,6 +356,12 @@ NfcCommand passy_reader_read_com(PassyReader* passy_reader) {
         return ret;
     }
     size_t body_size = 1 + passy_asn1_length_length(header + 1) + passy_asn1_length(header + 1);
+    // Card-controlled: COM/DG1 BitBuffers hold PASSY_DG1_MAX_LENGTH, and body_size < header
+    // would underflow body_size - body_offset.
+    if(body_size < sizeof(header) || body_size > PASSY_DG1_MAX_LENGTH) {
+        view_dispatcher_send_custom_event(passy->view_dispatcher, PassyCustomEventReaderError);
+        return NfcCommandStop;
+    }
     size_t body_offset = sizeof(header); // size_t, not uint8_t: a card-supplied
         // body_size > 256 would wrap a uint8_t offset and loop forever re-reading.
     bit_buffer_append_bytes(passy_reader->COM, header, sizeof(header));
@@ -383,6 +394,12 @@ NfcCommand passy_reader_read_dg1(PassyReader* passy_reader) {
         return ret;
     }
     size_t body_size = 1 + passy_asn1_length_length(header + 1) + passy_asn1_length(header + 1);
+    // Card-controlled: COM/DG1 BitBuffers hold PASSY_DG1_MAX_LENGTH, and body_size < header
+    // would underflow body_size - body_offset.
+    if(body_size < sizeof(header) || body_size > PASSY_DG1_MAX_LENGTH) {
+        view_dispatcher_send_custom_event(passy->view_dispatcher, PassyCustomEventReaderError);
+        return NfcCommandStop;
+    }
     size_t body_offset = sizeof(header); // size_t, not uint8_t: a card-supplied
         // body_size > 256 would wrap a uint8_t offset and loop forever re-reading.
     bit_buffer_append_bytes(passy_reader->DG1, header, sizeof(header));
@@ -464,6 +481,12 @@ NfcCommand passy_reader_read_dg2_or_dg7(PassyReader* passy_reader) {
         start = 0;
     }
 
+    if(body_size <= start) { // JPEG start beyond declared size would underflow body_size - offset
+        furi_string_free(path);
+        view_dispatcher_send_custom_event(passy->view_dispatcher, PassyCustomEventReaderError);
+        return NfcCommandStop;
+    }
+
     FuriString* safe_number = furi_string_alloc();
     passy_safe_passport_number(safe_number, passy->passport_number);
     furi_string_printf(
@@ -528,6 +551,10 @@ NfcCommand passy_reader_read_dg_generic(PassyReader* passy_reader) {
     view_dispatcher_send_custom_event(passy->view_dispatcher, PassyCustomEventReaderReading);
 
     size_t body_size = 1 + passy_asn1_length_length(header + 1) + passy_asn1_length(header + 1);
+    if(body_size < sizeof(header)) { // would underflow body_size - offset below
+        view_dispatcher_send_custom_event(passy->view_dispatcher, PassyCustomEventReaderError);
+        return NfcCommandStop;
+    }
     int dg_number = passy->read_type & 0xFF;
     FURI_LOG_I(TAG, "DG%d length: %d", dg_number, body_size);
 

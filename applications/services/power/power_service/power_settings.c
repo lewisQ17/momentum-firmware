@@ -13,6 +13,9 @@
 
 #define POWER_SETTINGS_MAGIC (0x21)
 
+// Longest delay the settings UI offers (48h); also keeps furi_ms_to_ticks < portMAX_DELAY
+#define POWER_SETTINGS_DELAY_MS_MAX (172800000UL)
+
 typedef struct {
     uint32_t auto_poweroff_delay_ms;
 } PowerSettingsV1;
@@ -29,6 +32,30 @@ typedef struct {
     uint8_t auto_poweroff_percent;
     PowerOffTimeout power_off_timeout;
 } PowerSettingsV3;
+
+// Clamp loaded values to what the settings UI can produce. The file checksum is
+// weak and the file is writable over RPC, and power.c / the settings app use
+// these raw (instant shutdown, OOB text-array reads, furi_timer_start assert).
+static void power_settings_sanitize(PowerSettings* settings) {
+    if((uint32_t)settings->auto_poweroff_mode > PowerAutoPoweroffModeTimerPercent) {
+        settings->auto_poweroff_mode = PowerAutoPoweroffModeOff;
+    }
+    if(settings->auto_poweroff_delay_ms > POWER_SETTINGS_DELAY_MS_MAX) {
+        settings->auto_poweroff_delay_ms = POWER_SETTINGS_DELAY_MS_MAX;
+    }
+    if(settings->charge_supress_percent > 95) { // UI maps 100% to 0 (off)
+        settings->charge_supress_percent = 95;
+    }
+    if(settings->auto_poweroff_percent > 95) {
+        settings->auto_poweroff_percent = 95;
+    }
+    if((uint32_t)settings->power_off_timeout > PowerOffTimeout90) {
+        settings->power_off_timeout = PowerOffTimeout90;
+    }
+    if(settings->auto_poweroff_critical_percent > 5) {
+        settings->auto_poweroff_critical_percent = 5;
+    }
+}
 
 void power_settings_load(PowerSettings* settings) {
     furi_assert(settings);
@@ -111,6 +138,10 @@ void power_settings_load(PowerSettings* settings) {
         }
 
     } while(false);
+
+    if(success) {
+        power_settings_sanitize(settings);
+    }
 
     if(!success) {
         FURI_LOG_W(TAG, "Failed to load file, using defaults");

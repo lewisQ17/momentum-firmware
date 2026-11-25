@@ -593,7 +593,8 @@ bool totp_config_file_load(PluginState* const plugin_state) {
             tmp_uint32 = 0;
         }
 
-        plugin_state->split_token_into_groups = tmp_uint32;
+        // Out-of-range (hand-edited/corrupt) value would index past the settings tables
+        plugin_state->split_token_into_groups = (tmp_uint32 <= 3) ? (uint8_t)tmp_uint32 : 0;
 
         plugin_state->config_file_context = malloc(sizeof(ConfigFileContext));
         furi_check(plugin_state->config_file_context != NULL);

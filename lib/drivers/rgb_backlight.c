@@ -85,6 +85,18 @@ void rgb_backlight_load_settings(bool enabled) {
         RGB_BACKLIGHT_SETTINGS_MAGIC,
         RGB_BACKLIGHT_SETTINGS_VERSION);
 
+    // Sanitize like the setters do: interval 0 asserts in furi_timer_start, interval
+    // above portMAX_DELAY trips a furi_check, mode >= Count disables backlight updates
+    if(rgb_settings.rainbow_mode >= RGBBacklightRainbowModeCount) {
+        rgb_settings.rainbow_mode = RGBBacklightRainbowModeOff;
+    }
+    if(rgb_settings.rainbow_interval < 100 || rgb_settings.rainbow_interval > 60000) {
+        rgb_settings.rainbow_interval = 250;
+    }
+    if(rgb_settings.rainbow_saturation > 255) {
+        rgb_settings.rainbow_saturation = 255;
+    }
+
     rgb_state.settings_loaded = true;
     rgb_backlight_reconfigure(rgb_state.enabled);
 }

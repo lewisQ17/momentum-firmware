@@ -92,9 +92,14 @@ void flipper_migrate_files() {
         {EXT_PATH("infrared/.infrared.settings"), INFRARED_SETTINGS_PATH}, // Adapt to OFW
     };
     for(size_t i = 0; i < COUNT_OF(renames); ++i) {
-        // Use copy+remove to not overwrite dst but still delete src
-        storage_common_copy(storage, renames[i].src, renames[i].dst);
-        storage_common_remove(storage, renames[i].src);
+        // Use copy+remove to not overwrite dst but still delete src (FSE_EXIST).
+        // Keep src when the copy failed (e.g. /int full) so it is retried next boot.
+        FS_Error err = storage_common_copy(storage, renames[i].src, renames[i].dst);
+        if(err == FSE_OK || err == FSE_EXIST) {
+            storage_common_remove(storage, renames[i].src);
+        } else if(err != FSE_NOT_EXIST) {
+            FURI_LOG_E(TAG, "Migrate %s failed (%d), keeping source", renames[i].src, err);
+        }
     }
 
     // Int -> Ext for U2F

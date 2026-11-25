@@ -13,8 +13,28 @@
 // temporary storage for buffer
 MTPDataPersistence persistence;
 
+// Drop a half-finished SendObject/SetObjectPropValue transfer (worker thread only).
+void mtp_abort_transfer(void) {
+    if(persistence.current_file != NULL) {
+        storage_file_close(persistence.current_file);
+        storage_file_free(persistence.current_file);
+        persistence.current_file = NULL;
+    }
+    free(persistence.global_buffer);
+    persistence.global_buffer = NULL;
+    persistence.left_bytes = 0;
+    persistence.buffer_offset = 0;
+    persistence.prev_handle = 0;
+}
+
 void mtp_handle_bulk(AppMTP* mtp, uint8_t* buffer, uint32_t length) {
     UNUSED(mtp);
+    // Cancel/Reset are flagged from the USB control callback; clean up here on the
+    // worker thread so we never race a running handler.
+    if(persistence.abort_transfer) {
+        persistence.abort_transfer = false;
+        mtp_abort_transfer();
+    }
     if(persistence.left_bytes > 0) {
         FURI_LOG_I("MTP", "Left bytes: %ld", persistence.left_bytes);
         handle_mtp_data_packet(mtp, buffer, length, 1);
@@ -90,26 +110,34 @@ void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool c
     // for speicific operations.
     if(persistence.op == MTP_OP_SEND_OBJECT) {
         uint32_t handle = persistence.prev_handle;
-        if(handle == 0) {
+        char* path = (handle != 0) ? get_path_from_handle(mtp, handle) : NULL;
+        if(path == NULL) {
             FURI_LOG_E("MTP", "Invalid handle for MTP_OP_SEND_OBJECT");
             send_mtp_response(
                 mtp, 3, MTP_RESP_INVALID_OBJECT_HANDLE, persistence.transaction_id, NULL);
+            // Don't treat the rest of the transfer as data after an error
+            persistence.left_bytes = 0;
+            persistence.buffer_offset = 0;
+            persistence.prev_handle = 0;
             return;
         }
 
-        char* path = get_path_from_handle(mtp, handle);
         int bytes_length = length - (ptr - buffer);
         int offset = persistence.buffer_offset;
 
         FURI_LOG_I("MTP", "Writing to file: %s with offset %02x", path, offset);
         if(persistence.current_file == NULL) {
             persistence.current_file = storage_file_alloc(mtp->storage);
-            if(!storage_file_open(persistence.current_file, path, FSAM_WRITE, FSOM_OPEN_EXISTING)) {
+            // CREATE_ALWAYS truncates, so overwriting an existing file leaves no old tail
+            if(!storage_file_open(persistence.current_file, path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
                 FURI_LOG_E("MTP", "Failed to open file: %s", path);
                 send_mtp_response(
                     mtp, 3, MTP_RESP_INVALID_OBJECT_HANDLE, persistence.transaction_id, NULL);
                 storage_file_free(persistence.current_file);
                 persistence.current_file = NULL;
+                persistence.left_bytes = 0;
+                persistence.buffer_offset = 0;
+                persistence.prev_handle = 0;
                 return;
             }
         }
@@ -124,11 +152,17 @@ void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool c
             storage_file_close(file);
             storage_file_free(file);
             persistence.current_file = NULL;
+            persistence.left_bytes = 0;
+            persistence.buffer_offset = 0;
+            persistence.prev_handle = 0;
             return;
         }
 
         persistence.buffer_offset += bytes_written;
-        persistence.left_bytes -= bytes_written;
+        // left_bytes is unsigned: clamp so an over-long transfer can't underflow it
+        persistence.left_bytes = (bytes_written >= persistence.left_bytes) ?
+                                     0 :
+                                     persistence.left_bytes - bytes_written;
 
         // Sync periodically based on configured interval
         if(persistence.buffer_offset % MTP_FILE_SYNC_INTERVAL == 0) {
@@ -142,6 +176,7 @@ void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool c
             storage_file_close(file);
             storage_file_free(file);
             persistence.current_file = NULL;
+            persistence.prev_handle = 0;
             FURI_LOG_I("MTP", "File transfer completed successfully");
         }
     } else if(persistence.op == MTP_OP_SET_OBJECT_PROP_VALUE) {
@@ -163,6 +198,21 @@ void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool c
             char* name = ReadMTPString(ptr);
             // ReadMTPString returns a string literal (not freeable) for an empty string
             bool name_owned = (*ptr != 0);
+
+            // Reject names that are empty, non-ASCII, or could escape the parent dir
+            if(!name_owned || CheckMTPStringHasUnicode(ptr) || strchr(name, '/') != NULL ||
+               strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+                send_mtp_response(
+                    mtp, 3, MTP_RESP_GENERAL_ERROR, persistence.transaction_id, NULL);
+                if(name_owned) free(name);
+                // Early return skips the common cleanup below; don't leak/wedge the transfer
+                free(persistence.global_buffer);
+                persistence.global_buffer = NULL;
+                persistence.left_bytes = 0;
+                persistence.buffer_offset = 0;
+                return;
+            }
+
             char* full_path = malloc(sizeof(char) * MTP_PATH_SIZE);
 
             // Parent dir comes from the object's current path (params[2] is not a storage id here)
@@ -170,20 +220,20 @@ void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool c
             int parent_len = slash ? (int)(slash - path) : 0;
             int path_len = snprintf(full_path, MTP_PATH_SIZE, "%.*s/%s", parent_len, path, name);
 
-            // if(!storage_file_exists(mtp->storage, full_path)) {
-            //     if(!storage_file_rename(mtp->storage, path, full_path)) {
-            //         FURI_LOG_E("MTP", "Failed to rename file: %s to %s", path, full_path);
-            //         send_mtp_response(
-            //             mtp, 3, MTP_RESP_GENERAL_ERROR, persistence.transaction_id, NULL);
-            //         free(full_path);
-            //         free(name);
-            //         return;
-            //     }
-            // }
+            bool same_path = (path_len >= 0 && path_len < MTP_PATH_SIZE &&
+                              strcmp(path, full_path) == 0);
 
-            if(path_len < 0 || path_len >= MTP_PATH_SIZE) {
+            // Really rename on the SD card; only update the handle after that succeeded
+            // (before, the handle table changed and the host got a fake OK).
+            if(path_len < 0 || path_len >= MTP_PATH_SIZE ||
+               (!same_path && (storage_common_exists(mtp->storage, full_path) ||
+                               storage_common_rename(mtp->storage, path, full_path) != FSE_OK))) {
+                FURI_LOG_E("MTP", "Failed to rename %s", path);
                 send_mtp_response(
                     mtp, 3, MTP_RESP_GENERAL_ERROR, persistence.transaction_id, NULL);
+                free(full_path);
+            } else if(same_path) {
+                send_mtp_response(mtp, 3, MTP_RESP_OK, persistence.transaction_id, NULL);
                 free(full_path);
             } else {
                 // The handle list takes ownership of full_path on success; don't free it
@@ -216,7 +266,9 @@ void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool c
         persistence.buffer_offset += copy_len;
 
         if(persistence.left_bytes > 0) {
-            persistence.left_bytes -= length;
+            persistence.left_bytes = (want >= persistence.left_bytes) ?
+                                         0 :
+                                         persistence.left_bytes - want;
         }
 
         FURI_LOG_I("MTP", "Buffer offset: %ld", persistence.buffer_offset);
@@ -234,6 +286,9 @@ void handle_mtp_data_complete(AppMTP* mtp) {
 
     switch(persistence.op) {
     case MTP_OP_SEND_OBJECT_INFO: {
+        // Stale handle must never target the next SendObject (folders / error paths)
+        persistence.prev_handle = 0;
+
         // parse the object info - persistence.global_buffer doesn't contain MTPHeader
         struct ObjectInfoHeader* info = (struct ObjectInfoHeader*)(persistence.global_buffer);
 
@@ -327,9 +382,9 @@ void handle_mtp_data_complete(AppMTP* mtp) {
 
                 storage_file_close(file);
                 storage_file_free(file);
-
-                persistence.prev_handle = issue_object_handle(mtp, full_path);
             }
+            // Also for an already existing file, so SendObject writes to this object
+            persistence.prev_handle = issue_object_handle(mtp, full_path);
         }
 
         uint32_t handle = issue_object_handle(mtp, full_path);
@@ -609,6 +664,11 @@ void send_mtp_response_stream(
         FURI_LOG_I("MTP", "Remaining bytes for packet: %d", buffer_available);
 
         int read_bytes = callback(callback_context, ptr, buffer_available);
+        if(read_bytes <= 0 && chunk_idx > 0) {
+            // Read error / short file: stop instead of spinning forever on empty writes
+            FURI_LOG_E("MTP", "Short read, aborting stream");
+            break;
+        }
         uint32_t usb_bytes = (ptr - buffer) + read_bytes;
         FURI_LOG_I("MTP", "USB packet size: %ld", usb_bytes);
 
@@ -693,7 +753,8 @@ int mtp_handle_class_control(AppMTP* mtp, usbd_device* dev, usbd_ctlreq* req) {
 
     switch(req->bRequest) {
     case MTP_REQ_CANCEL:
-        // Handle Cancel request
+        // Handle Cancel request: defer cleanup to the worker (see mtp_handle_bulk)
+        persistence.abort_transfer = true;
         value = 0;
         break;
     case MTP_REQ_GET_EXT_EVENT_DATA:
@@ -701,7 +762,8 @@ int mtp_handle_class_control(AppMTP* mtp, usbd_device* dev, usbd_ctlreq* req) {
         value = 0;
         break;
     case MTP_REQ_RESET:
-        // Handle Reset request
+        // Handle Reset request: defer cleanup to the worker (see mtp_handle_bulk)
+        persistence.abort_transfer = true;
         mtp->state = MTPStateReady;
         value = 0;
         break;

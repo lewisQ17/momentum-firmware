@@ -15,16 +15,24 @@ static void nfc_playlist_nfc_add_scene_menu_callback(void* context) {
          FSOM_OPEN_EXISTING)) {
       FuriString* line = furi_string_alloc();
       FuriString* tmp_str = furi_string_alloc();
+      FuriString* cmp_line = furi_string_alloc();
       while(stream_read_line(stream, line)) {
-         if(furi_string_cmp(line, nfc_playlist->views.file_browser.output) == 0) {
+         // stream_read_line keeps the trailing '\n': compare a trimmed copy, rebuild from `line`
+         furi_string_set(cmp_line, line);
+         furi_string_trim(cmp_line);
+         if(!furi_string_empty(cmp_line) &&
+            furi_string_cmp(cmp_line, nfc_playlist->views.file_browser.output) == 0) {
             item_already_in_playlist = true;
             break;
          }
          furi_string_cat_printf(tmp_str, "%s", furi_string_get_cstr(line));
       }
+      furi_string_free(cmp_line);
       furi_string_free(line);
       if(!item_already_in_playlist) {
-         if(!furi_string_empty(tmp_str)) {
+         // Don't add a blank line when the file already ends with '\n'
+         if(!furi_string_empty(tmp_str) &&
+            furi_string_get_char(tmp_str, furi_string_size(tmp_str) - 1) != '\n') {
             furi_string_cat(tmp_str, "\n");
          }
          furi_string_cat(tmp_str, furi_string_get_cstr(nfc_playlist->views.file_browser.output));

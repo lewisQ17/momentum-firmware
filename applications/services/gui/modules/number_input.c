@@ -101,7 +101,8 @@ static void number_input_draw_input(Canvas* canvas, NumberInputModel* model) {
 
 static bool number_input_use_sign(NumberInputModel* model) {
     //only show sign button if allowed number range needs it
-    if(model->min_value < 0 && model->max_value >= 0) {
+    // (also for all-negative ranges, otherwise no valid value can be typed)
+    if(model->min_value < 0) {
         return true;
     }
     return false;

@@ -55,8 +55,10 @@ static bool load_protocol_from_file(SchedulerApp* app) {
 
     const char* filestr = furi_string_get_cstr(app->file_path);
     if(res) {
-        int8_t list_count = count_playlist_items(storage, filestr);
-        scheduler_set_file(app->scheduler, filestr, list_count);
+        // list_count is a uint8_t: clamp so 128..255 don't go negative and 256 doesn't wrap to 0 (Single)
+        int list_count = count_playlist_items(storage, filestr);
+        if(list_count > UINT8_MAX) list_count = UINT8_MAX;
+        scheduler_set_file(app->scheduler, filestr, (uint8_t)list_count);
     }
 
     furi_record_close(RECORD_STORAGE);

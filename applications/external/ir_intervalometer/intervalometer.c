@@ -207,6 +207,21 @@ static struct flipvalo_trigger* flipvalo_get_trigger(
     return NULL;
 }
 
+// 99:59:59.999 - keeps the timer editor within what the tick math can represent
+#define FV_TIMER_MAX_MSEC 359999999
+
+// 64 bit intermediate: msec * tickrate (125) overflows int above ~4.77 hours
+static inline int flipvalo_msec_to_ticks(int msec, int tickrate) {
+    return (int)(((int64_t)msec * tickrate) / 1000);
+}
+
+static void flipvalo_timer_step(int* value, int step) {
+    int64_t next = (int64_t)*value + step;
+    if(next < 0) return;
+    if(next > FV_TIMER_MAX_MSEC) next = FV_TIMER_MAX_MSEC;
+    *value = (int)next;
+}
+
 #define ITEM_H  64 / 3
 #define ITEM_W  128
 #define VALUE_X 100
@@ -422,24 +437,16 @@ static void
         case FvConfigEditTypeTimer:
             switch(view->cur_index) {
             case 0:
-                if(*line_value + (dy * -10) >= 0) {
-                    *line_value += (dy * -10);
-                }
+                flipvalo_timer_step(line_value, dy * -10);
                 break;
             case 1:
-                if(*line_value + (dy * -1000) >= 0) {
-                    *line_value += (dy * -1000);
-                }
+                flipvalo_timer_step(line_value, dy * -1000);
                 break;
             case 2:
-                if(*line_value + (dy * -60000) >= 0) {
-                    *line_value += (dy * -60000);
-                }
+                flipvalo_timer_step(line_value, dy * -60000);
                 break;
             case 3:
-                if(*line_value + (dy * -3600000) >= 0) {
-                    *line_value += (dy * -3600000);
-                }
+                flipvalo_timer_step(line_value, dy * -3600000);
                 break;
             }
 
@@ -525,11 +532,13 @@ static void flipvalo_intv_tick(struct flipvalo_priv* fv_priv) {
             run->burst_cur = 1;
             run->shot_cur++;
             run->state = FVWaitContShot;
-            run->tick_next = run->tick_cur + ((conf->interval_delay_msec * conf->tickrate) / 1000);
+            run->tick_next =
+                run->tick_cur + flipvalo_msec_to_ticks(conf->interval_delay_msec, conf->tickrate);
         } else /*continue burst */ {
             run->burst_cur++;
             run->state = FVWaitBurst;
-            run->tick_next = run->tick_cur + ((conf->burst_delay_msec * conf->tickrate) / 1000);
+            run->tick_next =
+                run->tick_cur + flipvalo_msec_to_ticks(conf->burst_delay_msec, conf->tickrate);
         }
     }
     if(run->shot_cur > conf->shot_count) {
@@ -547,7 +556,7 @@ static void flipvalo_intv_start(struct flipvalo_priv* fv_priv) {
     flipvalo_run_state_init(&fv_priv->run_state);
     fv_priv->run_state.state = FVWaitInitShot;
     fv_priv->run_state.tick_next =
-        ((fv_priv->config.init_delay_msec * fv_priv->config.tickrate) / 1000);
+        flipvalo_msec_to_ticks(fv_priv->config.init_delay_msec, fv_priv->config.tickrate);
 }
 
 static void timer_callback(void* ctx) {
@@ -574,10 +583,12 @@ static void render_callback(Canvas* const canvas, void* ctx) {
     }
 
     if(fv_priv->ui_scene == FVSceneMain) {
-        int countdown_msec =
-            (1000 * (fv_priv->run_state.tick_next - fv_priv->run_state.tick_cur)) /
+        // 64 bit: 1000 * ticks overflows int after ~4.77 hours
+        int64_t countdown_msec =
+            ((int64_t)1000 * (fv_priv->run_state.tick_next - fv_priv->run_state.tick_cur)) /
             fv_priv->config.tickrate;
-        int elapsed_msec = (1000 * fv_priv->run_state.tick_cur) / fv_priv->config.tickrate;
+        int64_t elapsed_msec =
+            ((int64_t)1000 * fv_priv->run_state.tick_cur) / fv_priv->config.tickrate;
 
         canvas_draw_frame(canvas, 0, 0, 128, 64);
 
@@ -586,10 +597,10 @@ static void render_callback(Canvas* const canvas, void* ctx) {
         furi_string_printf(
             temp_str,
             "%02d:%02d:%02d:%03d",
-            countdown_msec / 3600000,
-            (countdown_msec / 60000) % 60,
-            (countdown_msec / 1000) % 60,
-            countdown_msec % 1000);
+            (int)(countdown_msec / 3600000),
+            (int)((countdown_msec / 60000) % 60),
+            (int)((countdown_msec / 1000) % 60),
+            (int)(countdown_msec % 1000));
         canvas_draw_str_aligned(
             canvas, 64, 24, AlignCenter, AlignCenter, furi_string_get_cstr(temp_str));
 
@@ -598,9 +609,9 @@ static void render_callback(Canvas* const canvas, void* ctx) {
         furi_string_printf(
             temp_str,
             "%02d:%02d:%02d",
-            elapsed_msec / 3600000,
-            (elapsed_msec / 60000) % 60,
-            (elapsed_msec / 1000) % 60);
+            (int)(elapsed_msec / 3600000),
+            (int)((elapsed_msec / 60000) % 60),
+            (int)((elapsed_msec / 1000) % 60));
         canvas_draw_str_aligned(
             canvas, 4, 8, AlignLeft, AlignCenter, furi_string_get_cstr(temp_str));
         furi_string_printf(temp_str, "Shot: %d", fv_priv->run_state.shot_cur);

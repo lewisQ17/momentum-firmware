@@ -141,6 +141,19 @@ static void subghz_protocol_nice_one_get_data(uint8_t* p, uint8_t num_parcel, ui
 static uint8_t subghz_protocol_nice_flor_s_get_btn_code(void);
 
 /**
+ * Check that the rainbow table can be read.
+ * Why: encrypt/decrypt signal a missing table with an in-band 0 that is
+ * indistinguishable from data; without the table a zero frame would be sent
+ * and the saved Key/Data overwritten with zeros.
+ */
+static bool subghz_protocol_nice_flor_s_rainbow_table_available(const char* file_name) {
+    if(!file_name) return false;
+    uint8_t buffer[SUBGHZ_NICE_FLOR_S_RAINBOW_TABLE_SIZE_BYTES] = {0};
+    return subghz_keystore_raw_get_data(
+        file_name, 0, buffer, SUBGHZ_NICE_FLOR_S_RAINBOW_TABLE_SIZE_BYTES);
+}
+
+/**
  * Generating an upload from data.
  * @param instance Pointer to a SubGhzProtocolEncoderNiceFlorS instance
  * @return true On success
@@ -315,6 +328,14 @@ SubGhzProtocolStatus
             nice_flors_counter_mode = (uint8_t)tmp_counter_mode;
         } else {
             nice_flors_counter_mode = 0;
+        }
+
+        // Refuse before anything is built or written back to the file
+        if(!subghz_protocol_nice_flor_s_rainbow_table_available(
+               instance->nice_flor_s_rainbow_table_file_name)) {
+            FURI_LOG_E(TAG, "Rainbow table unavailable, refusing to transmit");
+            res = SubGhzProtocolStatusErrorEncoderGetUpload;
+            break;
         }
 
         subghz_protocol_nice_flor_s_remote_controller(
@@ -547,6 +568,11 @@ bool subghz_protocol_nice_flor_s_create_data(
         instance->generic.data_count_bit = NICE_ONE_COUNT_BIT;
     } else {
         instance->generic.data_count_bit = 52;
+    }
+    if(!subghz_protocol_nice_flor_s_rainbow_table_available(
+           instance->nice_flor_s_rainbow_table_file_name)) {
+        FURI_LOG_E(TAG, "Rainbow table unavailable");
+        return false;
     }
     uint64_t decrypt = ((uint64_t)instance->generic.serial << 16) | instance->generic.cnt;
     uint64_t enc_part = subghz_protocol_nice_flor_s_encrypt(

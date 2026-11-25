@@ -388,7 +388,8 @@ void GetObjectPropValue(AppMTP* mtp, uint32_t transaction_id, uint32_t handle, u
         return;
     }
 
-    uint8_t* buffer = malloc(sizeof(uint8_t) * 256);
+    // File-name prop writes up to 2*250+13 bytes; 256 overflowed for long names.
+    uint8_t* buffer = malloc(sizeof(uint8_t) * MTP_BUFFER_SIZE);
     int length = GetObjectPropValueInternal(mtp, path, prop_code, buffer);
     if(length < 0) {
         send_mtp_response(

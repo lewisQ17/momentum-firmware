@@ -272,9 +272,24 @@ static uint64_t subghz_protocol_alutech_at_4n_encrypt(uint64_t data, const char*
     return data;
 }
 
+// Why: encrypt/decrypt signal a missing table with an in-band 0xFF..FF sentinel; without the
+// table a garbage frame would be sent and the saved Key/CRC overwritten.
+static bool subghz_protocol_alutech_at_4n_rainbow_table_available(const char* file_name) {
+    if(!file_name) return false;
+    uint8_t buffer[SUBGHZ_ALUTECH_AT_4N_RAINBOW_TABLE_SIZE_BYTES] = {0};
+    return subghz_keystore_raw_get_data(
+        file_name, 0, buffer, SUBGHZ_ALUTECH_AT_4N_RAINBOW_TABLE_SIZE_BYTES);
+}
+
 static bool subghz_protocol_alutech_at_4n_gen_data(
     SubGhzProtocolEncoderAlutech_at_4n* instance,
     uint8_t btn) {
+    if(!subghz_protocol_alutech_at_4n_rainbow_table_available(
+           instance->alutech_at_4n_rainbow_table_file_name)) {
+        FURI_LOG_E(TAG, "Rainbow table unavailable");
+        return false;
+    }
+
     uint64_t data = subghz_protocol_blocks_reverse_key(instance->generic.data, 64);
 
     data = subghz_protocol_alutech_at_4n_decrypt(
@@ -369,6 +384,8 @@ bool subghz_protocol_alutech_at_4n_create_data(
             FURI_LOG_E(TAG, "Unable to add CRC");
             return false;
         }
+    } else {
+        return false;
     }
     return true;
 }
@@ -504,7 +521,12 @@ SubGhzProtocolStatus subghz_protocol_encoder_alutech_at_4n_deserialize(
         subghz_protocol_alutech_at_4n_remote_controller(
             &instance->generic, instance->crc, instance->alutech_at_4n_rainbow_table_file_name);
 
-        subghz_protocol_encoder_alutech_at_4n_get_upload(instance, instance->generic.btn);
+        // Refuse before Key/CRC are written back to the file
+        if(!subghz_protocol_encoder_alutech_at_4n_get_upload(instance, instance->generic.btn)) {
+            FURI_LOG_E(TAG, "Unable to generate upload");
+            res = SubGhzProtocolStatusErrorEncoderGetUpload;
+            break;
+        }
 
         if(!flipper_format_rewind(flipper_format)) {
             FURI_LOG_E(TAG, "Rewind error");

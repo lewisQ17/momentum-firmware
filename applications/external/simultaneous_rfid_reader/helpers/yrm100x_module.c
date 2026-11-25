@@ -28,6 +28,8 @@ static M100ResponseType setup_and_send_rx(M100Module* module, uint8_t* cmd, size
     size_t length = uhf_buffer_get_size(buffer);
     // check if size > 0
     if(!length) return M100EmptyResponse;
+    // minimal frame: BB type cmd len-hi len-lo checksum 7E (also avoids length - 3 underflow)
+    if(length < 7) return M100ValidationFail;
     // check if data is valid
     if(data[0] != FRAME_START || data[length - 1] != FRAME_END) return M100ValidationFail;
     // check if checksum is correct

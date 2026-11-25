@@ -304,11 +304,8 @@ static void dolphin_init_state(Dolphin* dolphin) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     furi_pubsub_subscribe(storage_get_pubsub(storage), dolphin_storage_callback, dolphin);
 
-    if(storage_sd_status(storage) != FSE_OK) {
-        FURI_LOG_D(TAG, "SD Card not ready, skipping state");
-        return;
-    }
-
+    // State lives on /int, so load it even without an SD card. Skipping left the
+    // zeroed in-RAM state to overwrite the persisted file on the next save.
     dolphin_state_load(dolphin->state);
 }
 

@@ -984,8 +984,40 @@ bool flipper_http_save_wifi(FlipperHTTP *fhttp, const char *ssid, const char *pa
 
     char buffer[256];
 
+    // JSON-escape '"' and '\\' (valid WPA passphrase chars) and drop control chars, otherwise
+    // the board gets invalid JSON and stores a wrong/truncated credential.
+    char esc_ssid[2 * 32 + 1 + 64];
+    char esc_password[2 * 64 + 1 + 64];
+    const char *pairs[2] = {ssid, password};
+    char *outs[2] = {esc_ssid, esc_password};
+    size_t out_sizes[2] = {sizeof(esc_ssid), sizeof(esc_password)};
+    for (int i = 0; i < 2; i++)
+    {
+        size_t n = 0;
+        for (const char *p = pairs[i]; *p; p++)
+        {
+            unsigned char c = (unsigned char)*p;
+            if (c < 0x20 || c == 0x7F)
+            {
+                continue;
+            }
+            size_t need = (c == '"' || c == '\\') ? 2 : 1;
+            if (n + need >= out_sizes[i])
+            {
+                FURI_LOG_E("FlipperHTTP", "WiFi credential too long.");
+                return false;
+            }
+            if (need == 2)
+            {
+                outs[i][n++] = '\\';
+            }
+            outs[i][n++] = (char)c;
+        }
+        outs[i][n] = '\0';
+    }
+
     int ret = snprintf(
-        buffer, sizeof(buffer), "[WIFI/SAVE]{\"ssid\":\"%s\",\"password\":\"%s\"}", ssid, password);
+        buffer, sizeof(buffer), "[WIFI/SAVE]{\"ssid\":\"%s\",\"password\":\"%s\"}", esc_ssid, esc_password);
 
     if (ret < 0 || ret >= (int)sizeof(buffer))
     {

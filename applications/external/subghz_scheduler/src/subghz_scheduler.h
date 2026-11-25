@@ -19,7 +19,7 @@ void scheduler_set_timing_mode(Scheduler* scheduler, bool mode);
 void scheduler_set_tx_repeats(Scheduler* scheduler, uint8_t tx_repeats);
 void scheduler_set_mode(Scheduler* scheduler, SchedulerTxMode mode);
 void scheduler_set_tx_delay(Scheduler* scheduler, uint8_t tx_delay);
-void scheduler_set_file(Scheduler* scheduler, const char* file_name, int8_t list_count);
+void scheduler_set_file(Scheduler* scheduler, const char* file_name, uint8_t list_count);
 
 uint8_t scheduler_get_interval(Scheduler* scheduler);
 uint8_t scheduler_get_tx_repeats(Scheduler* scheduler);

@@ -160,7 +160,8 @@ unsigned char* tanks_game_serialize(const TanksState* const tanks_state) {
 
     for(int8_t x = 0; x < FIELD_WIDTH; x++) {
         for(int8_t y = 0; y < FIELD_HEIGHT; y++) {
-            result[(y * FIELD_WIDTH + x)] = 0;
+            // CellEmpty (1), not 0: a 0 byte would end the frame early on the string-based TX path
+            result[(y * FIELD_WIDTH + x)] = CellEmpty;
 
             GameCellState cell = CellEmpty;
 
@@ -1419,23 +1420,10 @@ int32_t tanks_game_app(void* p) {
 
                     tanks_game_process_game_step(tanks_state);
 
-                    FuriString* serializedData = furi_string_alloc();
                     unsigned char* data = tanks_game_serialize(tanks_state);
-                    char arr[11 * 16 + 1];
 
-                    for(uint8_t i = 0; i < 11 * 16; i++) {
-                        arr[i] = data[i];
-                    }
-
-                    arr[11 * 16] = 0;
-
-                    furi_string_set(serializedData, (char*)&arr);
-
-                    subghz_tx_rx_worker_write(
-                        subghz_txrx,
-                        (uint8_t*)furi_string_get_cstr(serializedData),
-                        strlen(furi_string_get_cstr(serializedData)));
-                    furi_string_free(serializedData);
+                    // Explicit length: no strlen(), the frame must not depend on NUL bytes
+                    subghz_tx_rx_worker_write(subghz_txrx, (uint8_t*)data, 11 * 16);
                     tanks_state->sent++;
                 } else if(tanks_state->state == GameStateSingle) {
                     tanks_game_process_game_step(tanks_state);

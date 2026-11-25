@@ -1,5 +1,6 @@
 #include "expansion_settings.h"
 
+#include <furi_hal_serial_types.h>
 #include <storage/storage.h>
 #include <toolbox/saved_struct.h>
 
@@ -19,6 +20,14 @@ void expansion_settings_load(ExpansionSettings* settings) {
         sizeof(ExpansionSettings),
         EXPANSION_SETTINGS_MAGIC,
         EXPANSION_SETTINGS_VERSION);
+
+    // uart_index indexes a 3-entry text array in the settings app; valid values are
+    // 0..FuriHalSerialIdMax (max = "None"). An out-of-range value used to behave as
+    // "disabled", so fall back to "None" rather than silently enabling a UART.
+    if(success && settings->uart_index > FuriHalSerialIdMax) {
+        FURI_LOG_W(TAG, "Invalid uart_index, disabling expansion UART");
+        settings->uart_index = FuriHalSerialIdMax;
+    }
 
     if(!success) {
         FURI_LOG_W(TAG, "Failed to load file, using defaults");

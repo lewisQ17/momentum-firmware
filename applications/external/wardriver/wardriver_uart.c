@@ -216,6 +216,11 @@ static void uart_parse_esp(void* context, char* line) {
         for(size_t i = 0; i < ctx->access_points_count; i++) {
             if(strcmp(ctx->access_points[i].bssid, pkt.recievedMac) == 0) {
                 ctx->access_points[i].packetRxCount++;
+                // The UI draws a copy of the active AP that is not refreshed once a key was pressed
+                if(ctx->active_access_point.bssid &&
+                   ctx->active_access_point.bssid == ctx->access_points[i].bssid) {
+                    ctx->active_access_point.packetRxCount = ctx->access_points[i].packetRxCount;
+                }
                 break;
             }
         }
@@ -223,6 +228,11 @@ static void uart_parse_esp(void* context, char* line) {
         for(size_t i = 0; i < ctx->access_points_count; i++) {
             if(strcmp(ctx->access_points[i].bssid, pkt.sentMac) == 0) {
                 ctx->access_points[i].packetTxCount++;
+                // The UI draws a copy of the active AP that is not refreshed once a key was pressed
+                if(ctx->active_access_point.bssid &&
+                   ctx->active_access_point.bssid == ctx->access_points[i].bssid) {
+                    ctx->active_access_point.packetTxCount = ctx->access_points[i].packetTxCount;
+                }
                 break;
             }
         }

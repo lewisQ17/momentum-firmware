@@ -345,7 +345,12 @@ static size_t
         // reduce to 5 to be sure dash fit, and next line will be at least 5 symbols long
         if(excess_symbols_approximately > 0) {
             excess_symbols_approximately = MAX(excess_symbols_approximately, 5u);
-            result = text_size - excess_symbols_approximately - 1;
+            // why: size_t underflow / 0 here made the callers loop forever or walk before the string
+            if(excess_symbols_approximately + 1 >= text_size) {
+                result = text_size > 1 ? 1 : text_size;
+            } else {
+                result = text_size - excess_symbols_approximately - 1;
+            }
         } else {
             result = text_size;
         }
@@ -394,7 +399,7 @@ void elements_multiline_text_aligned(
         } else if((y + font_height) > canvas_height(canvas)) {
             line = furi_string_alloc_printf("%.*s...\n", chars_fit, start);
         } else {
-            chars_fit -= 1; // account for the dash
+            if(chars_fit > 1) chars_fit -= 1; // account for the dash, but always make progress
             line = furi_string_alloc_printf("%.*s-\n", chars_fit, start);
         }
         canvas_draw_str_aligned(canvas, x, y, horizontal, vertical, furi_string_get_cstr(line));
@@ -856,7 +861,9 @@ void elements_text_box(
         }
         // Process new line
         if(text[i] == '\n' || text[i] == '\0' || line_width > width) {
-            if(line_width > width) {
+            if(line_width > width && line_len > 1) {
+                // why: only back up when something else is on the line; a lone over-wide glyph
+                // stays here, otherwise i wraps below 0 and the same glyph repeats forever
                 line_width -= canvas_glyph_width(canvas, text[i--]);
                 line_len--;
             }
@@ -867,6 +874,10 @@ void elements_text_box(
                 line_leading_min += 1;
                 line_leading_default += 1;
                 inverse_present = false;
+            }
+            // why: line[] holds ELEMENTS_MAX_LINES_NUM entries; never write past it
+            if(line_num >= ELEMENTS_MAX_LINES_NUM) {
+                break;
             }
             line[line_num].leading_min = line_leading_min;
             line[line_num].leading_default = line_leading_default;
@@ -888,6 +899,9 @@ void elements_text_box(
             line[line_num].y = total_height_min;
             line_num++;
             if(!full_text_processed) {
+                if(line_num >= ELEMENTS_MAX_LINES_NUM) {
+                    break;
+                }
                 line[line_num].text = &text[i + 1];
             }
             line_leading_min = font_params->leading_min;

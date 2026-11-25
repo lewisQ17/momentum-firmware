@@ -2,6 +2,7 @@
 #include <gui/modules/submenu.h>
 #include "../../main.h"
 #include "main.h"
+#include "mtp.h"
 #include <mtp_icons.h>
 #include "usb.h"
 #include "usb_desc.h"
@@ -115,28 +116,36 @@ void MTP_on_exit(void* context) {
         return;
     }
 
-    if(app->allocated_scenes != NULL) {
-        AppMTP* mtp = app->allocated_scenes[THIS_SCENE];
-        if(mtp != NULL) {
-            // free all handles
-            FileHandle* handle = mtp->handles;
-            mtp->handles = NULL;
+    // Stop the USB worker first (usb_mtp_deinit joins it); it dereferences the handle
+    // list and storage, so those must outlive it.
+    bool usb_restored = furi_hal_usb_set_config(tmp->old_usb, NULL);
 
-            while(handle != NULL) {
-                FileHandle* next = handle->next;
+    // If the USB config is locked the worker may still run: leave its state alone.
+    if(usb_restored) {
+        if(app->allocated_scenes != NULL) {
+            AppMTP* mtp = app->allocated_scenes[THIS_SCENE];
+            if(mtp != NULL) {
+                // free all handles
+                FileHandle* handle = mtp->handles;
+                mtp->handles = NULL;
 
-                if(handle->path != NULL) free(handle->path);
-                free(handle);
+                while(handle != NULL) {
+                    FileHandle* next = handle->next;
 
-                handle = next;
+                    if(handle->path != NULL) free(handle->path);
+                    free(handle);
+
+                    handle = next;
+                }
             }
         }
+
+        // Close a file / free the buffer left by an interrupted transfer
+        // (needs the storage record, so before furi_record_close below)
+        mtp_abort_transfer();
     }
 
     furi_record_close(RECORD_STORAGE);
-
-    // revert to old usb mode
-    furi_hal_usb_set_config(tmp->old_usb, NULL);
 
     // if(app->view_dispatcher) view_dispatcher_switch_to_view(app->view_dispatcher, Home);
     // if(app->scene_manager) scene_manager_previous_scene(app->scene_manager);

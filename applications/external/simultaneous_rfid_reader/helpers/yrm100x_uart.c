@@ -15,12 +15,26 @@ void uhf_uart_default_rx_callback(FuriHalSerialHandle *handle, FuriHalSerialRxEv
         if(uhf_is_buffer_closed(uart->buffer)){
             return;
         }
-        if(data == UHF_UART_FRAME_END){
-            uhf_buffer_append_single(uart->buffer, data);
-            uhf_buffer_close(uart->buffer);
-            FURI_LOG_E("UHF_UART", "UHF Total length read = %u", uhf_buffer_get_size(uart->buffer));
+        // 0x7E can also occur inside payload/checksum bytes, so frame the data by its
+        // length field (BB type cmd PL_hi PL_lo payload checksum 7E) instead of the first 0x7E.
+        // Skip noise until a frame start.
+        if(uhf_buffer_get_size(uart->buffer) == 0 && data != UHF_UART_FRAME_START){
+            return;
         }
-        uhf_buffer_append_single(uart->buffer, data);
+        if(!uhf_buffer_append_single(uart->buffer, data)){
+            // full: no room left, close so validation fails cleanly
+            uhf_buffer_close(uart->buffer);
+            return;
+        }
+        size_t size = uhf_buffer_get_size(uart->buffer);
+        if(size >= 5){
+            uint8_t* frame = uhf_buffer_get_data(uart->buffer);
+            size_t expected = 5 + (((size_t)frame[3] << 8) | frame[4]) + 2;
+            // too long to ever fit: stop collecting; validation will reject it
+            if(size == expected || expected > uart->buffer->capacity){
+                uhf_buffer_close(uart->buffer);
+            }
+        }
         uhf_uart_tick_reset(uart);
         // furi_stream_buffer_send(uart->rx_buff_stream, (void*)&data, 1, 0);
         // furi_thread_flags_set(furi_thread_get_id(uart->thread), UHFUartWorkerWaitingDataFlag);

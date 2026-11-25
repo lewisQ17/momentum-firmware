@@ -121,8 +121,9 @@ static const struct {
     {setting_enum(uart_nmea_channel, FuriHalSerialIdMax)},
     {setting_bool(file_naming_prefix_after)},
     {setting_enum(spoof_color, FuriHalVersionColorCount)},
-    {setting_uint(rpc_color_fg, 0x000000, 0xFFFFFF)},
-    {setting_uint(rpc_color_bg, 0x000000, 0xFFFFFF)},
+    // Packed mode|r|g|b<<24 value: full 32-bit range, mode is validated after load
+    {setting_uint(rpc_color_fg, 0, 0xFFFFFFFF)},
+    {setting_uint(rpc_color_bg, 0, 0xFFFFFFFF)},
 };
 
 void momentum_settings_load(void) {
@@ -174,6 +175,16 @@ void momentum_settings_load(void) {
     }
     flipper_format_free(file);
     furi_record_close(RECORD_STORAGE);
+
+    // Invalid colour mode (e.g. from an old clamped save) falls back to the default
+    if(momentum_settings.rpc_color_fg.mode >= ScreenColorModeCount) {
+        momentum_settings.rpc_color_fg.mode = ScreenColorModeDefault;
+        momentum_settings.rpc_color_fg.rgb.value = 0x000000;
+    }
+    if(momentum_settings.rpc_color_bg.mode >= ScreenColorModeCount) {
+        momentum_settings.rpc_color_bg.mode = ScreenColorModeDefault;
+        momentum_settings.rpc_color_bg.rgb.value = 0xFF8200;
+    }
 
     rgb_backlight_load_settings(momentum_settings.rgb_backlight);
 }

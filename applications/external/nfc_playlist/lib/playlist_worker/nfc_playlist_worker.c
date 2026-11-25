@@ -114,6 +114,13 @@ static int32_t nfc_playlist_worker_task(void* context) {
             }
          }
 
+         // Rewind/Skip are one-shot; only countdown() cleared them, so skip_error `continue`s
+         // left Rewinding set and re-ran the rewind forever. Never overwrite Stopped.
+         if(worker->state == NfcPlaylistWorkerState_Rewinding ||
+            worker->state == NfcPlaylistWorkerState_Skipping) {
+            worker->state = NfcPlaylistWorkerState_Emulating;
+         }
+
          // Handle loop setting
          if(!stream_read_line(stream, line)) {
             if(worker->settings->loop) {

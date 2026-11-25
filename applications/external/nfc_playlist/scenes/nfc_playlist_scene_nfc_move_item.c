@@ -114,6 +114,7 @@ bool nfc_playlist_nfc_move_item_scene_on_event(void* context, SceneManagerEvent 
             FuriString* tmp_target_str = furi_string_alloc();
             FuriString* line = furi_string_alloc();
             uint8_t counter = 0;
+            bool target_found = false;
 
             while(stream_read_line(stream, line)) {
                counter++;
@@ -122,50 +123,60 @@ bool nfc_playlist_nfc_move_item_scene_on_event(void* context, SceneManagerEvent 
                   furi_string_cat(tmp_target_str, line);
                   stream_rewind(stream);
                   counter = 0;
+                  target_found = true;
                   break;
                }
             }
 
-            FuriString* tmp_new_order_str = furi_string_alloc();
+            if(!target_found) {
+               // Playlist shorter than expected: abort, never rewrite the file without the target
+               furi_string_free(tmp_target_str);
+               furi_string_free(line);
+               file_stream_close(stream);
+            } else {
+               FuriString* tmp_new_order_str = furi_string_alloc();
 
-            while(stream_read_line(stream, line)) {
-               counter++;
+               while(stream_read_line(stream, line)) {
+                  counter++;
 
-               if(counter == selected_target) {
-                  continue;
-               }
-
-               if(!furi_string_empty(tmp_new_order_str)) {
-                  furi_string_cat(tmp_new_order_str, "\n");
-               }
-
-               furi_string_trim(line);
-
-               if(counter == selected_destination) {
-                  if(counter == 1) {
-                     furi_string_cat_printf(
-                        tmp_new_order_str,
-                        "%s\n%s",
-                        furi_string_get_cstr(tmp_target_str),
-                        furi_string_get_cstr(line));
-                  } else {
-                     furi_string_cat_printf(
-                        tmp_new_order_str,
-                        "%s\n%s",
-                        furi_string_get_cstr(line),
-                        furi_string_get_cstr(tmp_target_str));
+                  if(counter == selected_target) {
+                     continue;
                   }
-                  furi_string_free(tmp_target_str);
-               } else {
-                  furi_string_cat(tmp_new_order_str, furi_string_get_cstr(line));
-               }
-            }
 
-            furi_string_free(line);
-            stream_clean(stream);
-            stream_write_string(stream, tmp_new_order_str);
-            furi_string_free(tmp_new_order_str);
-            file_stream_close(stream);
+                  if(!furi_string_empty(tmp_new_order_str)) {
+                     furi_string_cat(tmp_new_order_str, "\n");
+                  }
+
+                  furi_string_trim(line);
+
+                  if(counter == selected_destination) {
+                     // Moving up: target goes before the destination line (lands on its slot).
+                     // Moving down: after it (the removed target shifts the destination up).
+                     if(selected_target > selected_destination) {
+                        furi_string_cat_printf(
+                           tmp_new_order_str,
+                           "%s\n%s",
+                           furi_string_get_cstr(tmp_target_str),
+                           furi_string_get_cstr(line));
+                     } else {
+                        furi_string_cat_printf(
+                           tmp_new_order_str,
+                           "%s\n%s",
+                           furi_string_get_cstr(line),
+                           furi_string_get_cstr(tmp_target_str));
+                     }
+                  } else {
+                     furi_string_cat(tmp_new_order_str, furi_string_get_cstr(line));
+                  }
+               }
+
+               furi_string_free(tmp_target_str);
+               furi_string_free(line);
+               stream_clean(stream);
+               stream_write_string(stream, tmp_new_order_str);
+               furi_string_free(tmp_new_order_str);
+               file_stream_close(stream);
+            }
          }
 
          stream_free(stream);

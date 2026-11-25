@@ -510,7 +510,10 @@ bool totp_token_info_iterator_go_to(TokenInfoIteratorContext* context, size_t to
     bool token_update_needed = false;
     if(tokenInfo->token != NULL) {
         free(tokenInfo->token);
+        // NULL it: token_info_set_secret (plain secret branch) frees it again otherwise
+        tokenInfo->token = NULL;
         tokenInfo->token_length = 0;
+        tokenInfo->token_plain_length = 0;
     }
 
     uint32_t temp_data32;

@@ -92,7 +92,15 @@ static int32_t region_load_file(void* context) {
             break;
         }
 
+        // Re-read arg: the band callback may have realloc'd it
         FuriHalRegion* region = pb_region.bands.arg;
+
+        // country_code stays NULL if the field is absent; deref would hard fault
+        if(pb_region.country_code == NULL) {
+            FURI_LOG_E(TAG, "Region file has no country code");
+            free(region);
+            break;
+        }
 
         memcpy(
             region->country_code,

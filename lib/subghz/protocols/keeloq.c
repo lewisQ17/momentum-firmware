@@ -164,6 +164,8 @@ static bool subghz_protocol_keeloq_gen_data(
     }
     // add gendata part
     ProgMode prog_mode = subghz_custom_btn_get_prog_mode();
+    // Set when the keystore entry uses a learning type this encoder cannot derive
+    bool unsupported_learning = false;
     if(!skip_btn_check && (keeloq_counter_mode != 7)) {
         // Save original button
         if(subghz_custom_btn_get_original() == 0) {
@@ -485,6 +487,12 @@ static bool subghz_protocol_keeloq_gen_data(
                                 fix, manufacture_code->key);
                             hop = subghz_protocol_keeloq_common_encrypt(decrypt, man);
                             break;
+                        case KEELOQ_LEARNING_MAGIC_SERIAL_TYPE_2:
+                        case KEELOQ_LEARNING_MAGIC_SERIAL_TYPE_3:
+                            // Decoder-only: no encoder derivation. Refuse instead of
+                            // silently replaying the stale hop (hop stays 0).
+                            unsupported_learning = true;
+                            break;
                         case KEELOQ_LEARNING_AERF:
                             man = subghz_protocol_keeloq_common_learning_aerf(
                                 fix, manufacture_code->key);
@@ -534,13 +542,17 @@ static bool subghz_protocol_keeloq_gen_data(
                 }
         }
     }
+    if(unsupported_learning) {
+        FURI_LOG_E(TAG, "Learning type not supported by encoder");
+        return false;
+    }
     if(hop || (prog_mode == PROG_MODE_KEELOQ_DEA_MIO) || (prog_mode == PROG_MODE_KEELOQ_BFT)) {
         // If we have hop - we will save it to generic data var that will be used later in transmission
         uint64_t yek = (uint64_t)fix << 32 | hop;
         instance->generic.data =
             subghz_protocol_blocks_reverse_key(yek, instance->generic.data_count_bit);
     } // What should happen if seed = 0 in bft programming mode -> collapse of the universe I think :)
-    return true; // Always return true
+    return true;
 }
 
 bool subghz_protocol_keeloq_create_data(
@@ -698,13 +710,16 @@ static bool
             upindex = subghz_protocol_encoder_keeloq_encode_to_timings(
                 instance, (uint8_t)0x00, true, upindex);
         }
+        // encode_to_timings returns 0 when gen_data refused (last call decides)
+        if(upindex == 0) return false;
         furi_check(upindex <= need);
         instance->encoder.size_upload = upindex;
         return true;
     } else {
-        instance->encoder.repeat = 3;
+        // repeat: keep the value read from the file (default set in deserialize)
         instance->encoder.size_upload =
             subghz_protocol_encoder_keeloq_encode_to_timings(instance, btn, true, upindex);
+        if(instance->encoder.size_upload == 0) return false;
     }
 
     furi_check(instance->encoder.size_upload <= need);
@@ -788,7 +803,9 @@ SubGhzProtocolStatus
         subghz_protocol_keeloq_check_remote_controller(
             &instance->generic, instance->keystore, &instance->manufacture_name);
 
-        // Optional value
+        // Optional value; reset to the default first because get_upload (mode 7) may
+        // have lowered it on a previous run of this reused encoder
+        instance->encoder.repeat = 3;
         flipper_format_read_uint32(
             flipper_format, "Repeat", (uint32_t*)&instance->encoder.repeat, 1);
 

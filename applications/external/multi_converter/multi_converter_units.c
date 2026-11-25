@@ -7,6 +7,14 @@
     for(int _i = 0; _i < MULTI_CONVERTER_NUMBER_DIGITS; _i++) \
         b[_i] = MULTI_CONVERTER_CHAR_OVERFLOW;
 
+// snprintf cuts the output at NUMBER_DIGITS chars. Cut-off decimals are fine, but an integer part
+// that does not fit would show a wrong magnitude, so flag that as overflow.
+static void multi_converter_unit_check_print(char* buffer_dest, int ret, int decimals) {
+    if(ret < 0 || ret - 1 - decimals > MULTI_CONVERTER_NUMBER_DIGITS) {
+        multi_converter_unit_set_overflow(buffer_dest);
+    }
+}
+
 //
 // DEC / HEX / BIN conversion
 //
@@ -114,7 +122,7 @@ void multi_converter_unit_temperature_convert(MultiConverterState* const multi_c
         int ret = snprintf(
             multi_converter_state->buffer_dest, MULTI_CONVERTER_NUMBER_DIGITS + 1, "%.3lf", a);
 
-        if(ret < 0) multi_converter_unit_set_overflow(multi_converter_state->buffer_dest);
+        multi_converter_unit_check_print(multi_converter_state->buffer_dest, ret, 3);
     }
 }
 
@@ -216,7 +224,7 @@ void multi_converter_unit_distance_convert(MultiConverterState* const multi_conv
         int ret = snprintf(
             multi_converter_state->buffer_dest, MULTI_CONVERTER_NUMBER_DIGITS + 1, "%lf", a);
 
-        if(ret < 0) multi_converter_unit_set_overflow(multi_converter_state->buffer_dest);
+        multi_converter_unit_check_print(multi_converter_state->buffer_dest, ret, 6);
     }
 }
 
@@ -253,7 +261,7 @@ void multi_converter_unit_angle_convert(MultiConverterState* const multi_convert
         int ret = snprintf(
             multi_converter_state->buffer_dest, MULTI_CONVERTER_NUMBER_DIGITS + 1, "%lf", a);
 
-        if(ret < 0) multi_converter_unit_set_overflow(multi_converter_state->buffer_dest);
+        multi_converter_unit_check_print(multi_converter_state->buffer_dest, ret, 6);
     }
 }
 

@@ -864,7 +864,8 @@ static bool swd_script_get_number(ScriptContext* ctx, uint32_t* number) {
 
             *number <<= 4;
 
-            if(ch_num <= 10) {
+            /* strictly < 10: ch_num 10 is the character ':' */
+            if(ch_num < 10) {
                 *number += ch_num;
             } else if(ch_hex <= 5) {
                 *number += 10 + ch_hex;
@@ -1189,10 +1190,11 @@ static bool swd_scriptfunc_blocksize(ScriptContext* ctx) {
         return false;
     }
 
-    if(block_size >= 4 && block_size <= 0x1000) {
+    /* multiple of 4: reads/fills write whole 32-bit words into a block_size buffer */
+    if(block_size >= 4 && block_size <= 0x1000 && (block_size & 3) == 0) {
         ctx->block_size = block_size;
     } else {
-        swd_script_log(ctx, FuriLogLevelError, "value must be between 4 and 4096");
+        swd_script_log(ctx, FuriLogLevelError, "value must be a multiple of 4 between 4 and 4096");
     }
 
     swd_script_seek_newline(ctx);

@@ -245,14 +245,23 @@ const LevelBehaviour *world_pvp()
 }
 
 // The world name comes from the server's world list and is used in a file path and URL:
-// reject empty names and anything that could escape the worlds directory.
-static bool world_name_is_safe(const char *name)
+// reject empty names and anything that could escape the worlds directory or break out of
+// the URL / JSON / UART command it is interpolated into (allowlist: [A-Za-z0-9_.-]).
+bool world_name_is_safe(const char *name)
 {
-    if (!name || name[0] == '\0')
+    if (!name || name[0] == '\0' || strstr(name, "..") != NULL)
     {
         return false;
     }
-    return strchr(name, '/') == NULL && strchr(name, '\\') == NULL && strstr(name, "..") == NULL;
+    for (; *name; name++)
+    {
+        char c = *name;
+        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.'))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 FuriString *world_fetch(FlipperHTTP *fhttp, const char *name)

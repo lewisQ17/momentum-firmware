@@ -147,7 +147,8 @@ static void submenu_view_draw_callback(Canvas* canvas, void* _model) {
 
     elements_scrollbar(canvas, model->position, SubmenuItemArray_size(model->items));
 
-    if(model->locked_message_visible) {
+    // why: position can be stale/out of range after items were removed; the get() would assert
+    if(model->locked_message_visible && model->position < SubmenuItemArray_size(model->items)) {
         const uint8_t frame_x = 7;
         const uint8_t frame_width = canvas_width(canvas) - frame_x * 2;
         const uint8_t frame_y = 7;
@@ -464,7 +465,10 @@ void submenu_process_up(Submenu* submenu) {
             const size_t items_on_screen = submenu_items_on_screen(model);
             const size_t items_size = SubmenuItemArray_size(model->items);
 
-            if(model->position > 0) {
+            // why: empty list would underflow items_size - 1 and corrupt position/window_position
+            if(items_size == 0) {
+                // nothing to select
+            } else if(model->position > 0) {
                 model->position--;
                 if((model->position == model->window_position) && (model->window_position > 0)) {
                     model->window_position--;
@@ -487,7 +491,10 @@ void submenu_process_down(Submenu* submenu) {
             const size_t items_on_screen = submenu_items_on_screen(model);
             const size_t items_size = SubmenuItemArray_size(model->items);
 
-            if(model->position < items_size - 1) {
+            // why: empty list would underflow items_size - 1 and bump position forever
+            if(items_size == 0) {
+                // nothing to select
+            } else if(model->position < items_size - 1) {
                 model->position++;
                 if((model->position - model->window_position > items_on_screen - 2) &&
                    (model->window_position < items_size - items_on_screen)) {

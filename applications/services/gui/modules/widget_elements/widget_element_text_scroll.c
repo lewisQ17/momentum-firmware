@@ -102,9 +102,16 @@ static void widget_element_text_scroll_fill_lines(Canvas* canvas, WidgetElement*
             } else {
                 line_width += canvas_glyph_width(canvas, next_char);
                 if(line_width > model->width) {
+                    size_t consumed = char_i - 1;
+                    if(furi_string_empty(line_tmp.text)) {
+                        // why: first glyph of the row is wider than the element; take it anyway
+                        // so every pass advances (else infinite loop + unbounded allocation)
+                        furi_string_push_back(line_tmp.text, next_char);
+                        consumed = char_i;
+                    }
                     furi_string_push_back(line_tmp.text, '\0');
                     widget_element_text_scroll_add_line(element, &line_tmp);
-                    furi_string_right(model->text, char_i - 1);
+                    furi_string_right(model->text, consumed);
                     furi_string_reset(line_tmp.text);
                     total_height += params->leading_default - params->height;
                     reached_new_line = false;

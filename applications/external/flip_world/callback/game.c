@@ -14,6 +14,7 @@
 #include <callback/callback.h>
 #include "alloc/alloc.h"
 #include <flip_storage/storage.h>
+#include <game/world.h>
 
 bool user_hit_back = false;
 uint32_t lobby_index = -1;
@@ -366,6 +367,17 @@ static bool game_fetch(DataLoaderModel *model)
             FURI_LOG_E(TAG, "Failed to get first world");
             easy_flipper_dialog("Error", "Failed to get first world. Go to game settings to download packs.");
             furi_string_free(world_list);
+            return false;
+        }
+        // server-supplied name goes into a file path and URL: validate before use
+        if (!world_name_is_safe(furi_string_get_cstr(first_world)))
+        {
+            view_dispatcher_switch_to_view(app->view_dispatcher,
+                                           FlipWorldViewSubmenu);
+            FURI_LOG_E(TAG, "Unsafe world name");
+            easy_flipper_dialog("Error", "Invalid world name. Go to game settings to download packs.");
+            furi_string_free(world_list);
+            furi_string_free(first_world);
             return false;
         }
         if (world_exists(furi_string_get_cstr(first_world)))
@@ -760,8 +772,8 @@ void game_run(FlipWorldApp *app)
         {
             if (!flipper_http_process_response_async(fhttp, game_fetch_world_list_i, parse_world_list_i) || !flipper_http_process_response_async(fhttp, game_fetch_player_stats_i, set_player_context))
             {
+                // fhttp is freed once below; a free here too was a double free
                 FURI_LOG_E(HTTP_TAG, "Failed to make request");
-                flipper_http_free(fhttp);
             }
 
             flipper_http_free(fhttp);

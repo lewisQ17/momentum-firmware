@@ -14,3 +14,4 @@
 const LevelBehaviour *world_pvp();
 bool world_json_draw(GameManager *manager, Level *level, const FuriString *json_data);
 FuriString *world_fetch(FlipperHTTP *fhttp, const char *name);
+bool world_name_is_safe(const char *name);

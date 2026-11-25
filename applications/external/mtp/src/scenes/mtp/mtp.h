@@ -155,6 +155,9 @@ typedef struct MTPDataPersistence {
 
     uint32_t prev_handle;
     File* current_file;
+
+    // Set from the USB control callback (Cancel/Reset); consumed by the worker
+    volatile bool abort_transfer;
 } MTPDataPersistence;
 
 struct MTPContainer {
@@ -166,6 +169,8 @@ void OpenSession(AppMTP* mtp, uint32_t session_id);
 void CloseSession(AppMTP* mtp);
 
 void mtp_handle_bulk(AppMTP* mtp, uint8_t* buffer, uint32_t length);
+// Drop any half-finished transfer; only call with the USB worker stopped or from it.
+void mtp_abort_transfer(void);
 void handle_mtp_command(AppMTP* mtp, struct MTPContainer* container);
 void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool cont);
 void handle_mtp_response(AppMTP* mtp, struct MTPHeader* container);

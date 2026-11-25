@@ -495,7 +495,10 @@ static void
             {
                 if(model->item_cnt <= BROWSER_SORT_THRESHOLD) {
                     FuriString* selected = NULL;
-                    if(model->item_idx > 0) {
+                    // why: item_cnt comes from an earlier directory count; the folder may have
+                    // changed before the load, so bound by what was actually loaded
+                    const size_t loaded_cnt = items_array_size(model->items);
+                    if(model->item_idx > 0 && (size_t)model->item_idx < loaded_cnt) {
                         selected = furi_string_alloc_set(
                             items_array_get(model->items, model->item_idx)->name);
                     }
@@ -503,7 +506,7 @@ static void
                     items_array_sort(model->items);
 
                     if(selected != NULL) {
-                        for(uint32_t i = 0; i < model->item_cnt; i++) {
+                        for(uint32_t i = 0; i < loaded_cnt; i++) {
                             if(!furi_string_cmp(items_array_get(model->items, i)->name, selected)) {
                                 model->item_idx = i;
                                 break;

@@ -81,7 +81,7 @@ static const char* extract_filename(const char* filepath) {
     return (filename != NULL) ? (filename + 1) : filepath;
 }
 
-void scheduler_set_file(Scheduler* scheduler, const char* file_name, int8_t list_count) {
+void scheduler_set_file(Scheduler* scheduler, const char* file_name, uint8_t list_count) {
     furi_assert(scheduler);
     const char* name = extract_filename(file_name);
     scheduler->file_name = (char*)name;

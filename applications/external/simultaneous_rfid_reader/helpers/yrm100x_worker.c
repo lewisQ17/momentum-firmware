@@ -62,8 +62,12 @@ UHFWorkerEvent read_single_card(UHFWorker* uhf_worker) {
     if(uhf_tag == NULL) return UHFWorkerEventAborted;
     uhf_tag_wrapper_set_tag(uhf_worker->uhf_tag_wrapper, uhf_tag);
     // set select
-    while(m100_set_select(uhf_worker->module, uhf_tag) != M100SuccessResponse) {
-    }
+    // Check for Stop so leaving the app can't hang on this loop
+    M100ResponseType sel_rp;
+    do {
+        sel_rp = m100_set_select(uhf_worker->module, uhf_tag);
+        if(uhf_worker->state == UHFWorkerStateStop) return UHFWorkerEventAborted;
+    } while(sel_rp != M100SuccessResponse);
     // read tid
 
     //create a default password attribute for the worker....

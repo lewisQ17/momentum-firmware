@@ -34,6 +34,7 @@ typedef struct {
 typedef OldKeybind OldKeybinds[DesktopKeybindTypeMAX][DesktopKeybindKeyMAX];
 
 void desktop_keybinds_migrate(Desktop* desktop) {
+    bool legacy_loaded = false;
     if(!storage_common_exists(desktop->storage, DESKTOP_KEYBINDS_PATH)) {
         OldKeybinds old;
         const bool success = saved_struct_load(
@@ -42,6 +43,7 @@ void desktop_keybinds_migrate(Desktop* desktop) {
             sizeof(old),
             OLD_DESKTOP_KEYBINDS_MAGIC,
             OLD_DESKTOP_KEYBINDS_VER);
+        legacy_loaded = success;
 
         if(success) {
             DesktopKeybinds new;
@@ -69,7 +71,14 @@ void desktop_keybinds_migrate(Desktop* desktop) {
         }
     }
 
-    storage_common_remove(desktop->storage, OLD_DESKTOP_KEYBINDS_PATH);
+    // Keep the legacy file if converting it failed to produce the new one (save
+    // swallows errors), so the user's only copy isn't lost. Still removed when the
+    // new file already existed or the legacy file itself was unreadable.
+    if(storage_common_exists(desktop->storage, DESKTOP_KEYBINDS_PATH) || !legacy_loaded) {
+        storage_common_remove(desktop->storage, OLD_DESKTOP_KEYBINDS_PATH);
+    } else {
+        FURI_LOG_E(TAG, "Keybinds migration failed, keeping legacy file");
+    }
 }
 
 const char* const desktop_keybinds_defaults[DesktopKeybindTypeMAX][DesktopKeybindKeyMAX] = {
@@ -143,15 +152,19 @@ void desktop_keybinds_load(Desktop* desktop, DesktopKeybinds* keybinds) {
             for(DesktopKeybindKey key = 0; key < DesktopKeybindKeyMAX; key++) {
                 furi_string_printf(
                     keybind_name, "%s%s", desktop_keybind_types[type], desktop_keybind_keys[key]);
-                if(!flipper_format_read_string(
+                // Rewind per key so one missing key only defaults itself, not all later keys
+                if(!flipper_format_rewind(file) ||
+                   !flipper_format_read_string(
                        file, furi_string_get_cstr(keybind_name), (*keybinds)[type][key])) {
+                    FURI_LOG_W(
+                        TAG,
+                        "Failed to load %s, using default",
+                        furi_string_get_cstr(keybind_name));
                     furi_string_set((*keybinds)[type][key], desktop_keybinds_defaults[type][key]);
-                    goto fail;
                 }
             }
         }
     } else {
-    fail:
         FURI_LOG_W(TAG, "Failed to load file, using defaults");
     }
 

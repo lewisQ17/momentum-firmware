@@ -69,7 +69,8 @@ char* ReadMTPString(uint8_t* buffer) {
         return "";
     }
 
-    char* str = malloc(sizeof(char) * len16);
+    // +1 so the result is always NUL-terminated even if the host omits the terminator
+    char* str = malloc(sizeof(char) * (len16 + 1));
 
     uint8_t* base = buffer + 1;
     uint16_t* ptr = (uint16_t*)base;
@@ -77,6 +78,7 @@ char* ReadMTPString(uint8_t* buffer) {
     for(int i = 0; i < len16; i++) {
         str[i] = *ptr++;
     }
+    str[len16] = 0;
 
     return str;
 }

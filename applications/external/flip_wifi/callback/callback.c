@@ -118,6 +118,7 @@ void callback_text_updated_deauth(void *context)
     {
         easy_flipper_dialog("[ERROR]", "Failed to start deauth attack");
         flipper_http_free(app->fhttp);
+        app->fhttp = NULL; // free_all would free it again
         view_dispatcher_switch_to_view(app->view_dispatcher, FlipWiFiViewSubmenuMain);
         view_dispatcher_remove_view(app->view_dispatcher, loading_view_id);
         loading_free(loading);
@@ -134,6 +135,7 @@ void callback_text_updated_deauth(void *context)
         snprintf(response, sizeof(response), "Failed to start deauth attack:\n%s", app->fhttp->last_response);
         easy_flipper_dialog("[ERROR]", response);
         flipper_http_free(app->fhttp);
+        app->fhttp = NULL; // free_all would free it again
         view_dispatcher_switch_to_view(app->view_dispatcher, FlipWiFiViewSubmenuMain);
         view_dispatcher_remove_view(app->view_dispatcher, loading_view_id);
         loading_free(loading);
@@ -150,6 +152,7 @@ void callback_text_updated_deauth(void *context)
         snprintf(response, sizeof(response), "Failed to start deauth attack:\n%s", app->fhttp->last_response);
         easy_flipper_dialog("[ERROR]", response);
         flipper_http_free(app->fhttp);
+        app->fhttp = NULL; // free_all would free it again
         view_dispatcher_switch_to_view(app->view_dispatcher, FlipWiFiViewSubmenuMain);
         view_dispatcher_remove_view(app->view_dispatcher, loading_view_id);
         loading_free(loading);
@@ -677,6 +680,12 @@ void callback_submenu_choices(void *context, uint32_t index)
             if (!callback_handle_scan(app->fhttp, app))
             {
                 FURI_LOG_E(TAG, "Failed to handle scan");
+                // release the loading view and the UART, otherwise the next alloc fails (UART busy)
+                view_dispatcher_remove_view(app->view_dispatcher, loading_view_id);
+                loading_free(loading);
+                loading = NULL;
+                flipper_http_free(app->fhttp);
+                app->fhttp = NULL;
                 easy_flipper_dialog("[ERROR]", "Failed to handle scan");
                 return;
             }
@@ -684,10 +693,12 @@ void callback_submenu_choices(void *context, uint32_t index)
             loading_free(loading);
             loading = NULL;
             flipper_http_free(app->fhttp);
+            app->fhttp = NULL;
         }
         else
         {
             flipper_http_free(app->fhttp);
+            app->fhttp = NULL;
             easy_flipper_dialog("[ERROR]", "Failed to scan for WiFi networks");
             return;
         }
@@ -841,6 +852,7 @@ void callback_submenu_choices(void *context, uint32_t index)
             easy_flipper_dialog("", response);
         }
         flipper_http_free(app->fhttp);
+        app->fhttp = NULL;
         break;
     case 100 ... 199:
         ssid_index = index - FlipWiFiSubmenuIndexWiFiScanStart;

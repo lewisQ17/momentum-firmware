@@ -269,54 +269,43 @@ void calculate(Calculator* calculator_state) {
     calculator_state->text[0] = '\0';
     // sprintf(calculator_state->text, "%f", result);
 
-    //invert sign if negative
-    if(result < 0) {
+    //round to 2 decimals (not truncate) in 64 bit: result*100 can exceed int32
+    bool negative = result < 0;
+    if(negative) result = -result;
+    int64_t scaled = (int64_t)(result * 100 + 0.5);
+
+    // a negative result that rounds to 0 must not show "-0"
+    if(negative && scaled > 0) {
         calculator_state->text[calculator_state->textLength++] = '-';
-        result = -result;
     }
 
     //get numbers before and after decimal
-    int beforeDecimal = result;
-    int afterDecimal = (result - beforeDecimal) * 100;
+    int beforeDecimal = (int)(scaled / 100);
+    int afterDecimal = (int)(scaled % 100);
 
-    char beforeDecimalString[10];
-    char afterDecimalString[10];
+    char beforeDecimalString[12];
     int i = 0;
     //parse to a string
     while(beforeDecimal > 0) {
         beforeDecimalString[i++] = beforeDecimal % 10 + '0';
         beforeDecimal /= 10;
     }
-    // invert string
-    for(int j = 0; j < i / 2; j++) {
-        char temp = beforeDecimalString[j];
-        beforeDecimalString[j] = beforeDecimalString[i - j - 1];
-        beforeDecimalString[i - j - 1] = temp;
+    // a result of 0 still needs its digit
+    if(i == 0) {
+        beforeDecimalString[i++] = '0';
     }
-    //add it to the answer
-    for(int j = 0; j < i; j++) {
-        calculator_state->text[calculator_state->textLength++] = beforeDecimalString[j];
+    //add it to the answer (digits were collected least significant first)
+    while(i > 0) {
+        calculator_state->text[calculator_state->textLength++] = beforeDecimalString[--i];
     }
 
-    i = 0;
     if(afterDecimal > 0) {
-        while(afterDecimal > 0) {
-            afterDecimalString[i++] = afterDecimal % 10 + '0';
-            afterDecimal /= 10;
-        }
-        // invert string
-        for(int j = 0; j < i / 2; j++) {
-            char temp = afterDecimalString[j];
-            afterDecimalString[j] = afterDecimalString[i - j - 1];
-            afterDecimalString[i - j - 1] = temp;
-        }
-
         //add decimal point
         calculator_state->text[calculator_state->textLength++] = '.';
-
-        //add numbers after decimal
-        for(int j = 0; j < i; j++) {
-            calculator_state->text[calculator_state->textLength++] = afterDecimalString[j];
+        // keep the leading zero (1.05), drop a trailing one (1.50 -> 1.5)
+        calculator_state->text[calculator_state->textLength++] = afterDecimal / 10 + '0';
+        if(afterDecimal % 10 != 0) {
+            calculator_state->text[calculator_state->textLength++] = afterDecimal % 10 + '0';
         }
     }
     calculator_state->text[calculator_state->textLength] = '\0';
