@@ -16,6 +16,11 @@
 #define POWER_VBUS_LOW_THRESHOLD   (4.0f)
 #define POWER_HEALTH_LOW_THRESHOLD (70U)
 
+// Ticks (1 s each): a 0% gauge read is held at the last good value,
+// and the critical floor must persist before shutting down.
+#define POWER_CHARGE_ZERO_HOLD_TICKS (5U)
+#define POWER_CRITICAL_DEBOUNCE_TICKS (3U)
+
 static void power_draw_battery_callback(Canvas* canvas, void* context) {
     furi_assert(context);
     Power* power = context;
@@ -262,7 +267,16 @@ static bool power_update_info(Power* power) {
     info->gauge_is_ok = furi_hal_power_gauge_is_ok();
     info->is_shutdown_requested = furi_hal_power_is_shutdown_requested();
     info->is_otg_enabled = furi_hal_power_is_otg_enabled();
-    info->charge = furi_hal_power_get_pct();
+    uint8_t charge = furi_hal_power_get_pct();
+    // A failed gauge SOC read returns 0: hold the last good value for a few ticks so one I2C
+    // glitch can't trigger shutdown/warnings/charge-limit changes (a real 0% is accepted after).
+    if(charge == 0 && old_charge > 0 && power->charge_zero_ticks < POWER_CHARGE_ZERO_HOLD_TICKS) {
+        power->charge_zero_ticks++;
+        charge = old_charge;
+    } else if(charge != 0) {
+        power->charge_zero_ticks = 0;
+    }
+    info->charge = charge;
     info->voltage_vbus = furi_hal_power_get_usb_voltage();
     // The status-bar battery icon reads the charge-voltage limit on every redraw (cross
     // pattern when "Limit Charge" is on), so keep it fresh each tick like before.
@@ -292,7 +306,15 @@ static void power_notify(const NotificationSequence* sequence) {
     furi_record_close(RECORD_NOTIFICATION);
 }
 
-static void power_check_charging_state(Power* power) {
+// USB present even when charging is suppressed (Limit Charge makes the charger report "not
+// charging"). OTG makes VBUS ~5 V itself, so it doesn't count as external power.
+static bool power_external_power_present(const Power* power) {
+    return power->info.is_charging ||
+           (!power->info.is_otg_enabled && power->info.voltage_vbus >= POWER_VBUS_LOW_THRESHOLD);
+}
+
+static bool power_check_charging_state(Power* power) {
+    const PowerState old_state = power->state;
     if(power->info.is_charging) {
         if((power->info.charge == 100) || (furi_hal_power_is_charging_done())) {
             if(power->state != PowerStateCharged) {
@@ -315,6 +337,7 @@ static void power_check_charging_state(Power* power) {
         power->event.type = PowerEventTypeStopCharging;
         furi_pubsub_publish(power->event_pubsub, &power->event);
     }
+    return old_state != power->state;
 }
 
 // Estimate remaining battery runtime in minutes from the fuel gauge (ours, not
@@ -419,15 +442,22 @@ static void power_check_auto_poweroff(Power* power) {
     // Reuses the existing power_off() path (no PMIC register writes -> brick-safe).
     if(power->settings.auto_poweroff_critical_percent && power->info.gauge_is_ok &&
        !power->info.is_charging &&
+       // Limit Charge on USB reads "not charging" but the cell is at/above the limit: not critical.
+       !(power->charge_is_supressed && power_external_power_present(power)) &&
        power->info.charge <= power->settings.auto_poweroff_critical_percent) {
-        power_off(power);
-        return;
+        // Debounce: require the condition on consecutive ticks so one bad read can't shut down.
+        if(++power->critical_ticks >= POWER_CRITICAL_DEBOUNCE_TICKS) {
+            power_off(power);
+            return;
+        }
+    } else {
+        power->critical_ticks = 0;
     }
 
     const uint8_t timeout_s = power_off_timeout_seconds(power->settings.power_off_timeout);
 
     if(power->auto_poweroff_warning) {
-        if(power->info.is_charging) {
+        if(power_external_power_present(power)) {
             view_holder_set_view(power->view_holder, NULL);
             power->auto_poweroff_warning = false;
             power->power_off_timeout = timeout_s;
@@ -464,7 +494,7 @@ static void power_check_auto_poweroff(Power* power) {
         return;
     }
 
-    if(power->info.is_charging) {
+    if(power_external_power_present(power)) {
         if(power->info.charge >= power->settings.auto_poweroff_percent) {
             power->auto_poweroff_next_warning = power->settings.auto_poweroff_percent;
         }
@@ -544,7 +574,7 @@ static void power_auto_poweroff_timer_callback(void* context) {
     if(power->app_running) return;
 
     //Dont poweroff device if charger connected
-    if(power->state != PowerStateNotCharging) {
+    if(power->state != PowerStateNotCharging || power_external_power_present(power)) {
         FURI_LOG_D(TAG, "We dont auto_power_off until battery is charging");
         power_start_auto_poweroff_timer(power);
     } else {
@@ -646,13 +676,11 @@ static void power_message_callback(FuriEventLoopObject* object, void* context) {
         if(power->is_otg_requested) {
             // Only try to enable if VBUS voltage is low, otherwise charger will refuse
             if(power->info.voltage_vbus < 4.5f) {
-                size_t retries = 5;
-                while(retries-- > 0) {
-                    if(furi_hal_power_enable_otg()) {
-                        break;
-                    }
+                bool otg_ok = false;
+                for(size_t i = 0; i < 5 && !otg_ok; i++) {
+                    otg_ok = furi_hal_power_enable_otg();
                 }
-                if(!retries) {
+                if(!otg_ok) {
                     FURI_LOG_W(TAG, "Failed to enable OTG, will try later");
                 }
             } else {
@@ -677,12 +705,18 @@ static void power_message_callback(FuriEventLoopObject* object, void* context) {
         power_settings_apply(power);
         power_settings_save(&power->settings);
         break;
-    case PowerMessageTypeReloadSettings:
+    case PowerMessageTypeReloadSettings: {
+        // Only reset the warning state when the settings really changed, so a
+        // remount does not cancel/re-trigger an active or dismissed warning.
+        PowerSettings prev = power->settings;
         power_settings_load(&power->settings);
-        power->auto_poweroff_next_warning = power->settings.auto_poweroff_percent;
-        power_auto_poweroff_warning_reset(power);
-        power_settings_apply(power);
+        if(memcmp(&prev, &power->settings, sizeof(PowerSettings)) != 0) {
+            power->auto_poweroff_next_warning = power->settings.auto_poweroff_percent;
+            power_auto_poweroff_warning_reset(power);
+            power_settings_apply(power);
+        }
         break;
+    }
     default:
         furi_crash();
     }
@@ -715,11 +749,12 @@ static void power_tick_callback(void* context) {
     Power* power = context;
 
     // Update data from gauge and charger
-    const bool need_refresh = power_update_info(power);
+    bool need_refresh = power_update_info(power);
     // Check low battery level
     power_check_low_battery(power);
     // Check and notify about charging state
-    power_check_charging_state(power);
+    // (state flips like Charging -> Charged change the icon without charge/is_charging changing)
+    need_refresh |= power_check_charging_state(power);
     // Check and notify about battery level change
     power_check_battery_level_change(power);
     // charge supress arm/disarm
@@ -752,6 +787,8 @@ static void power_storage_callback(const void* message, void* context) {
     Power* power = context;
     const StorageEvent* event = message;
 
+    // On this fork /int lives on the SD card, so a (late) card mount is when the
+    // real settings first become readable; the reload is change-aware.
     if(event->type == StorageEventTypeCardMount) {
         PowerMessage msg = {
             .type = PowerMessageTypeReloadSettings,
@@ -767,8 +804,8 @@ static void power_init_settings(Power* power) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     furi_pubsub_subscribe(storage_get_pubsub(storage), power_storage_callback, power);
 
-    // Settings live on /int (always mounted), so no SD-card gate here; skipping
-    // would leave the zeroed defaults (critical floor off, 30 s timeout).
+    // Load now; if the SD (which holds /int on this fork) mounts later, the
+    // CardMount reload above picks the saved settings up.
     power_settings_load(&power->settings);
     power->auto_poweroff_next_warning = power->settings.auto_poweroff_percent;
     power_settings_apply(power);
@@ -786,6 +823,9 @@ static Power* power_alloc(void) {
     power->show_battery_low_warning = true;
     power->auto_poweroff_next_warning = 0;
     power->auto_poweroff_warning = false;
+    power->info.charge = 0;
+    power->charge_zero_ticks = 0;
+    power->critical_ticks = 0;
     // Gui
     Gui* gui = furi_record_open(RECORD_GUI);
 

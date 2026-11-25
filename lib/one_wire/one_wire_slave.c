@@ -1,4 +1,5 @@
 #include "one_wire_slave.h"
+#include "one_wire_slave_i.h"
 
 #include <furi.h>
 #include <furi_hal.h>
@@ -268,6 +269,11 @@ void onewire_slave_set_result_callback(
     furi_check(bus);
     bus->result_callback = result_cb;
     bus->result_callback_context = context;
+}
+
+bool onewire_slave_has_error(const OneWireSlave* bus) {
+    furi_check(bus);
+    return bus->error != OneWireSlaveErrorNone;
 }
 
 bool onewire_slave_receive_bit(OneWireSlave* bus) {

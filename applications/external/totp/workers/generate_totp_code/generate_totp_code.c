@@ -105,6 +105,7 @@ static int32_t totp_generate_worker_callback(void* context) {
     // Track the TOTP period instead of testing `ts % duration == 0`, so a skipped RTC second cannot leave a stale code
     uint32_t last_period = UINT32_MAX;
     const TokenInfo* last_token = NULL;
+    uint32_t last_duration = 0;
 
     while(true) {
         uint32_t flags = furi_thread_flags_wait(
@@ -131,13 +132,17 @@ static int32_t totp_generate_worker_callback(void* context) {
 
         uint32_t curr_ts = is_time_based ? furi_hal_rtc_get_timestamp() : 0;
 
-        if(token_info != last_token) {
+        // why: read once so a concurrent token switch cannot give inconsistent values
+        const uint32_t duration = token_info->duration;
+
+        // why: the token struct is mutated in place, so a duration change also means a new token
+        if(token_info != last_token || (is_time_based && duration != last_duration)) {
             last_token = token_info;
             last_period = UINT32_MAX;
         }
 
         const bool force_update = (flags & TotpGenerateCodeWorkerEventForceUpdate) != 0;
-        const uint32_t period = is_time_based ? (curr_ts / token_info->duration) : 0;
+        const uint32_t period = is_time_based ? (curr_ts / duration) : 0;
         const bool period_changed = is_time_based && (period != last_period);
         // Notify "new code" only on a genuine rollover, not on forced/first generation
         const bool time_left = !force_update && period_changed && last_period != UINT32_MAX;
@@ -146,6 +151,7 @@ static int32_t totp_generate_worker_callback(void* context) {
                 generate_totp_code(t_context, token_info, curr_ts);
                 if(is_time_based) {
                     last_period = period;
+                    last_duration = duration;
                 }
                 if(is_time_based) {
                     curr_ts = furi_hal_rtc_get_timestamp();
@@ -161,8 +167,7 @@ static int32_t totp_generate_worker_callback(void* context) {
         if(t_context->on_code_lifetime_changed_handler != NULL &&
            token_info->type == TokenTypeTOTP) {
             (*(t_context->on_code_lifetime_changed_handler))(
-                (float)(token_info->duration - curr_ts % token_info->duration) /
-                    (float)token_info->duration,
+                (float)(duration - curr_ts % duration) / (float)duration,
                 t_context->on_code_lifetime_changed_handler_context);
         }
     }

@@ -85,8 +85,9 @@ SubGhzWorker* subghz_worker_alloc(void) {
     instance->thread =
         furi_thread_alloc_ex("SubGhzWorker", 2048, subghz_worker_thread_callback, instance);
 
+    // Trigger of 16 edges: fewer worker wakeups; a partial buffer is still drained by the 10 ms receive timeout
     instance->stream =
-        furi_stream_buffer_alloc(sizeof(LevelDuration) * 4096, sizeof(LevelDuration));
+        furi_stream_buffer_alloc(sizeof(LevelDuration) * 4096, sizeof(LevelDuration) * 16);
 
     //setting default filter in us
     instance->filter_duration = 30;

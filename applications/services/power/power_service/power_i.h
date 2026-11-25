@@ -57,6 +57,8 @@ struct Power {
     FuriTimer* auto_poweroff_timer;
     bool app_running;
     bool charge_is_supressed;
+    uint8_t charge_zero_ticks; // consecutive held 0% gauge reads
+    uint8_t critical_ticks; // consecutive ticks at/below the critical floor
     FuriPubSub* input_events_pubsub;
     FuriPubSub* ascii_events_pubsub;
     FuriPubSubSubscription* input_events_subscription;

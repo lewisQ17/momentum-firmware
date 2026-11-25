@@ -12,6 +12,12 @@ typedef enum {
 
 #define WORKER_ALL_RX_EVENTS (WorkerEvtStop | WorkerEvtRxDone)
 
+static void subghz_gps_stamp_fix(SubGhzGPS* subghz_gps) {
+    // tick 0 is reserved for "no fix yet"
+    const uint32_t tick = furi_get_tick();
+    subghz_gps->fix_tick = tick ? tick : 1;
+}
+
 static void subghz_gps_uart_parse_nmea(SubGhzGPS* subghz_gps, char* line) {
     switch(minmea_sentence_id(line, false)) {
     case MINMEA_SENTENCE_RMC: {
@@ -22,6 +28,7 @@ static void subghz_gps_uart_parse_nmea(SubGhzGPS* subghz_gps, char* line) {
             subghz_gps->fix_second = frame.time.seconds;
             subghz_gps->fix_minute = frame.time.minutes;
             subghz_gps->fix_hour = frame.time.hours;
+            subghz_gps_stamp_fix(subghz_gps);
         }
     } break;
 
@@ -34,6 +41,7 @@ static void subghz_gps_uart_parse_nmea(SubGhzGPS* subghz_gps, char* line) {
             subghz_gps->fix_second = frame.time.seconds;
             subghz_gps->fix_minute = frame.time.minutes;
             subghz_gps->fix_hour = frame.time.hours;
+            subghz_gps_stamp_fix(subghz_gps);
         }
     } break;
 
@@ -45,6 +53,7 @@ static void subghz_gps_uart_parse_nmea(SubGhzGPS* subghz_gps, char* line) {
             subghz_gps->fix_second = frame.time.seconds;
             subghz_gps->fix_minute = frame.time.minutes;
             subghz_gps->fix_hour = frame.time.hours;
+            subghz_gps_stamp_fix(subghz_gps);
         }
     } break;
 
@@ -210,6 +219,7 @@ static void subghz_gps_init(SubGhzGPS* subghz_gps, uint32_t baudrate) {
     subghz_gps->fix_hour = 0;
     subghz_gps->fix_minute = 0;
     subghz_gps->fix_second = 0;
+    subghz_gps->fix_tick = 0;
 
     subghz_gps->rx_stream = furi_stream_buffer_alloc(RX_BUF_SIZE, 1);
 

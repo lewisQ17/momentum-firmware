@@ -2,6 +2,7 @@
 
 #include <core/common_defines.h>
 #include <one_wire/maxim_crc.h>
+#include <one_wire/one_wire_slave_i.h>
 
 #define BITS_IN_BYTE 8U
 
@@ -148,9 +149,11 @@ bool dallas_common_emulate_search_rom(OneWireSlave* bus, const DallasCommonRomDa
             if(!onewire_slave_send_bit(bus, bit)) return false;
             if(!onewire_slave_send_bit(bus, !bit)) return false;
 
-            // reader chose the other branch (or the bus errored on a 1 bit): stay silent
-            if(onewire_slave_receive_bit(bus) != bit) return false;
-            // TODO FL-3530: bus->error is private to one_wire_slave.c, so errors on a 0 bit are still not detected
+            const bool direction = onewire_slave_receive_bit(bus);
+            // reset/timeout during the direction bit reads as 0 and would pass for a 0 branch: bail out
+            if(onewire_slave_has_error(bus)) return false;
+            // reader chose the other branch: stay silent
+            if(direction != bit) return false;
         }
     }
 

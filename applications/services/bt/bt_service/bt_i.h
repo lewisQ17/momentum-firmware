@@ -88,6 +88,9 @@ struct Bt {
     void* status_changed_ctx;
 
     bool suppress_pin_screen;
+
+    // Guards the status_changed_cb/ctx pair (appended last to keep earlier offsets stable)
+    FuriMutex* status_changed_mutex;
 };
 
 /** Open a new RPC connection

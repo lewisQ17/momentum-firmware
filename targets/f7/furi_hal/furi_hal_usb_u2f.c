@@ -245,6 +245,9 @@ void furi_hal_hid_u2f_send_response(uint8_t* data, uint8_t len) {
             // why: nothing in flight, so no tx-complete will give the semaphore back
             furi_semaphore_release(hid_u2f_semaphore);
         }
+    } else {
+        // why: suspend raced the acquire, no write means no tx-complete to return the semaphore
+        furi_semaphore_release(hid_u2f_semaphore);
     }
 }
 

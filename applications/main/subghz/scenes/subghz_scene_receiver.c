@@ -495,15 +495,14 @@ bool subghz_scene_receiver_on_event(void* context, SceneManagerEvent event) {
                 subghz->threshold_rssi, subghz_txrx_radio_device_get_rssi(subghz->txrx));
 
             if(subghz->gps) {
-                DateTime datetime;
-                furi_hal_rtc_get_datetime(&datetime);
-                if((datetime.second - subghz->gps->fix_second) > 15) {
+                if(subghz_gps_fix_is_stale(subghz->gps)) {
                     subghz->gps->latitude = NAN;
                     subghz->gps->longitude = NAN;
                     subghz->gps->satellites = 0;
                     subghz->gps->fix_hour = 0;
                     subghz->gps->fix_minute = 0;
                     subghz->gps->fix_second = 0;
+                    subghz->gps->fix_tick = 0;
                 }
                 subghz_scene_receiver_update_statusbar(subghz);
             }

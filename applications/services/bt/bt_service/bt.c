@@ -191,6 +191,9 @@ Bt* bt_alloc(void) {
     bt->api_event = furi_event_flag_alloc();
 
     bt_rpc_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    bt->status_changed_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    bt->status_changed_cb = NULL;
+    bt->status_changed_ctx = NULL;
 
     return bt;
 }
@@ -245,12 +248,17 @@ static void bt_rpc_send_bytes_callback(void* context, uint8_t* bytes, size_t byt
     furi_event_flag_clear(bt->rpc_event, BT_RPC_EVENT_ALL & (~BT_RPC_EVENT_DISCONNECTED));
     size_t bytes_sent = 0;
     while(bytes_sent < bytes_len) {
+        // Profile is NULLed during a switch; bail instead of tripping furi_check in tx
+        FuriHalBleProfileBase* profile = bt->current_profile;
+        if(!furi_hal_bt_check_profile_type(profile, ble_profile_serial)) {
+            break;
+        }
         size_t bytes_remain = bytes_len - bytes_sent;
         if(bytes_remain > bt->max_packet_size) {
-            ble_profile_serial_tx(bt->current_profile, &bytes[bytes_sent], bt->max_packet_size);
+            ble_profile_serial_tx(profile, &bytes[bytes_sent], bt->max_packet_size);
             bytes_sent += bt->max_packet_size;
         } else {
-            ble_profile_serial_tx(bt->current_profile, &bytes[bytes_sent], bytes_remain);
+            ble_profile_serial_tx(profile, &bytes[bytes_sent], bytes_remain);
             bytes_sent += bytes_remain;
         }
         // We want BT_RPC_EVENT_DISCONNECTED to stick, so don't clear
@@ -268,8 +276,12 @@ static void bt_rpc_send_bytes_callback(void* context, uint8_t* bytes, size_t byt
 static void bt_serial_buffer_is_empty_callback(void* context) {
     furi_assert(context);
     Bt* bt = context;
-    furi_check(furi_hal_bt_check_profile_type(bt->current_profile, ble_profile_serial));
-    ble_profile_serial_notify_buffer_is_empty(bt->current_profile);
+    // Profile is NULLed during a switch; skip instead of crashing the RPC thread
+    FuriHalBleProfileBase* profile = bt->current_profile;
+    if(!furi_hal_bt_check_profile_type(profile, ble_profile_serial)) {
+        return;
+    }
+    ble_profile_serial_notify_buffer_is_empty(profile);
 }
 
 // Called from GAP thread
@@ -410,16 +422,22 @@ void bt_open_rpc_connection(Bt* bt) {
     furi_mutex_release(bt_rpc_mutex);
 }
 
-void bt_close_rpc_connection(Bt* bt) {
-    furi_mutex_acquire(bt_rpc_mutex, FuriWaitForever);
-    if(furi_hal_bt_check_profile_type(bt->current_profile, ble_profile_serial) &&
-       bt->rpc_session) {
+// Caller must hold bt_rpc_mutex
+static void bt_close_rpc_connection_locked(Bt* bt) {
+    // Test the session first: after a direct furi_hal_bt_reinit (CLI) current_profile may be stale
+    if(bt->rpc_session &&
+       furi_hal_bt_check_profile_type(bt->current_profile, ble_profile_serial)) {
         FURI_LOG_I(TAG, "Close RPC connection");
         furi_event_flag_set(bt->rpc_event, BT_RPC_EVENT_DISCONNECTED);
         rpc_session_close(bt->rpc_session);
         ble_profile_serial_set_event_callback(bt->current_profile, 0, NULL, NULL);
         bt->rpc_session = NULL;
     }
+}
+
+void bt_close_rpc_connection(Bt* bt) {
+    furi_mutex_acquire(bt_rpc_mutex, FuriWaitForever);
+    bt_close_rpc_connection_locked(bt);
     furi_mutex_release(bt_rpc_mutex);
 }
 
@@ -427,7 +445,12 @@ static void bt_change_profile(Bt* bt, BtMessage* message) {
     if(furi_hal_bt_is_gatt_gap_supported()) {
         bt_settings_load(&bt->bt_settings);
 
-        bt_close_rpc_connection(bt);
+        // Close RPC and drop the profile pointer atomically w.r.t. GAP-thread open/close, since
+        // furi_hal_bt_change_app stops and frees the old profile struct
+        furi_mutex_acquire(bt_rpc_mutex, FuriWaitForever);
+        bt_close_rpc_connection_locked(bt);
+        bt->current_profile = NULL;
+        furi_mutex_release(bt_rpc_mutex);
 
         bt_keys_storage_load(bt->keys_storage);
 
@@ -585,8 +608,13 @@ int32_t bt_srv(void* p) {
             // Update view ports
             bt_statusbar_update(bt);
             bt_pin_code_hide(bt);
-            if(bt->status_changed_cb) {
-                bt->status_changed_cb(bt->status, bt->status_changed_ctx);
+            // Snapshot the pair under the lock, call outside it so a callback can't deadlock the setter
+            furi_mutex_acquire(bt->status_changed_mutex, FuriWaitForever);
+            BtStatusChangedCallback status_cb = bt->status_changed_cb;
+            void* status_ctx = bt->status_changed_ctx;
+            furi_mutex_release(bt->status_changed_mutex);
+            if(status_cb) {
+                status_cb(bt->status, status_ctx);
             }
         } else if(message.type == BtMessageTypeUpdateBatteryLevel) {
             // Update battery level

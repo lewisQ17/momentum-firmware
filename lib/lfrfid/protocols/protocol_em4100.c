@@ -41,6 +41,12 @@ typedef struct {
 
     ManchesterState decoder_manchester_state;
     uint8_t clock_per_bit;
+
+    // why: constant per instance, cached so decoder_feed does no divisions
+    uint16_t short_time_low;
+    uint16_t short_time_high;
+    uint16_t long_time_low;
+    uint16_t long_time_high;
 } ProtocolEM4100;
 
 uint16_t protocol_em4100_get_time_divisor(ProtocolEM4100* proto) {
@@ -102,21 +108,31 @@ uint16_t protocol_em4100_get_long_time_high(ProtocolEM4100* proto) {
            EM_READ_JITTER_TIME_BASE / protocol_em4100_get_time_divisor(proto);
 }
 
+static void protocol_em4100_cache_times(ProtocolEM4100* proto) {
+    proto->short_time_low = protocol_em4100_get_short_time_low(proto);
+    proto->short_time_high = protocol_em4100_get_short_time_high(proto);
+    proto->long_time_low = protocol_em4100_get_long_time_low(proto);
+    proto->long_time_high = protocol_em4100_get_long_time_high(proto);
+}
+
 ProtocolEM4100* protocol_em4100_alloc(void) {
     ProtocolEM4100* proto = malloc(sizeof(ProtocolEM4100));
     proto->clock_per_bit = 64;
+    protocol_em4100_cache_times(proto);
     return (void*)proto;
 }
 
 ProtocolEM4100* protocol_em4100_16_alloc(void) {
     ProtocolEM4100* proto = malloc(sizeof(ProtocolEM4100));
     proto->clock_per_bit = 16;
+    protocol_em4100_cache_times(proto);
     return (void*)proto;
 }
 
 ProtocolEM4100* protocol_em4100_32_alloc(void) {
     ProtocolEM4100* proto = malloc(sizeof(ProtocolEM4100));
     proto->clock_per_bit = 32;
+    protocol_em4100_cache_times(proto);
     return (void*)proto;
 }
 
@@ -222,16 +238,13 @@ bool protocol_em4100_decoder_feed(ProtocolEM4100* proto, bool level, uint32_t du
 
     ManchesterEvent event = ManchesterEventReset;
 
-    if(duration > protocol_em4100_get_short_time_low(proto) &&
-       duration < protocol_em4100_get_short_time_high(proto)) {
+    if(duration > proto->short_time_low && duration < proto->short_time_high) {
         if(!level) {
             event = ManchesterEventShortHigh;
         } else {
             event = ManchesterEventShortLow;
         }
-    } else if(
-        duration > protocol_em4100_get_long_time_low(proto) &&
-        duration < protocol_em4100_get_long_time_high(proto)) {
+    } else if(duration > proto->long_time_low && duration < proto->long_time_high) {
         if(!level) {
             event = ManchesterEventLongHigh;
         } else {

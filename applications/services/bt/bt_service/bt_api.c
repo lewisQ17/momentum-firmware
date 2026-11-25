@@ -22,13 +22,12 @@ FuriHalBleProfileBase* bt_profile_start(
     // Wait for unlock
     api_lock_wait_unlock_and_free(message.lock);
 
-    bt->current_profile = profile_instance;
+    // bt->current_profile is owned by the BT thread (it frees the profile on switch); never write it here
     return profile_instance;
 }
 
 bool bt_profile_restore_default(Bt* bt) {
-    bt->current_profile = bt_profile_start(bt, ble_profile_serial, NULL);
-    return bt->current_profile != NULL;
+    return bt_profile_start(bt, ble_profile_serial, NULL) != NULL;
 }
 
 void bt_disconnect(Bt* bt) {
@@ -45,8 +44,11 @@ void bt_disconnect(Bt* bt) {
 void bt_set_status_changed_callback(Bt* bt, BtStatusChangedCallback callback, void* context) {
     furi_check(bt);
 
+    // Update the pair under the lock so the BT thread never sees a cb with a mismatched ctx
+    furi_mutex_acquire(bt->status_changed_mutex, FuriWaitForever);
     bt->status_changed_cb = callback;
     bt->status_changed_ctx = context;
+    furi_mutex_release(bt->status_changed_mutex);
 }
 
 void bt_forget_bonded_devices(Bt* bt) {

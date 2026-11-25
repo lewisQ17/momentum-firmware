@@ -22,15 +22,14 @@ void subghz_scene_show_gps_draw_satellites(void* context) {
         (double)longitude);
 
     if(subghz->gps) {
-        DateTime datetime;
-        furi_hal_rtc_get_datetime(&datetime);
-        if((datetime.second - subghz->gps->fix_second) > 15) {
+        if(subghz_gps_fix_is_stale(subghz->gps)) {
             subghz->gps->latitude = NAN;
             subghz->gps->longitude = NAN;
             subghz->gps->satellites = 0;
             subghz->gps->fix_hour = 0;
             subghz->gps->fix_minute = 0;
             subghz->gps->fix_second = 0;
+            subghz->gps->fix_tick = 0;
         }
 
         subghz->gps->cat_realtime(subghz->gps, text_str, latitude, longitude);

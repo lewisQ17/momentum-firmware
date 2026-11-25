@@ -344,11 +344,13 @@ void subghz_frequency_analyzer_pair_callback(
     float rssi,
     bool signal) {
     SubGhzFrequencyAnalyzer* instance = (SubGhzFrequencyAnalyzer*)context;
+    bool history_dirty = false; // history edited with update=false, final commit must redraw
     if(float_is_equal(rssi, 0.f) && instance->locked) {
         if(instance->callback) {
             instance->callback(SubGhzCustomEventSceneAnalyzerUnlock, instance->context);
         }
         //update history
+        history_dirty = true;
         instance->show_frame = true;
         uint8_t max_index = instance->max_index;
         with_view_model(
@@ -412,21 +414,32 @@ void subghz_frequency_analyzer_pair_callback(
     }
 
     instance->locked = !float_is_equal(rssi, 0.f);
+    // Only request a redraw when something drawn changed; idle loop repeats identical values
+    float trigger_now = subghz_frequency_analyzer_worker_get_trigger_level(instance->worker);
+    bool changed = history_dirty;
     with_view_model(
         instance->view,
         SubGhzFrequencyAnalyzerModel * model,
         {
+            changed = changed || !float_is_equal(model->rssi, rssi) ||
+                      !float_is_equal(model->rssi_last, instance->rssi_last) ||
+                      model->frequency != frequency || model->signal != signal ||
+                      !float_is_equal(model->trigger, trigger_now) ||
+                      model->feedback_level != instance->feedback_level ||
+                      model->max_index != instance->max_index ||
+                      model->show_frame != instance->show_frame ||
+                      model->selected_index != instance->selected_index;
             model->rssi = rssi;
             model->rssi_last = instance->rssi_last;
             model->frequency = frequency;
             model->signal = signal;
-            model->trigger = subghz_frequency_analyzer_worker_get_trigger_level(instance->worker);
+            model->trigger = trigger_now;
             model->feedback_level = instance->feedback_level;
             model->max_index = instance->max_index;
             model->show_frame = instance->show_frame;
             model->selected_index = instance->selected_index;
         },
-        true);
+        changed);
 }
 
 void subghz_frequency_analyzer_enter(void* context) {

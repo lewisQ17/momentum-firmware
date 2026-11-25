@@ -9,6 +9,9 @@
 #include <momentum/asset_packs_i.h>
 #include <momentum/settings.h>
 
+// Unchanged frames are still resent this often, so the LCD self-heals from any outside write
+#define CANVAS_FORCE_RESEND_MS 2000U
+
 const CanvasFontParameters canvas_font_params[FontTotalNumber] = {
     [FontPrimary] = {.leading_default = 12, .leading_min = 11, .height = 8, .descender = 2},
     [FontSecondary] = {.leading_default = 11, .leading_min = 9, .height = 7, .descender = 2},
@@ -29,6 +32,10 @@ Canvas* canvas_init(void) {
 
     // Setup u8g2
     u8g2_Setup_st756x_flipper(&canvas->fb, U8G2_R0, u8x8_hw_spi_stm32, u8g2_gpio_and_delay_stm32);
+    // No frame sent yet: the first commit after (re)initialising the display is always sent
+    canvas->sent_hash = 0;
+    canvas->sent_valid = false;
+    canvas->sent_tick = 0;
     canvas->orientation = CanvasOrientationHorizontal;
     // Initialize display
     u8g2_InitDisplay(&canvas->fb);
@@ -70,9 +77,29 @@ void canvas_reset(Canvas* canvas) {
     canvas_set_font_direction(canvas, CanvasDirectionLeftToRight);
 }
 
+// FNV-1a over the frame: 4 bytes of state instead of a 1 KB shadow copy
+static uint32_t canvas_frame_hash(const uint8_t* buf, size_t size) {
+    uint32_t hash = 2166136261U;
+    for(size_t i = 0; i < size; i++) {
+        hash ^= buf[i];
+        hash *= 16777619U;
+    }
+    return hash;
+}
+
 void canvas_commit(Canvas* canvas) {
     furi_check(canvas);
-    u8g2_SendBuffer(&canvas->fb);
+    // Skip the ~2 ms polled SPI transfer when the frame equals what the LCD already shows
+    const uint32_t hash =
+        canvas_frame_hash(canvas_get_buffer(canvas), canvas_get_buffer_size(canvas));
+    const uint32_t now = furi_get_tick();
+    if(!canvas->sent_valid || (now - canvas->sent_tick) >= CANVAS_FORCE_RESEND_MS ||
+       hash != canvas->sent_hash) {
+        u8g2_SendBuffer(&canvas->fb);
+        canvas->sent_hash = hash;
+        canvas->sent_tick = now;
+        canvas->sent_valid = true;
+    }
 
     // Iterate over callbacks
     canvas_lock(canvas);
@@ -660,6 +687,7 @@ void canvas_set_orientation(Canvas* canvas, CanvasOrientation orientation) {
         if(need_swap) FURI_SWAP(canvas->width, canvas->height);
         u8g2_SetDisplayRotation(&canvas->fb, rotate_cb);
         canvas->orientation = orientation;
+        canvas->sent_valid = false; // buffer mapping changed, always resend next frame
     }
 }
 

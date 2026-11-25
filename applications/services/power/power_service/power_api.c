@@ -65,10 +65,12 @@ void power_enable_low_battery_level_notification(Power* power, bool enable) {
     PowerMessage msg = {
         .type = PowerMessageTypeShowBatteryLowWarning,
         .bool_param = &enable,
+        .lock = api_lock_alloc_locked(), // &enable is on our stack: wait until handled
     };
 
     furi_check(
         furi_message_queue_put(power->message_queue, &msg, FuriWaitForever) == FuriStatusOk);
+    api_lock_wait_unlock_and_free(msg.lock);
 }
 
 void power_enable_otg(Power* power, bool enable) {

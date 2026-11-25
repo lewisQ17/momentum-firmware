@@ -47,6 +47,9 @@ struct Canvas {
     CompressIcon* compress_icon;
     CanvasCallbackPairArray_t canvas_callback_pair;
     FuriMutex* mutex;
+    uint32_t sent_hash; // hash of the last frame sent to the LCD, for skip-if-identical
+    uint32_t sent_tick;
+    bool sent_valid;
 };
 
 /** Allocate memory and initialize canvas

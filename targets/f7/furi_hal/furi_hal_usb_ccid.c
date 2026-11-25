@@ -486,6 +486,10 @@ static bool ccid_send_packet_timed(uint8_t* data, uint8_t len) {
             furi_semaphore_release(furi_hal_usb_ccid->ccid_semaphore);
             return false;
         }
+    } else {
+        // why: suspend raced the acquire, no write means no tx-complete to return the semaphore
+        furi_semaphore_release(furi_hal_usb_ccid->ccid_semaphore);
+        return false;
     }
     return true;
 }
