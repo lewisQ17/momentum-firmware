@@ -58,6 +58,7 @@ static void infrared_rpc_command_callback(const RpcAppSystemEvent* event, void* 
     if(event->type == RpcAppEventTypeSessionClose) {
         // Only post the event here (RPC thread). The app thread clears the callback and
         // rpc_ctx when it handles it, so it can't race with an in-flight confirm.
+        infrared->rpc_session_closing = true;
         view_dispatcher_send_custom_event(
             infrared->view_dispatcher, InfraredCustomEventTypeRpcSessionClose);
     } else if(event->type == RpcAppEventTypeAppExit) {
@@ -245,8 +246,13 @@ static void infrared_free(InfraredApp* infrared) {
     InfraredAppState* app_state = &infrared->app_state;
 
     if(infrared->rpc_ctx) {
+        // Clearing the callback can release rpc_system_app_free() on the RPC thread, which
+        // frees the context immediately — so report "exited" first (as the NFC app does), and
+        // skip it entirely when the session is already closing (nobody left to tell).
+        if(!infrared->rpc_session_closing) {
+            rpc_system_app_send_exited(infrared->rpc_ctx);
+        }
         rpc_system_app_set_callback(infrared->rpc_ctx, NULL, NULL);
-        rpc_system_app_send_exited(infrared->rpc_ctx);
         infrared->rpc_ctx = NULL;
     }
 

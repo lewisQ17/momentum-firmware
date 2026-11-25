@@ -140,6 +140,10 @@ struct InfraredApp {
     InfraredAppState app_state; /**< Application state. */
 
     void* rpc_ctx; /**< Pointer to the RPC context object. */
+    /** Set by the RPC thread when the session is closing: rpc_system_app_free() is then
+     *  blocked until the callback is cleared and frees the context right after, so the
+     *  app must not call send_exited (or touch rpc_ctx) once it clears the callback. */
+    volatile bool rpc_session_closing;
 };
 
 /**
