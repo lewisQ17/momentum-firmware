@@ -1,6 +1,7 @@
 #include "loading.h"
 
 #include <gui/icon_animation.h>
+#include "../icon_animation_i.h" // to pin the built-in icon (see loading_alloc)
 #include <gui/elements.h>
 #include <gui/canvas.h>
 #include <gui/view.h>
@@ -66,6 +67,11 @@ Loading* loading_alloc(void) {
     view_allocate_model(instance->view, ViewModelTypeLocking, sizeof(LoadingModel));
     LoadingModel* model = view_get_model(instance->view);
     model->icon = icon_animation_alloc(&A_Loading_24);
+    // The loader keeps one Loading view for its whole lifetime. icon_animation_alloc()
+    // caches the asset-pack override, which asset_packs_free() (pack change, or an app
+    // flagged UnloadAssetPacks) frees while this view can still be drawn/animated ->
+    // use-after-free. Pin the built-in icon instead (the spinner is not pack-themed).
+    model->icon->icon = &A_Loading_24;
     view_tie_icon_animation(instance->view, model->icon);
     view_commit_model(instance->view, false);
 

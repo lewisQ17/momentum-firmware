@@ -109,12 +109,12 @@ void archive_delete_file(void* context, const char* format, ...) {
     ArchiveBrowserView* browser = context;
     Storage* fs_api = furi_record_open(RECORD_STORAGE);
 
-    FileInfo fileinfo;
+    // Zeroed so a failed stat can't feed uninitialised flags to file_info_is_dir().
+    FileInfo fileinfo = {0};
     bool removed = false;
-    // Why: on a stat failure treat the entry as gone, like archive_delete_selected
-    if(storage_common_stat(fs_api, furi_string_get_cstr(filename), &fileinfo) != FSE_OK) {
-        removed = true;
-    }
+    // A failed stat is not proof the entry is gone (an SD error looks the same), so let
+    // the actual remove result decide below: OK or NOT_EXIST means it is gone.
+    storage_common_stat(fs_api, furi_string_get_cstr(filename), &fileinfo);
 
     bool res = false;
 
