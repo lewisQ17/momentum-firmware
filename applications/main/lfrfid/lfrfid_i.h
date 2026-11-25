@@ -100,6 +100,9 @@ struct LfRfid {
     uint8_t password[4];
 
     RpcAppSystem* rpc_ctx;
+    /** Set by the RPC thread on SessionClose: rpc_system_app_free() is then waiting for the
+     *  callback to be cleared, so the app must not send_exited (or use rpc_ctx) afterwards. */
+    volatile bool rpc_session_closing;
     LfRfidRpcState rpc_state;
 
     // Common Views

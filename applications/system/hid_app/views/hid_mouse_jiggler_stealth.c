@@ -106,6 +106,9 @@ static void hid_mouse_jiggler_stealth_timer_callback(void* context) {
 static void hid_mouse_jiggler_stealth_exit_callback(void* context) {
     furi_assert(context);
     HidMouseJigglerStealth* hid_mouse_jiggler = context;
+    // Clear running under the model lock first so an in-flight timer callback can't re-arm after exit
+    with_view_model(
+        hid_mouse_jiggler->view, HidMouseJigglerStealthModel * model, { model->running = false; }, true);
     furi_timer_stop(hid_mouse_jiggler->timer);
 }
 

@@ -1142,6 +1142,13 @@ static void nfc_protocol_support_scene_write_on_exit(NfcApp* instance) {
     nfc_blink_stop(instance);
 }
 
+// rpc_ctx is cleared on RpcSessionClose; never touch a closed session
+static void nfc_protocol_support_rpc_confirm(NfcApp* instance, bool result) {
+    if(instance->rpc_ctx) {
+        rpc_system_app_confirm(instance->rpc_ctx, result);
+    }
+}
+
 static void nfc_protocol_support_scene_rpc_on_enter(NfcApp* instance) {
     UNUSED(instance);
 }
@@ -1175,17 +1182,25 @@ static bool nfc_protocol_support_scene_rpc_on_event(NfcApp* instance, SceneManag
                     nfc_protocol_support_scene_rpc_setup_ui_and_emulate(instance);
                     success = true;
                 } else {
-                    rpc_system_app_set_error_code(
-                        instance->rpc_ctx, RpcAppSystemErrorCodeParseFile);
-                    rpc_system_app_set_error_text(instance->rpc_ctx, "Cannot load key file");
+                    if(instance->rpc_ctx) {
+                        rpc_system_app_set_error_code(
+                            instance->rpc_ctx, RpcAppSystemErrorCodeParseFile);
+                        rpc_system_app_set_error_text(instance->rpc_ctx, "Cannot load key file");
+                    }
                 }
             }
-            rpc_system_app_confirm(instance->rpc_ctx, success);
+            nfc_protocol_support_rpc_confirm(instance, success);
         } else if(event.event == NfcCustomEventRpcExit) {
-            rpc_system_app_confirm(instance->rpc_ctx, true);
+            nfc_protocol_support_rpc_confirm(instance, true);
             scene_manager_stop(instance->scene_manager);
             view_dispatcher_stop(instance->view_dispatcher);
         } else if(event.event == NfcCustomEventRpcSessionClose) {
+            // Clear on the app thread, first and back to back, before anything that can
+            // block (see nfc_app_rpc_command_callback)
+            if(instance->rpc_ctx) {
+                rpc_system_app_set_callback(instance->rpc_ctx, NULL, NULL);
+                instance->rpc_ctx = NULL;
+            }
             scene_manager_stop(instance->scene_manager);
             view_dispatcher_stop(instance->view_dispatcher);
         }

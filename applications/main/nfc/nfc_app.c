@@ -22,12 +22,11 @@ static void nfc_app_rpc_command_callback(const RpcAppSystemEvent* event, void* c
     furi_assert(context);
     NfcApp* nfc = (NfcApp*)context;
 
-    furi_assert(nfc->rpc_ctx);
-
     if(event->type == RpcAppEventTypeSessionClose) {
+        // Only post the event here (RPC thread). The app thread clears the callback and
+        // rpc_ctx when it handles it, so it can't race with an in-flight confirm.
+        nfc->rpc_session_closing = true;
         view_dispatcher_send_custom_event(nfc->view_dispatcher, NfcCustomEventRpcSessionClose);
-        rpc_system_app_set_callback(nfc->rpc_ctx, NULL, NULL);
-        nfc->rpc_ctx = NULL;
     } else if(event->type == RpcAppEventTypeAppExit) {
         view_dispatcher_send_custom_event(nfc->view_dispatcher, NfcCustomEventRpcExit);
     } else if(event->type == RpcAppEventTypeLoadFile) {
@@ -35,7 +34,10 @@ static void nfc_app_rpc_command_callback(const RpcAppSystemEvent* event, void* c
         furi_string_set(nfc->file_path, event->data.string);
         view_dispatcher_send_custom_event(nfc->view_dispatcher, NfcCustomEventRpcLoadFile);
     } else {
-        rpc_system_app_confirm(nfc->rpc_ctx, false);
+        RpcAppSystem* rpc_ctx = nfc->rpc_ctx;
+        if(rpc_ctx) {
+            rpc_system_app_confirm(rpc_ctx, false);
+        }
     }
 }
 
@@ -145,8 +147,14 @@ void nfc_app_free(NfcApp* instance) {
     furi_assert(instance);
 
     if(instance->rpc_ctx) {
-        rpc_system_app_send_exited(instance->rpc_ctx);
+        // Report "exited" first (clearing the callback releases rpc_system_app_free() on the
+        // RPC thread), and skip it when the session is already closing. Always clear the
+        // callback so the RPC thread never spins on a pending close.
+        if(!instance->rpc_session_closing) {
+            rpc_system_app_send_exited(instance->rpc_ctx);
+        }
         rpc_system_app_set_callback(instance->rpc_ctx, NULL, NULL);
+        instance->rpc_ctx = NULL;
     }
 
     nfc_free(instance->nfc);

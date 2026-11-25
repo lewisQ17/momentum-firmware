@@ -24,6 +24,13 @@ static void lfrfid_rpc_start_emulation(LfRfid* app) {
     app->rpc_state = LfRfidRpcStateEmulating;
 }
 
+// rpc_ctx is cleared on RpcSessionClose; never touch a closed session
+static void lfrfid_scene_rpc_confirm(LfRfid* app, bool result) {
+    if(app->rpc_ctx) {
+        rpc_system_app_confirm(app->rpc_ctx, result);
+    }
+}
+
 bool lfrfid_scene_rpc_on_event(void* context, SceneManagerEvent event) {
     LfRfid* app = context;
     bool consumed = false;
@@ -31,10 +38,16 @@ bool lfrfid_scene_rpc_on_event(void* context, SceneManagerEvent event) {
     if(event.type == SceneManagerEventTypeCustom) {
         consumed = true;
         if(event.event == LfRfidEventExit) {
-            rpc_system_app_confirm(app->rpc_ctx, true);
+            lfrfid_scene_rpc_confirm(app, true);
             scene_manager_stop(app->scene_manager);
             view_dispatcher_stop(app->view_dispatcher);
         } else if(event.event == LfRfidEventRpcSessionClose) {
+            // Clear on the app thread, first and back to back, before anything that can
+            // block (see rpc_command_callback)
+            if(app->rpc_ctx) {
+                rpc_system_app_set_callback(app->rpc_ctx, NULL, NULL);
+                app->rpc_ctx = NULL;
+            }
             scene_manager_stop(app->scene_manager);
             view_dispatcher_stop(app->view_dispatcher);
         } else if(event.event == LfRfidEventRpcLoadFile) {
@@ -44,11 +57,14 @@ bool lfrfid_scene_rpc_on_event(void* context, SceneManagerEvent event) {
                     lfrfid_rpc_start_emulation(app);
                     result = true;
                 } else {
-                    rpc_system_app_set_error_code(app->rpc_ctx, RpcAppSystemErrorCodeParseFile);
-                    rpc_system_app_set_error_text(app->rpc_ctx, "Cannot load key file");
+                    if(app->rpc_ctx) {
+                        rpc_system_app_set_error_code(
+                            app->rpc_ctx, RpcAppSystemErrorCodeParseFile);
+                        rpc_system_app_set_error_text(app->rpc_ctx, "Cannot load key file");
+                    }
                 }
             }
-            rpc_system_app_confirm(app->rpc_ctx, result);
+            lfrfid_scene_rpc_confirm(app, result);
         }
     }
     return consumed;

@@ -45,10 +45,11 @@ static void ibutton_rpc_command_callback(const RpcAppSystemEvent* event, void* c
     iButton* ibutton = context;
 
     if(event->type == RpcAppEventTypeSessionClose) {
+        // Only post the event here (RPC thread). The app thread clears the callback and
+        // rpc when it handles it, so it can't race with an in-flight confirm.
+        ibutton->rpc_session_closing = true;
         view_dispatcher_send_custom_event(
             ibutton->view_dispatcher, iButtonCustomEventRpcSessionClose);
-        rpc_system_app_set_callback(ibutton->rpc, NULL, NULL);
-        ibutton->rpc = NULL;
     } else if(event->type == RpcAppEventTypeAppExit) {
         view_dispatcher_send_custom_event(ibutton->view_dispatcher, iButtonCustomEventRpcExit);
     } else if(event->type == RpcAppEventTypeLoadFile) {
@@ -56,7 +57,10 @@ static void ibutton_rpc_command_callback(const RpcAppSystemEvent* event, void* c
         furi_string_set(ibutton->file_path, event->data.string);
         view_dispatcher_send_custom_event(ibutton->view_dispatcher, iButtonCustomEventRpcLoadFile);
     } else {
-        rpc_system_app_confirm(ibutton->rpc, false);
+        RpcAppSystem* rpc = ibutton->rpc;
+        if(rpc) {
+            rpc_system_app_confirm(rpc, false);
+        }
     }
 }
 
@@ -312,8 +316,14 @@ int32_t ibutton_app(char* arg) {
     }
 
     if(ibutton->rpc) {
+        // Report "exited" first (clearing the callback releases rpc_system_app_free() on the
+        // RPC thread, which frees the context), and skip it when the session is already
+        // closing. Always clear the callback so the RPC thread never spins on a pending close.
+        if(!ibutton->rpc_session_closing) {
+            rpc_system_app_send_exited(ibutton->rpc);
+        }
         rpc_system_app_set_callback(ibutton->rpc, NULL, NULL);
-        rpc_system_app_send_exited(ibutton->rpc);
+        ibutton->rpc = NULL;
     }
     ibutton_free(ibutton);
     return 0;

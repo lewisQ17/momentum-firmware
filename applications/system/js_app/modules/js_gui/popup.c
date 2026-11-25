@@ -11,7 +11,8 @@ typedef struct {
 } JsPopupCtx;
 
 static void timeout_callback(JsPopupCtx* context) {
-    furi_check(furi_semaphore_release(context->semaphore) == FuriStatusOk);
+    // Semaphore max count is 1: a repeat event while one is pending is dropped, not a crash
+    furi_semaphore_release(context->semaphore);
 }
 
 static bool

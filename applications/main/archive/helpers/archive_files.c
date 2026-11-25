@@ -110,19 +110,27 @@ void archive_delete_file(void* context, const char* format, ...) {
     Storage* fs_api = furi_record_open(RECORD_STORAGE);
 
     FileInfo fileinfo;
-    storage_common_stat(fs_api, furi_string_get_cstr(filename), &fileinfo);
+    bool removed = false;
+    // Why: on a stat failure treat the entry as gone, like archive_delete_selected
+    if(storage_common_stat(fs_api, furi_string_get_cstr(filename), &fileinfo) != FSE_OK) {
+        removed = true;
+    }
 
     bool res = false;
 
     if(file_info_is_dir(&fileinfo)) {
         res = storage_simply_remove_recursive(fs_api, furi_string_get_cstr(filename));
+        removed = removed || res;
     } else {
-        res = (storage_common_remove(fs_api, furi_string_get_cstr(filename)) == FSE_OK);
+        FS_Error remove_error = storage_common_remove(fs_api, furi_string_get_cstr(filename));
+        res = (remove_error == FSE_OK);
+        removed = removed || res || (remove_error == FSE_NOT_EXIST);
     }
 
     furi_record_close(RECORD_STORAGE);
 
-    if(archive_is_favorite("%s", furi_string_get_cstr(filename))) {
+    // Why: keep the favorite when the delete failed (same rule as archive_delete_selected)
+    if(removed && archive_is_favorite("%s", furi_string_get_cstr(filename))) {
         archive_favorites_delete("%s", furi_string_get_cstr(filename));
     }
 

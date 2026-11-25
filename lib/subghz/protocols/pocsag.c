@@ -33,6 +33,10 @@ static const SubGhzBlockConst pocsag2400_const = {
 #define POCSAG_FUNC_ALERT2   2
 #define POCSAG_FUNC_ALPHANUM 3
 
+// Caps so an endless non-idle RF stream cannot exhaust the heap (words are not BCH checked)
+#define POCSAG_MSG_MAX_LEN      512
+#define POCSAG_DONE_MSG_MAX_LEN 2048
+
 static const char* const func_msg[] = {"\e#Num:\e# ", "\e#Alert\e#", "\e#Alert:\e# ", "\e#Msg:\e# "};
 static const char* bcd_chars = "*U -)(";
 
@@ -129,7 +133,9 @@ static bool decode_message_alphanumeric(SubGhzProtocolDecoderPocsag* instance, u
         instance->char_bits++;
         if(instance->char_bits == 7) {
             if(instance->char_data == 0) return false;
-            furi_string_push_back(instance->msg, instance->char_data);
+            if(furi_string_size(instance->msg) < POCSAG_MSG_MAX_LEN) {
+                furi_string_push_back(instance->msg, instance->char_data);
+            }
             instance->char_data = 0;
             instance->char_bits = 0;
         }
@@ -151,7 +157,9 @@ static void decode_message_numeric(SubGhzProtocolDecoderPocsag* instance, uint32
             val += '0';
         else
             val = bcd_chars[val - 10];
-        furi_string_push_back(instance->msg, val);
+        if(furi_string_size(instance->msg) < POCSAG_MSG_MAX_LEN) {
+            furi_string_push_back(instance->msg, val);
+        }
     }
 }
 
@@ -175,10 +183,12 @@ static void pocsag_message_done(SubGhzProtocolDecoderPocsag* instance) {
     // append the message to the long-term storage string
     furi_string_printf(instance->generic.result_ric, "\e#RIC: %" PRIu32 "\e# | ", instance->ric);
     furi_string_cat_str(instance->generic.result_ric, func_msg[instance->func]);
-    if(instance->func != POCSAG_FUNC_ALERT1) {
-        furi_string_cat(instance->done_msg, instance->msg);
+    if(furi_string_size(instance->done_msg) < POCSAG_DONE_MSG_MAX_LEN) {
+        if(instance->func != POCSAG_FUNC_ALERT1) {
+            furi_string_cat(instance->done_msg, instance->msg);
+        }
+        furi_string_cat_str(instance->done_msg, " ");
     }
-    furi_string_cat_str(instance->done_msg, " ");
 
     furi_string_set(instance->generic.result_msg, instance->done_msg);
 

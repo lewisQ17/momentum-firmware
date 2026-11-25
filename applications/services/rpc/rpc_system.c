@@ -302,8 +302,11 @@ static void rpc_system_system_update_request_process(const PB_Main* request, voi
     RpcSession* session = (RpcSession*)context;
     furi_assert(session);
 
+    // Why: an empty manifest path decodes to NULL and would crash the storage service
     UpdatePrepareResult update_prepare_result =
-        update_operation_prepare(request->content.system_update_request.update_manifest);
+        request->content.system_update_request.update_manifest ?
+            update_operation_prepare(request->content.system_update_request.update_manifest) :
+            UpdatePrepareResultManifestFolderNotFound;
 
     PB_Main* response = malloc(sizeof(PB_Main));
     response->command_id = request->command_id;

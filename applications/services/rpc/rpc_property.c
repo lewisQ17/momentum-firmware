@@ -50,6 +50,13 @@ static void rpc_system_property_get_process(const PB_Main* request, void* contex
     RpcSession* session = (RpcSession*)context;
     furi_assert(session);
 
+    // Why: proto3 omits an empty key, so it decodes to NULL
+    if(!request->content.property_get_request.key) {
+        rpc_send_and_release_empty(
+            session, request->command_id, PB_CommandStatus_ERROR_INVALID_PARAMETERS);
+        return;
+    }
+
     FuriString* topkey = furi_string_alloc();
     FuriString* subkey = furi_string_alloc_set_str(request->content.property_get_request.key);
 

@@ -21,6 +21,20 @@ static void ibutton_rpc_start_emulation(iButton* ibutton) {
     notification_message(ibutton->notifications, &sequence_display_backlight_on);
 }
 
+// rpc is cleared on RpcSessionClose; never touch a closed session
+static void ibutton_scene_rpc_confirm(iButton* ibutton, bool result) {
+    if(ibutton->rpc) {
+        rpc_system_app_confirm(ibutton->rpc, result);
+    }
+}
+
+static void ibutton_scene_rpc_set_error(iButton* ibutton, uint32_t code, const char* text) {
+    if(ibutton->rpc) {
+        rpc_system_app_set_error_code(ibutton->rpc, code);
+        rpc_system_app_set_error_text(ibutton->rpc, text);
+    }
+}
+
 bool ibutton_scene_rpc_on_event(void* context, SceneManagerEvent event) {
     iButton* ibutton = context;
 
@@ -34,23 +48,29 @@ bool ibutton_scene_rpc_on_event(void* context, SceneManagerEvent event) {
 
             if(scene_manager_get_scene_state(ibutton->scene_manager, iButtonSceneRpc)) {
                 // Already emulating: reloading would rewrite the key the worker is reading
-                rpc_system_app_set_error_code(ibutton->rpc, RpcAppSystemErrorCodeInternalParse);
-                rpc_system_app_set_error_text(ibutton->rpc, "Key already loaded");
+                ibutton_scene_rpc_set_error(
+                    ibutton, RpcAppSystemErrorCodeInternalParse, "Key already loaded");
             } else if(ibutton_load_key(ibutton, false)) {
                 ibutton_rpc_start_emulation(ibutton);
                 scene_manager_set_scene_state(ibutton->scene_manager, iButtonSceneRpc, 1);
                 result = true;
             } else {
-                rpc_system_app_set_error_code(ibutton->rpc, RpcAppSystemErrorCodeParseFile);
-                rpc_system_app_set_error_text(ibutton->rpc, "Cannot load key file");
+                ibutton_scene_rpc_set_error(
+                    ibutton, RpcAppSystemErrorCodeParseFile, "Cannot load key file");
             }
-            rpc_system_app_confirm(ibutton->rpc, result);
+            ibutton_scene_rpc_confirm(ibutton, result);
         } else if(event.event == iButtonCustomEventRpcExit) {
-            rpc_system_app_confirm(ibutton->rpc, true);
+            ibutton_scene_rpc_confirm(ibutton, true);
             scene_manager_stop(ibutton->scene_manager);
             view_dispatcher_stop(ibutton->view_dispatcher);
 
         } else if(event.event == iButtonCustomEventRpcSessionClose) {
+            // Clear on the app thread, first and back to back, before anything that can
+            // block (see ibutton_rpc_command_callback)
+            if(ibutton->rpc) {
+                rpc_system_app_set_callback(ibutton->rpc, NULL, NULL);
+                ibutton->rpc = NULL;
+            }
             scene_manager_stop(ibutton->scene_manager);
             view_dispatcher_stop(ibutton->view_dispatcher);
         }

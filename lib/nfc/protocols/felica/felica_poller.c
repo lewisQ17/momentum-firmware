@@ -290,6 +290,12 @@ NfcCommand felica_poller_state_handler_auth_external(FelicaPoller* instance) {
     return NfcCommandContinue;
 }
 
+// Why: a hostile card/emulator controls how many entries we accumulate; cap to protect the heap.
+// Generous vs. real cards, truncates (keeps what was read) rather than failing.
+#define FELICA_POLLER_MAX_SERVICES      1024
+#define FELICA_POLLER_MAX_AREAS         1024
+#define FELICA_POLLER_MAX_PUBLIC_BLOCKS 1536
+
 NfcCommand felica_poller_state_handler_traverse_standard_system(FelicaPoller* instance) {
     FURI_LOG_D(TAG, "Traverse Standard System");
 
@@ -322,12 +328,20 @@ NfcCommand felica_poller_state_handler_traverse_standard_system(FelicaPoller* in
         }
 
         if(len == 0x0E) {
+            if(felica_area_array_size(area_buffer) >= FELICA_POLLER_MAX_AREAS) {
+                FURI_LOG_W(TAG, "Area limit reached");
+                break;
+            }
             FelicaArea* area = felica_area_array_push_raw(area_buffer);
             memset(area, 0, sizeof *area);
             area->code = code_begin;
             area->first_idx = (uint16_t)felica_service_array_size(service_buffer);
             area->last_idx = 0;
         } else {
+            if(felica_service_array_size(service_buffer) >= FELICA_POLLER_MAX_SERVICES) {
+                FURI_LOG_W(TAG, "Service limit reached");
+                break;
+            }
             FelicaService* service = felica_service_array_push_raw(service_buffer);
             memset(service, 0, sizeof *service);
             service->code = code_begin;
@@ -387,6 +401,7 @@ NfcCommand felica_poller_state_handler_read_standard_blocks(FelicaPoller* instan
     felica_public_block_array_init(public_block_buffer);
 
     bool have_read_anything = false;
+    bool block_limit_hit = false;
     FelicaError error = FelicaErrorNone;
 
     for(uint32_t i = 0; i < service_count; i++) {
@@ -406,6 +421,12 @@ NfcCommand felica_poller_state_handler_read_standard_blocks(FelicaPoller* instan
             }
 
             if(response->SF1 == 0 && response->SF2 == 0) {
+                if(felica_public_block_array_size(public_block_buffer) >=
+                   FELICA_POLLER_MAX_PUBLIC_BLOCKS) {
+                    FURI_LOG_W(TAG, "Public block limit reached");
+                    block_limit_hit = true;
+                    break;
+                }
                 FelicaPublicBlock* public_block =
                     felica_public_block_array_push_raw(public_block_buffer);
                 memset(public_block, 0, sizeof *public_block);
@@ -427,6 +448,7 @@ NfcCommand felica_poller_state_handler_read_standard_blocks(FelicaPoller* instan
             instance->state = FelicaPollerStateReadFailed;
             break;
         }
+        if(block_limit_hit) break; // keep partial result
     }
 
     if(error == FelicaErrorNone) {

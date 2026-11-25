@@ -49,6 +49,9 @@ struct iButton {
     DialogsApp* dialogs;
     NotificationApp* notifications;
     RpcAppSystem* rpc;
+    /** Set by the RPC thread on SessionClose: rpc_system_app_free() is then waiting for the
+     *  callback to be cleared, so the app must not send_exited (or use rpc) afterwards. */
+    volatile bool rpc_session_closing;
 
     iButtonKey* key;
     iButtonWorker* worker;

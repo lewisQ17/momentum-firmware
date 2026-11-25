@@ -291,6 +291,8 @@ SubGhzProtocolStatus
             }
             ind++;
         }
+        // Why: inner breaks set res to an error; don't overwrite it with Ok below
+        if(res != SubGhzProtocolStatusError) break;
 
 #ifdef BIN_RAW_DEBUG
         uint16_t i = 0;

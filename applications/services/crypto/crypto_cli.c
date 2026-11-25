@@ -140,10 +140,12 @@ void crypto_cli_decrypt(PipeSide* pipe, FuriString* args) {
         if(hex_size > 0 && hex_size % 2 == 0) {
             size_t size = hex_size / 2;
             uint8_t* input = malloc(size);
-            uint8_t* output = malloc(size);
+            uint8_t* output = malloc(size + 1); // +1: room for NUL terminator
 
             if(args_read_hex_bytes(hex_input, input, size)) {
                 if(furi_hal_crypto_decrypt(input, output, size)) {
+                    // Full-size plaintext has no NUL: terminate before %s
+                    output[size] = 0;
                     printf("Decrypted data:\r\n");
                     printf("%s\r\n", output); //-V576
                 } else {

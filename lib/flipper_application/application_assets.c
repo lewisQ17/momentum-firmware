@@ -230,7 +230,13 @@ static AssetsSignatureResult flipper_application_assets_process_signature(
             break;
         }
 
+        // Why: size mismatch (incl. empty file) -> NotEqual (re-extract); avoids malloc(0) and
+        // memcmp over-reading *signature_data
         size_t signature_size = storage_file_size(signature_file);
+        if(signature_size == 0 || signature_size != *signature_data_size) {
+            FURI_LOG_E(TAG, "Signature file size mismatch");
+            break;
+        }
         uint8_t* signature_file_data = malloc(signature_size);
         if(storage_file_read(signature_file, signature_file_data, signature_size) !=
            signature_size) {

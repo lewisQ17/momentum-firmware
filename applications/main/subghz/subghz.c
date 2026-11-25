@@ -37,13 +37,12 @@ static void subghz_rpc_command_callback(const RpcAppSystemEvent* event, void* co
     furi_assert(context);
     SubGhz* subghz = context;
 
-    furi_assert(subghz->rpc_ctx);
-
     if(event->type == RpcAppEventTypeSessionClose) {
+        // Only post the event here (RPC thread). The app thread clears the callback and
+        // rpc_ctx when it handles it, so it can't race with an in-flight confirm.
+        subghz->rpc_session_closing = true;
         view_dispatcher_send_custom_event(
             subghz->view_dispatcher, SubGhzCustomEventSceneRpcSessionClose);
-        rpc_system_app_set_callback(subghz->rpc_ctx, NULL, NULL);
-        subghz->rpc_ctx = NULL;
     } else if(event->type == RpcAppEventTypeAppExit) {
         view_dispatcher_send_custom_event(subghz->view_dispatcher, SubGhzCustomEventSceneExit);
     } else if(event->type == RpcAppEventTypeLoadFile) {
@@ -60,7 +59,10 @@ static void subghz_rpc_command_callback(const RpcAppSystemEvent* event, void* co
         view_dispatcher_send_custom_event(
             subghz->view_dispatcher, SubGhzCustomEventSceneRpcButtonPressRelease);
     } else {
-        rpc_system_app_confirm(subghz->rpc_ctx, false);
+        void* rpc_ctx = subghz->rpc_ctx;
+        if(rpc_ctx) {
+            rpc_system_app_confirm(rpc_ctx, false);
+        }
     }
 }
 
@@ -296,10 +298,15 @@ void subghz_free(SubGhz* subghz, bool alloc_for_tx_only) {
 
 #ifndef SUBGHZ_ADD_MANUALLY
     if(subghz->rpc_ctx) {
+        // Clearing the callback can release rpc_system_app_free() on the RPC thread, which
+        // frees the context immediately, so report "exited" first and skip it entirely when
+        // the session is already closing (nobody left to tell).
+        if(!subghz->rpc_session_closing) {
+            rpc_system_app_send_exited(subghz->rpc_ctx);
+        }
         rpc_system_app_set_callback(subghz->rpc_ctx, NULL, NULL);
-        rpc_system_app_send_exited(subghz->rpc_ctx);
-        subghz_blink_stop(subghz);
         subghz->rpc_ctx = NULL;
+        subghz_blink_stop(subghz);
     }
 
     subghz_txrx_speaker_off(subghz->txrx);

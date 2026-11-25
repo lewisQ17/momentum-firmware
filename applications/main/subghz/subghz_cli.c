@@ -559,6 +559,15 @@ void subghz_cli_command_decode_raw(PipeSide* pipe, FuriString* args, void* conte
     furi_string_free(file_name);
 }
 
+// Custom preset data = register pairs up to a 00 terminator, then an 8-byte PA table;
+// driver scans unbounded, so verify both fit in the buffer (same rules as js_subghz).
+static bool subghz_cli_validate_preset_data(const uint8_t* data, size_t size) {
+    if(size < 10 || size > 1024 || (size % 2)) return false;
+    size_t t = 0;
+    while(t < size && data[t]) t += 2;
+    return (t + 10) <= size;
+}
+
 static FuriHalSubGhzPreset subghz_cli_get_preset_name(const char* preset_name) {
     FuriHalSubGhzPreset preset = FuriHalSubGhzPresetIDLE;
     if(!strcmp(preset_name, "FuriHalSubGhzPresetOok270Async")) {
@@ -679,7 +688,7 @@ void subghz_cli_command_tx_from_file(PipeSide* pipe, FuriString* args, void* con
             uint32_t custom_preset_data_size;
             if(!flipper_format_get_value_count(fff_data_file, "Custom_preset_data", &temp_data32))
                 break;
-            if(!temp_data32 || (temp_data32 % 2)) {
+            if(temp_data32 < 10 || temp_data32 > 1024 || (temp_data32 % 2)) {
                 printf("subghz tx_from_file: \033[0;31mCustom_preset_data size error\033[0m\r\n");
                 break;
             }
@@ -690,7 +699,14 @@ void subghz_cli_command_tx_from_file(PipeSide* pipe, FuriString* args, void* con
                    "Custom_preset_data",
                    custom_preset_data,
                    custom_preset_data_size)) {
+                free(custom_preset_data);
                 printf("subghz tx_from_file: \033[0;31mCustom_preset_data read error\033[0m\r\n");
+                break;
+            }
+            if(!subghz_cli_validate_preset_data(custom_preset_data, custom_preset_data_size)) {
+                free(custom_preset_data);
+                printf(
+                    "subghz tx_from_file: \033[0;31mCustom_preset_data integrity error\033[0m\r\n");
                 break;
             }
             subghz_devices_load_preset(

@@ -261,6 +261,13 @@ static Iso15693_3Error iso15693_3_listener_read_multi_blocks_handler(
             break;
         }
 
+        // Why: a loaded dump may have Block Count 0; (count - 1) would underflow and
+        // append_block would furi_check on an empty array
+        if(instance->data->system_info.block_count == 0) {
+            error = Iso15693_3ErrorInternal;
+            break;
+        }
+
         const uint32_t block_index_start = request->first_block_num;
         const uint32_t block_index_end =
             MIN((block_index_start + request->block_count),
@@ -277,6 +284,10 @@ static Iso15693_3Error iso15693_3_listener_read_multi_blocks_handler(
         const bool include_block_security = (flags & ISO15693_3_REQ_FLAG_T4_OPTION) != 0;
         const uint8_t bytes_per_block =
             (include_block_security ? 1 : 0) + instance->data->system_info.block_size;
+        if(bytes_per_block == 0) { // Why: avoid divide by zero on a Block Size 0 dump
+            error = Iso15693_3ErrorInternal;
+            break;
+        }
         const uint32_t response_data_max =
             bit_buffer_get_capacity_bytes(instance->tx_buffer) - 1 - 2; // Flags and CRC
         const uint32_t response_blocks_max = response_data_max / bytes_per_block;

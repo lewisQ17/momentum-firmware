@@ -43,10 +43,10 @@ static void rpc_command_callback(const RpcAppSystemEvent* event, void* context) 
     LfRfid* app = (LfRfid*)context;
 
     if(event->type == RpcAppEventTypeSessionClose) {
+        // Only post the event here (RPC thread). The app thread detaches RPC (callback and
+        // rpc_ctx) when it handles it, so it can't race with an in-flight confirm.
+        app->rpc_session_closing = true;
         view_dispatcher_send_custom_event(app->view_dispatcher, LfRfidEventRpcSessionClose);
-        // Detach RPC
-        rpc_system_app_set_callback(app->rpc_ctx, NULL, NULL);
-        app->rpc_ctx = NULL;
     } else if(event->type == RpcAppEventTypeAppExit) {
         view_dispatcher_send_custom_event(app->view_dispatcher, LfRfidEventExit);
     } else if(event->type == RpcAppEventTypeLoadFile) {
@@ -54,7 +54,10 @@ static void rpc_command_callback(const RpcAppSystemEvent* event, void* context) 
         furi_string_set(app->file_path, event->data.string);
         view_dispatcher_send_custom_event(app->view_dispatcher, LfRfidEventRpcLoadFile);
     } else {
-        rpc_system_app_confirm(app->rpc_ctx, false);
+        RpcAppSystem* rpc_ctx = app->rpc_ctx;
+        if(rpc_ctx) {
+            rpc_system_app_confirm(rpc_ctx, false);
+        }
     }
 }
 
@@ -131,17 +134,24 @@ static LfRfid* lfrfid_alloc(void) {
 static void lfrfid_free(LfRfid* lfrfid) {
     furi_assert(lfrfid);
 
+    if(lfrfid->rpc_ctx) {
+        // Report "exited" first (clearing the callback releases rpc_system_app_free() on the
+        // RPC thread, which frees the context), and skip it when the session is already
+        // closing. Done before anything that can block or free a timer: until the callback is
+        // cleared the timer daemon spins in rpc_system_app_free().
+        if(!lfrfid->rpc_session_closing) {
+            rpc_system_app_send_exited(lfrfid->rpc_ctx);
+        }
+        rpc_system_app_set_callback(lfrfid->rpc_ctx, NULL, NULL);
+        lfrfid->rpc_ctx = NULL;
+    }
+
     furi_string_free(lfrfid->raw_file_name);
     furi_string_free(lfrfid->file_name);
     furi_string_free(lfrfid->file_path);
     protocol_dict_free(lfrfid->dict);
 
     lfrfid_worker_free(lfrfid->lfworker);
-
-    if(lfrfid->rpc_ctx) {
-        rpc_system_app_set_callback(lfrfid->rpc_ctx, NULL, NULL);
-        rpc_system_app_send_exited(lfrfid->rpc_ctx);
-    }
 
     free(lfrfid->new_key_data);
     free(lfrfid->old_key_data);

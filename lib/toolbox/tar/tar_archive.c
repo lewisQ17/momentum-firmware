@@ -291,7 +291,12 @@ bool tar_archive_dir_add_element(TarArchive* archive, const char* dirpath) {
 
 bool tar_archive_finalize(TarArchive* archive) {
     furi_check(archive);
-    return mtar_finalize(&archive->tar) == MTAR_ESUCCESS;
+    bool success = mtar_finalize(&archive->tar) == MTAR_ESUCCESS;
+    // Why: the last buffered data is flushed on close; tar_archive_free would drop that error
+    if(mtar_access_mode(&archive->tar) == MTAR_WRITE && mtar_is_open(&archive->tar)) {
+        success = (mtar_close(&archive->tar) == MTAR_ESUCCESS) && success;
+    }
+    return success;
 }
 
 bool tar_archive_store_data(

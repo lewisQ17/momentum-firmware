@@ -91,6 +91,9 @@ static void hid_mouse_jiggler_timer_callback(void* context) {
 static void hid_mouse_jiggler_exit_callback(void* context) {
     furi_assert(context);
     HidMouseJiggler* hid_mouse_jiggler = context;
+    // Clear running so re-entering the view doesn't show "Stop" with a dead timer
+    with_view_model(
+        hid_mouse_jiggler->view, HidMouseJigglerModel * model, { model->running = false; }, true);
     furi_timer_stop(hid_mouse_jiggler->timer);
 }
 

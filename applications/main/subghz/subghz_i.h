@@ -105,6 +105,9 @@ struct SubGhz {
 
     uint8_t tx_power;
     void* rpc_ctx;
+    /** Set by the RPC thread on SessionClose: rpc_system_app_free() is then waiting for the
+     *  callback to be cleared, so the app must not send_exited (or use rpc_ctx) afterwards. */
+    volatile bool rpc_session_closing;
 };
 
 void subghz_blink_start(SubGhz* subghz);

@@ -37,6 +37,20 @@ static void subghz_scene_rpc_emulation_show(SubGhz* subghz) {
     notification_message(subghz->notifications, &sequence_display_backlight_on);
 }
 
+// rpc_ctx is cleared on RpcSessionClose; never touch a closed session
+static void subghz_scene_rpc_confirm(SubGhz* subghz, bool result) {
+    if(subghz->rpc_ctx) {
+        rpc_system_app_confirm(subghz->rpc_ctx, result);
+    }
+}
+
+static void subghz_scene_rpc_set_error(SubGhz* subghz, uint32_t code, const char* text) {
+    if(subghz->rpc_ctx) {
+        rpc_system_app_set_error_code(subghz->rpc_ctx, code);
+        rpc_system_app_set_error_text(subghz->rpc_ctx, text);
+    }
+}
+
 bool subghz_scene_rpc_on_event(void* context, SceneManagerEvent event) {
     SubGhz* subghz = context;
     bool consumed = false;
@@ -47,8 +61,14 @@ bool subghz_scene_rpc_on_event(void* context, SceneManagerEvent event) {
         if(event.event == SubGhzCustomEventSceneExit) {
             scene_manager_stop(subghz->scene_manager);
             view_dispatcher_stop(subghz->view_dispatcher);
-            rpc_system_app_confirm(subghz->rpc_ctx, true);
+            subghz_scene_rpc_confirm(subghz, true);
         } else if(event.event == SubGhzCustomEventSceneRpcSessionClose) {
+            // Clear on the app thread, first and back to back, before anything that can
+            // block (see subghz_rpc_command_callback)
+            if(subghz->rpc_ctx) {
+                rpc_system_app_set_callback(subghz->rpc_ctx, NULL, NULL);
+                subghz->rpc_ctx = NULL;
+            }
             scene_manager_stop(subghz->scene_manager);
             view_dispatcher_stop(subghz->view_dispatcher);
         } else if(event.event == SubGhzCustomEventSceneRpcButtonPress) {
@@ -61,18 +81,17 @@ bool subghz_scene_rpc_on_event(void* context, SceneManagerEvent event) {
                     subghz_txrx_tx_start(subghz->txrx, subghz_txrx_get_fff_data(subghz->txrx))) {
                 case SubGhzTxRxStartTxStateErrorOnlyRx:
                     subghz_block_generic_global.endless_tx = false;
-                    rpc_system_app_set_error_code(
-                        subghz->rpc_ctx, RpcAppSystemErrorCodeRegionLock);
-                    rpc_system_app_set_error_text(
-                        subghz->rpc_ctx,
+                    subghz_scene_rpc_set_error(
+                        subghz,
+                        RpcAppSystemErrorCodeRegionLock,
                         "Transmission on this frequency is restricted in your settings");
                     break;
                 case SubGhzTxRxStartTxStateErrorParserOthers:
                     subghz_block_generic_global.endless_tx = false;
-                    rpc_system_app_set_error_code(
-                        subghz->rpc_ctx, RpcAppSystemErrorCodeInternalParse);
-                    rpc_system_app_set_error_text(
-                        subghz->rpc_ctx, "Error in protocol parameters description");
+                    subghz_scene_rpc_set_error(
+                        subghz,
+                        RpcAppSystemErrorCodeInternalParse,
+                        "Error in protocol parameters description");
                     break;
 
                 case SubGhzTxRxStartTxStateOk:
@@ -83,13 +102,12 @@ bool subghz_scene_rpc_on_event(void* context, SceneManagerEvent event) {
                     break;
                 default: // ErrorMemory or anything else: no TX is running, don't report success
                     subghz_block_generic_global.endless_tx = false;
-                    rpc_system_app_set_error_code(
-                        subghz->rpc_ctx, RpcAppSystemErrorCodeInternalParse);
-                    rpc_system_app_set_error_text(subghz->rpc_ctx, "Not enough memory");
+                    subghz_scene_rpc_set_error(
+                        subghz, RpcAppSystemErrorCodeInternalParse, "Not enough memory");
                     break;
                 }
             }
-            rpc_system_app_confirm(subghz->rpc_ctx, result);
+            subghz_scene_rpc_confirm(subghz, result);
         } else if(event.event == SubGhzCustomEventSceneRpcButtonRelease) {
             bool result = false;
             if(state == SubGhzRpcStateTx) {
@@ -100,11 +118,11 @@ bool subghz_scene_rpc_on_event(void* context, SceneManagerEvent event) {
             }
             // scene_manager_set_scene_state(
             //     subghz->scene_manager, SubGhzSceneRpc, SubGhzRpcStateIdle);
-            rpc_system_app_confirm(subghz->rpc_ctx, result);
+            subghz_scene_rpc_confirm(subghz, result);
         } else if(event.event == SubGhzCustomEventSceneRpcButtonPressRelease) {
             // Not supported here: still answer, otherwise the host hangs and the
             // pending command blocks every later RPC command
-            rpc_system_app_confirm(subghz->rpc_ctx, false);
+            subghz_scene_rpc_confirm(subghz, false);
 
             // USELESS PART
             // } else if(event.event == SubGhzCustomEventSceneRpcButtonPressRelease) {
@@ -153,11 +171,11 @@ bool subghz_scene_rpc_on_event(void* context, SceneManagerEvent event) {
                         subghz->scene_manager, SubGhzSceneRpc, SubGhzRpcStateLoaded);
                     result = true;
                 } else {
-                    rpc_system_app_set_error_code(subghz->rpc_ctx, RpcAppSystemErrorCodeParseFile);
-                    rpc_system_app_set_error_text(subghz->rpc_ctx, "Cannot parse file");
+                    subghz_scene_rpc_set_error(
+                        subghz, RpcAppSystemErrorCodeParseFile, "Cannot parse file");
                 }
             }
-            rpc_system_app_confirm(subghz->rpc_ctx, result);
+            subghz_scene_rpc_confirm(subghz, result);
         }
     } else if(event.type == SceneManagerEventTypeTick) {
         // if hardware TX finished then stop TX correctly

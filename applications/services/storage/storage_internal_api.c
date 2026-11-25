@@ -10,6 +10,10 @@ FS_Error storage_int_backup(Storage* storage, const char* dstname) {
                    tar_archive_add_dir(archive, STORAGE_INT_PATH_PREFIX, "") &&
                    tar_archive_finalize(archive);
     tar_archive_free(archive);
+    // Why: do not leave a truncated backup that looks valid
+    if(!success) {
+        storage_common_remove(storage, dstname);
+    }
     return success ? FSE_OK : FSE_INTERNAL;
 }
 

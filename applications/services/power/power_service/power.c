@@ -252,30 +252,38 @@ static ViewPort* power_battery_view_port_alloc(Power* power) {
     return battery_view_port;
 }
 
+// Values consumed every tick (UI, low-battery, auto-poweroff, charge logic, OTG).
 static bool power_update_info(Power* power) {
-    const PowerInfo info = {
-        .is_charging = furi_hal_power_is_charging(),
-        .gauge_is_ok = furi_hal_power_gauge_is_ok(),
-        .is_shutdown_requested = furi_hal_power_is_shutdown_requested(),
-        .is_otg_enabled = furi_hal_power_is_otg_enabled(),
-        .charge = furi_hal_power_get_pct(),
-        .health = furi_hal_power_get_bat_health_pct(),
-        .capacity_remaining = furi_hal_power_get_battery_remaining_capacity(),
-        .capacity_full = furi_hal_power_get_battery_full_capacity(),
-        .current_charger = furi_hal_power_get_battery_current(FuriHalPowerICCharger),
-        .current_gauge = furi_hal_power_get_battery_current(FuriHalPowerICFuelGauge),
-        .voltage_battery_charge_limit = furi_hal_power_get_battery_charge_voltage_limit(),
-        .voltage_charger = furi_hal_power_get_battery_voltage(FuriHalPowerICCharger),
-        .voltage_gauge = furi_hal_power_get_battery_voltage(FuriHalPowerICFuelGauge),
-        .voltage_vbus = furi_hal_power_get_usb_voltage(),
-        .temperature_charger = furi_hal_power_get_battery_temperature(FuriHalPowerICCharger),
-        .temperature_gauge = furi_hal_power_get_battery_temperature(FuriHalPowerICFuelGauge),
-    };
+    PowerInfo* info = &power->info;
+    const uint8_t old_charge = info->charge;
+    const bool old_is_charging = info->is_charging;
 
-    const bool need_refresh = (power->info.charge != info.charge) ||
-                              (power->info.is_charging != info.is_charging);
-    power->info = info;
-    return need_refresh;
+    info->is_charging = furi_hal_power_is_charging();
+    info->gauge_is_ok = furi_hal_power_gauge_is_ok();
+    info->is_shutdown_requested = furi_hal_power_is_shutdown_requested();
+    info->is_otg_enabled = furi_hal_power_is_otg_enabled();
+    info->charge = furi_hal_power_get_pct();
+    info->voltage_vbus = furi_hal_power_get_usb_voltage();
+    // The status-bar battery icon reads the charge-voltage limit on every redraw (cross
+    // pattern when "Limit Charge" is on), so keep it fresh each tick like before.
+    info->voltage_battery_charge_limit = furi_hal_power_get_battery_charge_voltage_limit();
+
+    return (old_charge != info->charge) || (old_is_charging != info->is_charging);
+}
+
+// Values only read on demand (GetInfo / IsBatteryHealthy / runtime estimate);
+// refreshed lazily to avoid ~9 extra I2C transactions every second.
+static void power_update_info_slow(Power* power) {
+    PowerInfo* info = &power->info;
+    info->health = furi_hal_power_get_bat_health_pct();
+    info->capacity_remaining = furi_hal_power_get_battery_remaining_capacity();
+    info->capacity_full = furi_hal_power_get_battery_full_capacity();
+    info->current_charger = furi_hal_power_get_battery_current(FuriHalPowerICCharger);
+    info->current_gauge = furi_hal_power_get_battery_current(FuriHalPowerICFuelGauge);
+    info->voltage_charger = furi_hal_power_get_battery_voltage(FuriHalPowerICCharger);
+    info->voltage_gauge = furi_hal_power_get_battery_voltage(FuriHalPowerICFuelGauge);
+    info->temperature_charger = furi_hal_power_get_battery_temperature(FuriHalPowerICCharger);
+    info->temperature_gauge = furi_hal_power_get_battery_temperature(FuriHalPowerICFuelGauge);
 }
 
 static void power_notify(const NotificationSequence* sequence) {
@@ -317,6 +325,9 @@ static uint32_t power_estimate_runtime_minutes(Power* power) {
     if(!power->info.gauge_is_ok || power->info.is_charging) {
         return 0;
     }
+    // Not refreshed every tick; read them now (only called once on warning entry).
+    power->info.capacity_remaining = furi_hal_power_get_battery_remaining_capacity();
+    power->info.current_gauge = furi_hal_power_get_battery_current(FuriHalPowerICFuelGauge);
     // current_gauge is in amps and negative while discharging.
     int32_t discharge_ma = -(int32_t)(power->info.current_gauge * 1000.0f);
     if(discharge_ma <= 5 || power->info.capacity_remaining == 0) {
@@ -620,9 +631,11 @@ static void power_message_callback(FuriEventLoopObject* object, void* context) {
         power_handle_reboot(msg.boot_mode);
         break;
     case PowerMessageTypeGetInfo:
+        power_update_info_slow(power);
         *msg.power_info = power->info;
         break;
     case PowerMessageTypeIsBatteryHealthy:
+        power_update_info_slow(power);
         *msg.bool_param = power->info.health > POWER_HEALTH_LOW_THRESHOLD;
         break;
     case PowerMessageTypeShowBatteryLowWarning:
@@ -825,6 +838,7 @@ int32_t power_srv(void* p) {
     power_init_settings(power);
 
     power_update_info(power);
+    power_update_info_slow(power);
 
     furi_record_create(RECORD_POWER, power);
 
