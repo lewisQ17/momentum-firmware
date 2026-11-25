@@ -135,11 +135,11 @@ bool mf_desfire_load(MfDesfireData* data, FlipperFormat* ff, uint32_t version) {
             break;
 
         const uint32_t master_key_version_count = data->master_key_settings.max_keys;
+        uint32_t i; // also used by the application loop below
         // Why: simple_array_init does furi_check(count > 0); max_keys is file-controlled
         if(master_key_version_count) {
             simple_array_init(data->master_key_versions, master_key_version_count);
 
-            uint32_t i;
             for(i = 0; i < master_key_version_count; ++i) {
                 if(!mf_desfire_key_version_load(
                        simple_array_get(data->master_key_versions, i),
