@@ -272,7 +272,7 @@ void calculate(Calculator* calculator_state) {
     //round to 2 decimals (not truncate) in 64 bit: result*100 can exceed int32
     bool negative = result < 0;
     if(negative) result = -result;
-    int64_t scaled = (int64_t)(result * 100 + 0.5);
+    int64_t scaled = (int64_t)(result * 100 + (double)0.5); // explicit: fw builds with -fsingle-precision-constant
 
     // a negative result that rounds to 0 must not show "-0"
     if(negative && scaled > 0) {
