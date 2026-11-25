@@ -190,6 +190,8 @@ static void usb_uart_set_baudrate(UsbUartBridge* usb_uart, uint32_t baudrate) {
         baudrate = line_cfg->dwDTERate;
     }
     if(baudrate == 0) return;
+    // above the HAL maximum the BRR would drop below its legal minimum; keep the current rate
+    if(baudrate > 4000000UL) return;
 
     furi_check(furi_mutex_acquire(usb_uart->serial_mutex, FuriWaitForever) == FuriStatusOk);
     furi_hal_serial_set_br(usb_uart->serial_handle, baudrate);

@@ -656,6 +656,8 @@ static int32_t gap_app(void* context) {
 }
 
 void gap_emit_ble_beacon_status_event(bool active) {
+    // gap is NULL while the BT stack is being reinitialized
+    if(!gap || !gap->on_event_cb) return;
     GapEvent event = {.type = active ? GapEventTypeBeaconStart : GapEventTypeBeaconStop};
     gap->on_event_cb(event, gap->context);
     FURI_LOG_I(TAG, "Beacon status event: %d", active);

@@ -21,6 +21,12 @@
 #define CCID_DATABLOCK_SIZE \
     (4 + 1 + CCID_SHORT_APDU_SIZE + 1) //APDU Header + Lc + Short APDU size + Le
 
+/* bError value for "command not supported" (CCID spec: 0x00) */
+#define CCID_ERROR_CMD_NOT_SUPPORTED (0)
+
+/* Max time to wait for the host to take an IN packet before giving up on the response */
+#define CCID_TX_TIMEOUT_MS (500)
+
 #define ENDPOINT_DIR_IN  (0x80)
 #define ENDPOINT_DIR_OUT (0x00)
 
@@ -204,8 +210,9 @@ typedef struct {
     usbd_device* usb_dev;
 
     uint16_t receive_buffer_data_index;
-    uint8_t send_buffer[sizeof(ccid_bulk_message_header_t) + CCID_DATABLOCK_SIZE];
-    uint8_t receive_buffer[sizeof(ccid_bulk_message_header_t) + CCID_DATABLOCK_SIZE];
+    // why: XfrBlock/DataBlock headers are 10 bytes, so 7+DATABLOCK was 3 bytes too small
+    uint8_t send_buffer[sizeof(struct pc_to_rdr_xfr_block) + CCID_DATABLOCK_SIZE];
+    uint8_t receive_buffer[sizeof(struct pc_to_rdr_xfr_block) + CCID_DATABLOCK_SIZE];
 } FuriHalUsbCcid;
 
 static FuriHalUsbCcid* furi_hal_usb_ccid = NULL;
@@ -267,6 +274,9 @@ static void ccid_init(usbd_device* dev, FuriHalUsbInterface* intf, void* ctx) {
 }
 
 static void ccid_deinit(usbd_device* dev) {
+    // why: unblock a worker stuck in ccid_send_packet so it can reach the Stop flag
+    furi_hal_usb_ccid->connected = false;
+    furi_semaphore_release(furi_hal_usb_ccid->ccid_semaphore);
     furi_thread_flags_set(furi_thread_get_id(furi_hal_usb_ccid->ccid_thread), WorkerEvtStop);
     furi_thread_join(furi_hal_usb_ccid->ccid_thread);
     furi_thread_free(furi_hal_usb_ccid->ccid_thread);
@@ -294,6 +304,8 @@ static void ccid_on_suspend(usbd_device* dev) {
     furi_check(furi_hal_usb_ccid);
 
     furi_hal_usb_ccid->connected = false;
+    // why: free a worker blocked on the IN semaphore (same as HID)
+    furi_semaphore_release(furi_hal_usb_ccid->ccid_semaphore);
 }
 
 void CALLBACK_CCID_GetSlotStatus(
@@ -456,28 +468,60 @@ void furi_hal_usb_ccid_set_callbacks(CcidCallbacks* cb, void* context) {
     furi_hal_usb_ccid->cb_ctx[CCID_SLOT_INDEX] = context;
 }
 
-void ccid_send_packet(uint8_t* data, uint8_t len) {
+// Returns false when the packet could not be sent (disconnected or host not reading IN)
+static bool ccid_send_packet_timed(uint8_t* data, uint8_t len) {
     furi_check(furi_hal_usb_ccid);
 
-    if(furi_hal_usb_ccid->ccid_semaphore == NULL || furi_hal_usb_ccid->connected == false) return;
-    furi_check(
-        furi_semaphore_acquire(furi_hal_usb_ccid->ccid_semaphore, FuriWaitForever) ==
-        FuriStatusOk);
-    if(furi_hal_usb_ccid->connected == true) {
-        usbd_ep_write(furi_hal_usb_ccid->usb_dev, CCID_IN_EPADDR, data, len);
+    if(furi_hal_usb_ccid->ccid_semaphore == NULL || furi_hal_usb_ccid->connected == false)
+        return false;
+    // why: bounded wait, a dropped in-flight packet never raises the tx-complete event
+    if(furi_semaphore_acquire(
+           furi_hal_usb_ccid->ccid_semaphore, furi_ms_to_ticks(CCID_TX_TIMEOUT_MS)) !=
+       FuriStatusOk) {
+        return false;
     }
+    if(furi_hal_usb_ccid->connected == true) {
+        if(usbd_ep_write(furi_hal_usb_ccid->usb_dev, CCID_IN_EPADDR, data, len) < 0) {
+            // why: nothing in flight, so no tx-complete will give the semaphore back
+            furi_semaphore_release(furi_hal_usb_ccid->ccid_semaphore);
+            return false;
+        }
+    }
+    return true;
+}
+
+void ccid_send_packet(uint8_t* data, uint8_t len) {
+    ccid_send_packet_timed(data, len);
 }
 
 void ccid_send_response(uint8_t* data, uint32_t len) {
     uint32_t data_to_send = len;
     uint32_t data_index = 0;
     while(data_to_send >= CCID_EPSIZE) {
-        ccid_send_packet(&data[data_index], CCID_EPSIZE);
+        // why: abort the rest of the response when a packet times out
+        if(!ccid_send_packet_timed(&data[data_index], CCID_EPSIZE)) return;
         data_to_send = data_to_send - CCID_EPSIZE;
         data_index = data_index + CCID_EPSIZE;
     }
 
-    ccid_send_packet(&data[data_index], data_to_send);
+    ccid_send_packet_timed(&data[data_index], data_to_send);
+}
+
+static void ccid_send_not_supported(const ccid_bulk_message_header_t* message) {
+    struct rdr_to_pc_slot_status* response =
+        (struct rdr_to_pc_slot_status*)&furi_hal_usb_ccid->send_buffer; //-V641
+
+    response->bMessageType = RDR_TO_PC_SLOTSTATUS;
+    response->dwLength = 0;
+    response->bSlot = message->bSlot;
+    response->bSeq = message->bSeq;
+    response->bStatus = CCID_COMMANDSTATUS_FAILED |
+                        (furi_hal_usb_ccid->smartcard_inserted ? CCID_ICCSTATUS_PRESENTANDACTIVE :
+                                                                 CCID_ICCSTATUS_NOICCPRESENT);
+    response->bError = CCID_ERROR_CMD_NOT_SUPPORTED;
+    response->bClockStatus = 0;
+
+    ccid_send_response(furi_hal_usb_ccid->send_buffer, sizeof(struct rdr_to_pc_slot_status));
 }
 
 static void ccid_rx_ep_callback(usbd_device* dev, uint8_t event, uint8_t ep) {
@@ -494,15 +538,22 @@ static void ccid_tx_ep_callback(usbd_device* dev, uint8_t event, uint8_t ep) {
     UNUSED(ep);
     if(event == usbd_evt_eprx) {
         furi_check(furi_hal_usb_ccid);
-        int32_t bytes_read = usbd_ep_read(
-            furi_hal_usb_ccid->usb_dev,
-            CCID_OUT_EPADDR,
-            &furi_hal_usb_ccid->receive_buffer[furi_hal_usb_ccid->receive_buffer_data_index],
-            CCID_EPSIZE);
+        // why: always drain the FIFO into a local buffer, then copy only what fits (no heap overflow)
+        uint8_t packet[CCID_EPSIZE];
+        int32_t bytes_read =
+            usbd_ep_read(furi_hal_usb_ccid->usb_dev, CCID_OUT_EPADDR, packet, sizeof(packet));
 
         if(bytes_read > 0) {
-            furi_hal_usb_ccid->receive_buffer_data_index =
-                furi_hal_usb_ccid->receive_buffer_data_index + bytes_read;
+            size_t index = furi_hal_usb_ccid->receive_buffer_data_index;
+            size_t room = sizeof(furi_hal_usb_ccid->receive_buffer) -
+                          MIN(index, sizeof(furi_hal_usb_ccid->receive_buffer));
+            if((size_t)bytes_read > room) {
+                // Oversized message: drop it and resync on the next packet
+                furi_hal_usb_ccid->receive_buffer_data_index = 0;
+                return;
+            }
+            memcpy(&furi_hal_usb_ccid->receive_buffer[index], packet, bytes_read);
+            furi_hal_usb_ccid->receive_buffer_data_index = index + bytes_read;
 
             furi_thread_flags_set(
                 furi_thread_get_id(furi_hal_usb_ccid->ccid_thread), WorkerEvtRequest);
@@ -517,6 +568,9 @@ static int32_t ccid_worker(void* context) {
         furi_check(furi_hal_usb_ccid);
         uint32_t flags = furi_thread_flags_wait(
             WorkerEvtStop | WorkerEvtRequest, FuriFlagWaitAny, FuriWaitForever);
+
+        // why: Stop must win when both flags are returned together (flags_wait clears both)
+        if(flags & WorkerEvtStop) break;
 
         if(flags & WorkerEvtRequest) {
             //read initial CCID message header
@@ -576,8 +630,16 @@ static int32_t ccid_worker(void* context) {
                 struct rdr_to_pc_data_block* responseDataBlock =
                     (struct rdr_to_pc_data_block*)&furi_hal_usb_ccid->send_buffer;
 
-                if(furi_hal_usb_ccid->receive_buffer_data_index >=
-                   sizeof(struct pc_to_rdr_xfr_block) + receivedXfrBlock->dwLength) {
+                if(furi_hal_usb_ccid->receive_buffer_data_index <
+                   sizeof(struct pc_to_rdr_xfr_block)) {
+                    // header incomplete, wait for more data
+                } else if(receivedXfrBlock->dwLength > CCID_DATABLOCK_SIZE) {
+                    // why: reject oversize (also avoids 32-bit wrap of 10+dwLength)
+                    furi_hal_usb_ccid->receive_buffer_data_index = 0;
+                    ccid_send_not_supported(message);
+                } else if(
+                    furi_hal_usb_ccid->receive_buffer_data_index >=
+                    (size_t)sizeof(struct pc_to_rdr_xfr_block) + receivedXfrBlock->dwLength) {
                     CALLBACK_CCID_XfrBlock(receivedXfrBlock, responseDataBlock);
 
                     ccid_send_response(
@@ -600,12 +662,21 @@ static int32_t ccid_worker(void* context) {
                     furi_hal_usb_ccid->send_buffer, sizeof(struct rdr_to_pc_parameters_t0));
 
                 furi_hal_usb_ccid->receive_buffer_data_index = 0;
+            } else {
+                // why: unknown type never reset the index, so the next packets piled up
+                furi_hal_usb_ccid->receive_buffer_data_index = 0;
+                ccid_send_not_supported(message);
             }
-        } else if(flags & WorkerEvtStop) {
-            break;
         }
     }
     return 0;
+}
+
+// why: a bus reset drops the in-flight IN packet, so re-arm the semaphore to count 1
+static void ccid_reset_tx_semaphore(void) {
+    if(furi_hal_usb_ccid == NULL || furi_hal_usb_ccid->ccid_semaphore == NULL) return;
+    furi_semaphore_acquire(furi_hal_usb_ccid->ccid_semaphore, 0);
+    furi_semaphore_release(furi_hal_usb_ccid->ccid_semaphore);
 }
 
 /* Configure endpoints */
@@ -613,6 +684,7 @@ static usbd_respond ccid_ep_config(usbd_device* dev, uint8_t cfg) {
     switch(cfg) {
     case 0:
         /* deconfiguring device */
+        ccid_reset_tx_semaphore();
         usbd_ep_deconfig(dev, CCID_IN_EPADDR);
         usbd_ep_deconfig(dev, CCID_OUT_EPADDR);
         usbd_reg_endpoint(dev, CCID_IN_EPADDR, 0);
@@ -620,6 +692,7 @@ static usbd_respond ccid_ep_config(usbd_device* dev, uint8_t cfg) {
         return usbd_ack;
     case 1:
         /* configuring device */
+        ccid_reset_tx_semaphore();
         usbd_ep_config(dev, CCID_IN_EPADDR, USB_EPTYPE_BULK, CCID_EPSIZE);
         usbd_ep_config(dev, CCID_OUT_EPADDR, USB_EPTYPE_BULK, CCID_EPSIZE);
         usbd_reg_endpoint(dev, CCID_IN_EPADDR, ccid_rx_ep_callback);

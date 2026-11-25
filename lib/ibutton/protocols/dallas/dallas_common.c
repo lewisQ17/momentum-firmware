@@ -148,8 +148,9 @@ bool dallas_common_emulate_search_rom(OneWireSlave* bus, const DallasCommonRomDa
             if(!onewire_slave_send_bit(bus, bit)) return false;
             if(!onewire_slave_send_bit(bus, !bit)) return false;
 
-            onewire_slave_receive_bit(bus);
-            // TODO FL-3530: check for errors and return if any
+            // reader chose the other branch (or the bus errored on a 1 bit): stay silent
+            if(onewire_slave_receive_bit(bus) != bit) return false;
+            // TODO FL-3530: bus->error is private to one_wire_slave.c, so errors on a 0 bit are still not detected
         }
     }
 

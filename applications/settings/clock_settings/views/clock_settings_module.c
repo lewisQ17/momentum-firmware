@@ -358,6 +358,19 @@ static bool clock_settings_module_input_callback(InputEvent* event, void* contex
                             furi_event_loop_timer_stop(instance->timer);
                         } else {
                             // save date time and restart timer
+                            // Clamp day to month length and recompute weekday so the RTC never keeps a stale/impossible date
+                            uint8_t max_day = datetime_get_days_per_month(
+                                datetime_is_leap_year(model->current.year),
+                                model->current.month);
+                            if(max_day > 0 && model->current.day > max_day) {
+                                model->current.day = max_day;
+                            }
+                            if(model->current.year >= 1970 && max_day > 0) {
+                                DateTime weekday_dt;
+                                datetime_timestamp_to_datetime(
+                                    datetime_datetime_to_timestamp(&model->current), &weekday_dt);
+                                model->current.weekday = weekday_dt.weekday;
+                            }
                             furi_hal_rtc_set_datetime(&model->current);
                             furi_event_loop_timer_start(instance->timer, 1000);
                         }

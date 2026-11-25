@@ -397,6 +397,11 @@ bool saflok_parse(const NfcDevice* device, FuriString* parsed_data) {
             expire_year++;
         }
 
+        // Month 0 (blank/crafted card) would index days_in_month[-1]
+        if(expire_month == 0) {
+            expire_month = 1;
+        }
+
         // Handle day rollover
         static const uint8_t days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
         while(true) {

@@ -193,8 +193,12 @@ static void clock_render_callback(Canvas* const canvas, void* ctx) {
     canvas_set_font(canvas, FontBigNumbers);
 
     if(timer_start_timestamp != 0) {
-        int32_t elapsed_secs = timer_running ? (curr_ts - timer_start_timestamp) :
-                                               timer_stopped_seconds;
+        // Clamp to 0 if the RTC was set backwards while running (avoids negative/huge display)
+        int32_t elapsed_secs = timer_running ?
+                                   ((curr_ts >= timer_start_timestamp) ?
+                                        (int32_t)(curr_ts - timer_start_timestamp) :
+                                        0) :
+                                   (int32_t)timer_stopped_seconds;
         snprintf(timer_string, 20, "%.2ld:%.2ld", elapsed_secs / 60, elapsed_secs % 60);
         if(state->time_format == LocaleTimeFormat12h) {
             canvas_draw_str_aligned(
@@ -265,7 +269,10 @@ void timer_start_stop(ClockState* plugin_state) {
 
     if(plugin_state->timer_running) {
         // Update stopped seconds
-        plugin_state->timer_stopped_seconds = curr_ts - plugin_state->timer_start_timestamp;
+        // Clamp to 0 if the RTC was set backwards while running
+        plugin_state->timer_stopped_seconds = (curr_ts >= plugin_state->timer_start_timestamp) ?
+                                                  (curr_ts - plugin_state->timer_start_timestamp) :
+                                                  0;
     } else {
         if(plugin_state->timer_start_timestamp == 0) {
             // Set starting timestamp if this is first time

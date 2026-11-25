@@ -130,11 +130,12 @@ int32_t clock_settings_alarm(void* p) {
             if(event.type == InputTypePress) {
                 // Snooze
                 if(event.key == InputKeyBack) {
+                    // Timestamp math carries the date over midnight (else snooze ends instantly)
                     furi_hal_rtc_get_datetime(&model.snooze_until);
-                    model.snooze_until.minute += SNOOZE_MINUTES;
-                    model.snooze_until.hour += model.snooze_until.minute / 60;
-                    model.snooze_until.minute %= 60;
-                    model.snooze_until.hour %= 24;
+                    datetime_timestamp_to_datetime(
+                        datetime_datetime_to_timestamp(&model.snooze_until) +
+                            SNOOZE_MINUTES * 60U,
+                        &model.snooze_until);
 
                     model.is_snooze = true;
                     model.alarm_start = model.snooze_until; // For correct timeout behavior
@@ -159,10 +160,11 @@ int32_t clock_settings_alarm(void* p) {
             view_port_update(view_port);
 
             // Stop the alarm if it has been ringing for more than TIMEOUT_MINUTES
-            if((model.now.hour == model.alarm_start.hour &&
-                model.now.minute >= model.alarm_start.minute + TIMEOUT_MINUTES) ||
-               (model.now.hour == (model.alarm_start.hour + 1) % 24 &&
-                model.now.minute < (model.alarm_start.minute + TIMEOUT_MINUTES) % 60)) {
+            // Elapsed minutes mod 1440 handles :50..:59 starts and midnight wrap
+            uint16_t elapsed_minutes = ((model.now.hour * 60 + model.now.minute) + 1440 -
+                                        (model.alarm_start.hour * 60 + model.alarm_start.minute)) %
+                                       1440;
+            if(elapsed_minutes >= TIMEOUT_MINUTES) {
                 running = false;
             }
         }

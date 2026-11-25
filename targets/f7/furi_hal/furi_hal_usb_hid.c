@@ -481,9 +481,12 @@ static void hid_txrx_ep_callback(usbd_device* dev, uint8_t event, uint8_t ep) {
     } else if(boot_protocol == true) {
         usbd_ep_read(usb_dev, ep, &led_state, sizeof(led_state));
     } else {
-        struct HidReportLED leds;
-        usbd_ep_read(usb_dev, ep, &leds, sizeof(leds));
-        led_state = leds.led_state;
+        // why: short/empty OUT packet must not store uninitialised stack bytes
+        struct HidReportLED leds = {0};
+        int32_t len = usbd_ep_read(usb_dev, ep, &leds, sizeof(leds));
+        if(len >= (int32_t)sizeof(leds)) {
+            led_state = leds.led_state;
+        }
     }
 }
 

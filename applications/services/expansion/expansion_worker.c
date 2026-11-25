@@ -42,6 +42,7 @@ struct ExpansionWorker {
     FuriThread* thread;
     FuriStreamBuffer* rx_buf;
     FuriSemaphore* tx_semaphore;
+    FuriMutex* tx_mutex;
 
     FuriHalSerialId serial_id;
     FuriHalSerialHandle* serial_handle;
@@ -134,8 +135,12 @@ static size_t
 
 static inline bool
     expansion_worker_send_frame(ExpansionWorker* instance, const ExpansionFrame* frame) {
-    return expansion_protocol_encode(frame, expansion_worker_send_callback, instance) ==
-           ExpansionProtocolStatusOk;
+    // keep a frame (body + checksum) atomic against the RPC thread sending on the same UART
+    furi_check(furi_mutex_acquire(instance->tx_mutex, FuriWaitForever) == FuriStatusOk);
+    const bool ok = expansion_protocol_encode(frame, expansion_worker_send_callback, instance) ==
+                    ExpansionProtocolStatusOk;
+    furi_check(furi_mutex_release(instance->tx_mutex) == FuriStatusOk);
+    return ok;
 }
 
 static bool expansion_worker_send_heartbeat(ExpansionWorker* instance) {
@@ -399,6 +404,7 @@ static int32_t expansion_worker(void* context) {
 ExpansionWorker* expansion_worker_alloc(FuriHalSerialId serial_id) {
     ExpansionWorker* instance = malloc(sizeof(ExpansionWorker));
     instance->otg_enabled_by_worker = false;
+    instance->tx_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
 
     instance->thread = furi_thread_alloc_ex(
         TAG "Worker", EXPANSION_WORKER_STACK_SZIE, expansion_worker, instance);
@@ -415,6 +421,7 @@ void expansion_worker_free(ExpansionWorker* instance) {
     furi_stream_buffer_free(instance->rx_buf);
     furi_thread_join(instance->thread);
     furi_thread_free(instance->thread);
+    furi_mutex_free(instance->tx_mutex);
     free(instance);
 }
 

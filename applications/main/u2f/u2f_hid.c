@@ -199,16 +199,25 @@ static int32_t u2f_hid_worker(void* context) {
 
     while(1) {
         uint32_t flags = furi_thread_flags_wait(
-            WorkerEvtStop | WorkerEvtConnect | WorkerEvtDisconnect | WorkerEvtRequest,
+            // why: Unlock was missing from the mask, so the LOCK timeout never fired
+            WorkerEvtStop | WorkerEvtConnect | WorkerEvtDisconnect | WorkerEvtRequest |
+                WorkerEvtUnlock,
             FuriFlagWaitAny,
             FuriWaitForever);
         furi_check(!(flags & FuriFlagError));
         if(flags & WorkerEvtStop) break;
         if(flags & WorkerEvtConnect) {
+            // why: a lock must not survive a new host session
+            furi_timer_stop(u2f_hid->lock_timer);
+            u2f_hid->lock = false;
+            u2f_hid->lock_cid = 0;
             u2f_set_state(u2f_hid->u2f_instance, 1);
             FURI_LOG_D(WORKER_TAG, "Connect");
         }
         if(flags & WorkerEvtDisconnect) {
+            furi_timer_stop(u2f_hid->lock_timer);
+            u2f_hid->lock = false;
+            u2f_hid->lock_cid = 0;
             u2f_set_state(u2f_hid->u2f_instance, 0);
             FURI_LOG_D(WORKER_TAG, "Disconnect");
         }

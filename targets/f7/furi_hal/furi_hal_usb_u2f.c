@@ -148,6 +148,10 @@ static usbd_respond
 static usbd_device* usb_dev;
 static FuriSemaphore* hid_u2f_semaphore = NULL;
 static bool hid_u2f_connected = false;
+static bool hid_u2f_tx_stalled = false;
+
+/* Max time to wait for the host to take an IN packet before dropping the response */
+#define HID_U2F_TX_TIMEOUT_MS (100)
 
 static HidU2fCallback callback;
 static void* cb_ctx;
@@ -228,9 +232,19 @@ static void hid_u2f_on_suspend(usbd_device* dev) {
 
 void furi_hal_hid_u2f_send_response(uint8_t* data, uint8_t len) {
     if((hid_u2f_semaphore == NULL) || (hid_u2f_connected == false)) return;
-    furi_check(furi_semaphore_acquire(hid_u2f_semaphore, FuriWaitForever) == FuriStatusOk);
+    // why: bounded wait so a host that stops polling IN cannot hang the worker / app exit.
+    // After a timeout the remaining packets of that response only try without waiting.
+    uint32_t timeout = hid_u2f_tx_stalled ? 0 : furi_ms_to_ticks(HID_U2F_TX_TIMEOUT_MS);
+    if(furi_semaphore_acquire(hid_u2f_semaphore, timeout) != FuriStatusOk) {
+        hid_u2f_tx_stalled = true;
+        return;
+    }
+    hid_u2f_tx_stalled = false;
     if(hid_u2f_connected == true) {
-        usbd_ep_write(usb_dev, HID_EP_OUT, data, len);
+        if(usbd_ep_write(usb_dev, HID_EP_OUT, data, len) < 0) {
+            // why: nothing in flight, so no tx-complete will give the semaphore back
+            furi_semaphore_release(hid_u2f_semaphore);
+        }
     }
 }
 
@@ -263,11 +277,20 @@ static void hid_u2f_txrx_ep_callback(usbd_device* dev, uint8_t event, uint8_t ep
     }
 }
 
+// why: a bus reset / reconfigure drops the in-flight IN packet, so re-arm the semaphore to 1
+static void hid_u2f_reset_tx_semaphore(void) {
+    hid_u2f_tx_stalled = false;
+    if(hid_u2f_semaphore == NULL) return;
+    furi_semaphore_acquire(hid_u2f_semaphore, 0);
+    furi_semaphore_release(hid_u2f_semaphore);
+}
+
 /* Configure endpoints */
 static usbd_respond hid_u2f_ep_config(usbd_device* dev, uint8_t cfg) {
     switch(cfg) {
     case 0:
         /* deconfiguring device */
+        hid_u2f_reset_tx_semaphore();
         usbd_ep_deconfig(dev, HID_EP_OUT);
         usbd_ep_deconfig(dev, HID_EP_IN);
         usbd_reg_endpoint(dev, HID_EP_OUT, 0);
@@ -279,7 +302,9 @@ static usbd_respond hid_u2f_ep_config(usbd_device* dev, uint8_t cfg) {
         usbd_ep_config(dev, HID_EP_OUT, USB_EPTYPE_INTERRUPT, HID_U2F_PACKET_LEN);
         usbd_reg_endpoint(dev, HID_EP_IN, hid_u2f_txrx_ep_callback);
         usbd_reg_endpoint(dev, HID_EP_OUT, hid_u2f_txrx_ep_callback);
-        usbd_ep_write(dev, HID_U2F_PACKET_LEN, 0, 0);
+        // why: the old priming write passed the packet length (64) as endpoint, i.e. hit EP0;
+        // semaphore is re-armed to 1 instead
+        hid_u2f_reset_tx_semaphore();
         return usbd_ack;
     default:
         return usbd_fail;

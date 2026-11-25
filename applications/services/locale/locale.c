@@ -45,11 +45,10 @@ void locale_format_time(
     uint8_t hours = datetime->hour;
     uint8_t am_pm = 0;
     if(format == LocaleTimeFormat12h) {
+        // 12:xx is PM (noon), 00:xx is AM
+        am_pm = (hours >= 12) ? 2 : 1;
         if(hours > 12) {
             hours -= 12;
-            am_pm = 2;
-        } else {
-            am_pm = 1;
         }
         if(hours == 0) {
             hours = 12;

@@ -87,9 +87,12 @@ bool buffer_stream_send_from_isr(BufferStream* buffer_stream, const uint8_t* dat
     // write to buffer
     if(!buffer_write(buffer, data, size)) {
         // if buffer is full - send it
-        buffer->occupied = true;
-        // we always have space for buffer in stream
-        furi_stream_buffer_send(buffer_stream->stream, &buffer, sizeof(Buffer*), 0);
+        // only queue it once: after an overrun it is still occupied and already in the stream
+        if(!buffer->occupied) {
+            buffer->occupied = true;
+            // we always have space for buffer in stream
+            furi_stream_buffer_send(buffer_stream->stream, &buffer, sizeof(Buffer*), 0);
+        }
 
         // get new buffer from the pool
         int8_t index = buffer_stream_get_free_buffer(buffer_stream);

@@ -81,13 +81,16 @@ bool gap_extra_beacon_start(void) {
         config->address_type,
         config->address,
         (uint8_t)config->adv_power_level);
+    // Release the mutex on every path (error return used to leak it and deadlock later calls)
     if(status) {
         FURI_LOG_E(TAG, "Failed to start: 0x%x", status);
+        furi_mutex_release(extra_beacon.state_mutex);
         return false;
     }
     extra_beacon.extra_beacon_state = GapExtraBeaconStateStarted;
-    gap_emit_ble_beacon_status_event(true);
     furi_mutex_release(extra_beacon.state_mutex);
+    // Emit outside the mutex
+    gap_emit_ble_beacon_status_event(true);
 
     return true;
 }
@@ -102,13 +105,16 @@ bool gap_extra_beacon_stop(void) {
     FURI_LOG_I(TAG, "Stopping");
     furi_mutex_acquire(extra_beacon.state_mutex, FuriWaitForever);
     tBleStatus status = aci_gap_additional_beacon_stop();
+    // Release the mutex on every path (error return used to leak it and deadlock later calls)
     if(status) {
         FURI_LOG_E(TAG, "Failed to stop: 0x%x", status);
+        furi_mutex_release(extra_beacon.state_mutex);
         return false;
     }
     extra_beacon.extra_beacon_state = GapExtraBeaconStateStopped;
-    gap_emit_ble_beacon_status_event(false);
     furi_mutex_release(extra_beacon.state_mutex);
+    // Emit outside the mutex
+    gap_emit_ble_beacon_status_event(false);
 
     return true;
 }
@@ -127,6 +133,8 @@ bool gap_extra_beacon_set_data(const uint8_t* data, uint8_t length) {
     tBleStatus status = aci_gap_additional_beacon_set_data(length, data);
     if(status) {
         FURI_LOG_E(TAG, "Failed updating adv data: %d", status);
+        // Release the mutex on error too (leak deadlocked later beacon calls)
+        furi_mutex_release(extra_beacon.state_mutex);
         return false;
     }
     furi_mutex_release(extra_beacon.state_mutex);

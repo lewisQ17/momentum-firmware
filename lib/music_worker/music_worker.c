@@ -58,14 +58,20 @@ static int32_t music_worker_thread_callback(void* context) {
 
                 float note_from_a4 = (float)note_block->semitone - NOTE_C4_SEMITONE;
                 float frequency = NOTE_C4 * powf(TWO_POW_TWELTH_ROOT, note_from_a4);
-                float duration = 60.0 * furi_kernel_get_tick_frequency() * 4 / instance->bpm /
+                // Clamp BPM: 0 would give inf duration (divide by zero) and hang the note
+                uint32_t bpm = instance->bpm;
+                if(bpm < 1) bpm = 1;
+                if(bpm > 1000) bpm = 1000;
+                float duration = 60.0 * furi_kernel_get_tick_frequency() * 4 / bpm /
                                  note_block->duration;
                 uint32_t dots = note_block->dots;
                 while(dots > 0) {
                     duration += duration / 2;
                     dots--;
                 }
-                uint32_t next_tick = furi_get_tick() + duration;
+                // Wrap-safe: compare elapsed ticks instead of an absolute deadline
+                uint32_t start_tick = furi_get_tick();
+                uint32_t duration_ticks = (uint32_t)duration;
                 float volume = instance->volume;
 
                 if(instance->callback) {
@@ -79,7 +85,7 @@ static int32_t music_worker_thread_callback(void* context) {
 
                 furi_hal_speaker_stop();
                 furi_hal_speaker_start(frequency, volume);
-                while(instance->should_work && furi_get_tick() < next_tick) {
+                while(instance->should_work && (furi_get_tick() - start_tick) < duration_ticks) {
                     volume *= 0.9945679;
                     furi_hal_speaker_set_volume(volume);
                     furi_delay_ms(2);

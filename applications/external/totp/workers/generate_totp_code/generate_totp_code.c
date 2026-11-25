@@ -102,6 +102,10 @@ static int32_t totp_generate_worker_callback(void* context) {
 
     TotpGenerateCodeWorkerContext* t_context = context;
 
+    // Track the TOTP period instead of testing `ts % duration == 0`, so a skipped RTC second cannot leave a stale code
+    uint32_t last_period = UINT32_MAX;
+    const TokenInfo* last_token = NULL;
+
     while(true) {
         uint32_t flags = furi_thread_flags_wait(
             TotpGenerateCodeWorkerEventStop | TotpGenerateCodeWorkerEventForceUpdate,
@@ -127,11 +131,22 @@ static int32_t totp_generate_worker_callback(void* context) {
 
         uint32_t curr_ts = is_time_based ? furi_hal_rtc_get_timestamp() : 0;
 
-        bool time_left = false;
-        if(flags & TotpGenerateCodeWorkerEventForceUpdate ||
-           (is_time_based && (time_left = (curr_ts % token_info->duration) == 0))) {
+        if(token_info != last_token) {
+            last_token = token_info;
+            last_period = UINT32_MAX;
+        }
+
+        const bool force_update = (flags & TotpGenerateCodeWorkerEventForceUpdate) != 0;
+        const uint32_t period = is_time_based ? (curr_ts / token_info->duration) : 0;
+        const bool period_changed = is_time_based && (period != last_period);
+        // Notify "new code" only on a genuine rollover, not on forced/first generation
+        const bool time_left = !force_update && period_changed && last_period != UINT32_MAX;
+        if(force_update || period_changed) {
             if(furi_mutex_acquire(t_context->code_buffer_sync, FuriWaitForever) == FuriStatusOk) {
                 generate_totp_code(t_context, token_info, curr_ts);
+                if(is_time_based) {
+                    last_period = period;
+                }
                 if(is_time_based) {
                     curr_ts = furi_hal_rtc_get_timestamp();
                 }

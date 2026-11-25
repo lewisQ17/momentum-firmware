@@ -284,8 +284,9 @@ bool ble_svc_hid_update_info(BleServiceHid* hid_svc, uint8_t* data) {
     furi_assert(data);
     furi_assert(hid_svc);
 
+    // Pass the buffer itself, not the address of the local pointer (leaked a stack address)
     return ble_gatt_characteristic_update(
-        hid_svc->svc_handle, &hid_svc->chars[HidSvcGattCharacteristicInfo], &data);
+        hid_svc->svc_handle, &hid_svc->chars[HidSvcGattCharacteristicInfo], data);
 }
 
 void ble_svc_hid_stop(BleServiceHid* hid_svc) {

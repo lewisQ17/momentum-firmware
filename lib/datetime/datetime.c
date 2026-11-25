@@ -30,6 +30,12 @@ bool datetime_validate_datetime(DateTime* datetime) {
 
     invalid |= (datetime->day == 0);
     invalid |= (datetime->day > 31);
+    // Reject impossible dates (Feb 30, Apr 31, Feb 29 in non-leap years); month/year already range-checked here
+    if(datetime->month >= 1 && datetime->month <= MONTHS_COUNT) {
+        invalid |= (datetime->day >
+                    datetime_get_days_per_month(
+                        datetime_is_leap_year(datetime->year), datetime->month));
+    }
 
     invalid |= (datetime->weekday == 0);
     invalid |= (datetime->weekday > 7);
@@ -41,8 +47,9 @@ uint32_t datetime_datetime_to_timestamp(DateTime* datetime) {
     furi_check(datetime);
 
     uint32_t timestamp = 0;
-    uint8_t years = 0;
-    uint8_t leap_years = 0;
+    // Wider counters + unsigned math: avoid uint8 wrap and signed-int overflow past 2038
+    uint32_t years = 0;
+    uint32_t leap_years = 0;
 
     for(uint16_t y = EPOCH_START_YEAR; y < datetime->year; y++) {
         if(datetime_is_leap_year(y)) {
@@ -53,12 +60,13 @@ uint32_t datetime_datetime_to_timestamp(DateTime* datetime) {
     }
 
     timestamp += ((years * datetime_days_per_year[0]) + (leap_years * datetime_days_per_year[1])) *
-                 SECONDS_PER_DAY;
+                 (uint32_t)SECONDS_PER_DAY;
 
     bool leap_year = datetime_is_leap_year(datetime->year);
 
-    for(uint8_t m = 1; m < datetime->month; m++) {
-        timestamp += datetime_get_days_per_month(leap_year, m) * SECONDS_PER_DAY;
+    // Month is clamped so a malformed (e.g. card-supplied) month cannot index past the table
+    for(uint8_t m = 1; m < datetime->month && m <= MONTHS_COUNT; m++) {
+        timestamp += datetime_get_days_per_month(leap_year, m) * (uint32_t)SECONDS_PER_DAY;
     }
 
     timestamp += (datetime->day - 1) * SECONDS_PER_DAY;
@@ -105,5 +113,7 @@ bool datetime_is_leap_year(uint16_t year) {
 }
 
 uint8_t datetime_get_days_per_month(bool leap_year, uint8_t month) {
+    // Out-of-range month returns 0 instead of reading outside the table
+    if(month < 1 || month > MONTHS_COUNT) return 0;
     return datetime_days_per_month[leap_year ? 1 : 0][month - 1];
 }
