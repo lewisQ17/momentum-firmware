@@ -559,7 +559,8 @@ static void app_draw_callback(Canvas* canvas, void* ctx) {
 static void app_input_callback(InputEvent* input_event, void* ctx) {
     furi_assert(ctx);
     FuriMessageQueue* event_queue = ctx;
-    furi_message_queue_put(event_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(event_queue, input_event, 0);
 }
 
 // Return ADC1, VREFBUF, their NVIC lines and the ADC clock to idle; call before restoring VTOR

@@ -32,7 +32,8 @@ static void cyborg_detector_draw_callback(Canvas* canvas, void* context) {
 static void cyborg_detector_input_callback(InputEvent* input_event, void* context) {
     furi_assert(context);
     CyborgDetectorApp* app = context;
-    furi_message_queue_put(app->event_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(app->event_queue, input_event, 0);
 }
 
 static bool cyborg_detector_activate_nfc_field(CyborgDetectorApp* app) {

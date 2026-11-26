@@ -231,7 +231,8 @@ void slotmachine_draw_callback(Canvas* canvas, void* ctx) {
 // callback for viewport input events
 static void slotmachine_input_callback(InputEvent* input_event, void* ctx) {
     SlotMachineApp* slotmachine = ctx;
-    furi_message_queue_put(slotmachine->input_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(slotmachine->input_queue, input_event, 0);
 }
 
 // allocation memory and initialization

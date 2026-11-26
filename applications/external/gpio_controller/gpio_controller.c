@@ -347,7 +347,8 @@ static void handle_main_input(InputEvent* event, void* ctx) {
         FuriMessageQueue* event_queue = ctx;
 
         // place in queue to handle backing out of app
-        furi_message_queue_put(event_queue, event, FuriWaitForever);
+        // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(event_queue, event, 0);
 
         if((event->type == InputTypePress || event->type == InputTypeRelease) &&
            event->key == InputKeyOk) {

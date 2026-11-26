@@ -56,7 +56,8 @@ static void render_callback(Canvas* const canvas, void* ctx) {
  * in the while() loop of the app entry point function. */
 static void input_callback(InputEvent* input_event, void* ctx) {
     ProtoViewApp* app = ctx;
-    furi_message_queue_put(app->event_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(app->event_queue, input_event, 0);
 }
 
 /* Called to switch view (when left/right is pressed). Handles

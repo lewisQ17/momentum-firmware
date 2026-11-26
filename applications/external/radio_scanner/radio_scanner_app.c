@@ -57,7 +57,8 @@ static void radio_scanner_input_callback(InputEvent* input_event, void* context)
     FURI_LOG_D(TAG, "Input event: type=%d, key=%d", input_event->type, input_event->key);
 #endif
     FuriMessageQueue* event_queue = context;
-    furi_message_queue_put(event_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(event_queue, input_event, 0);
     FURI_LOG_D(TAG, "Exit radio_scanner_input_callback");
 }
 

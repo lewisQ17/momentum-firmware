@@ -38,7 +38,8 @@ static void input_callback(InputEvent* input, void* ctx) {
 
     if((input->key == InputKeyBack) && (input->type == InputTypeShort)) {
         event.type = UsbMidiEventTypeExit;
-        furi_message_queue_put(app->events, &event, FuriWaitForever);
+        // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(app->events, &event, 0);
         return;
     }
 
@@ -62,7 +63,7 @@ static void input_callback(InputEvent* input, void* ctx) {
     else
         return;
 
-    furi_message_queue_put(app->events, &event, FuriWaitForever);
+    furi_message_queue_put(app->events, &event, 0);
 }
 
 static void midi_rx_callback(void* ctx) {

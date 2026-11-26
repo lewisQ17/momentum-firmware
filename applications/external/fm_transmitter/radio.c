@@ -257,7 +257,8 @@ static void fmtx_draw_callback(Canvas* canvas, void* ctx) {
 static void fmtx_input_callback(InputEvent* input_event, void* ctx) {
     furi_assert(ctx);
     FMTXApp* app = ctx;
-    furi_message_queue_put(app->event_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(app->event_queue, input_event, 0);
 }
 
 int32_t fmtx_i2c_init_app(void* p) {
