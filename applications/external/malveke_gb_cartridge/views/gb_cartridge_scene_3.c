@@ -284,43 +284,49 @@ bool gb_cartridge_scene_3_input(InputEvent* event, void* context) {
         case InputKeyLeft:
         case InputKeyRight:
             break;
-        case InputKeyOk:
+        case InputKeyOk: {
+            GBCartridge* app = ((GBCartridge*)instance->context);
+            // Copy path under the model lock; SD I/O, UART, dialog run outside it (no draw deadlock)
+            char* dump_path = NULL;
             with_view_model(
                 instance->view,
                 GameBoyCartridgeRAMBackupModel * model,
                 {
-                    GBCartridge* app = ((GBCartridge*)instance->context);
-                    UNUSED(app);
                     model->start_time =
                         furi_hal_rtc_get_timestamp(); // Registra el tiempo de inicio
-                    // Reuse one File: a repeated OK restarts the dump instead of leaking
-                    furi_mutex_acquire(app->dump_mutex, FuriWaitForever);
-                    app->is_writing_ram = false;
-                    if(!app->cart_ram) {
-                        app->cart_ram = storage_file_alloc(app->storage);
-                    } else if(storage_file_is_open(app->cart_ram)) {
-                        storage_file_close(app->cart_ram);
-                    }
-
-                    bool dump_opened = storage_file_open(
-                        app->cart_ram,
-                        model->cart_dump_ram_filename_sequential,
-                        FSAM_WRITE,
-                        FSOM_CREATE_ALWAYS);
-                    // only start writing once the dump file is really open
-                    if(dump_opened) app->is_writing_ram = true;
-                    furi_mutex_release(app->dump_mutex);
-
-                    if(dump_opened) {
-                        const char gbcartridge_command[] = "gbcartridge -d -a\n";
-                        uart_tx(
-                            app->uart, (uint8_t*)gbcartridge_command, strlen(gbcartridge_command));
-                    } else {
-                        dialog_message_show_storage_error(app->dialogs, "Cannot open dump file");
+                    if(model->cart_dump_ram_filename_sequential) {
+                        dump_path = strdup(model->cart_dump_ram_filename_sequential);
                     }
                 },
                 true);
+
+            bool dump_opened = false;
+            // Reuse one File: a repeated OK restarts the dump instead of leaking
+            furi_mutex_acquire(app->dump_mutex, FuriWaitForever);
+            app->is_writing_ram = false;
+            if(!app->cart_ram) {
+                app->cart_ram = storage_file_alloc(app->storage);
+            } else if(storage_file_is_open(app->cart_ram)) {
+                storage_file_close(app->cart_ram);
+            }
+
+            if(dump_path) {
+                dump_opened =
+                    storage_file_open(app->cart_ram, dump_path, FSAM_WRITE, FSOM_CREATE_ALWAYS);
+            }
+            // only start writing once the dump file is really open
+            if(dump_opened) app->is_writing_ram = true;
+            furi_mutex_release(app->dump_mutex);
+            free(dump_path);
+
+            if(dump_opened) {
+                const char gbcartridge_command[] = "gbcartridge -d -a\n";
+                uart_tx(app->uart, (uint8_t*)gbcartridge_command, strlen(gbcartridge_command));
+            } else {
+                dialog_message_show_storage_error(app->dialogs, "Cannot open dump file");
+            }
             break;
+        }
         case InputKeyMAX:
             break;
         }

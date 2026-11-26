@@ -275,18 +275,28 @@ void uhf_reader_kill_confirm_password_updated(void* context) {
 
                     // Start worker
                     view_dispatcher_switch_to_view(App->ViewDispatcher, UHFReaderViewLockPopup);
-                    while(true) {
+                    // Bounded retries: this runs on the dispatcher thread, an endless loop
+                    // (no tag / reader unplugged) would make the app impossible to leave
+                    bool kill_done = false;
+                    for(uint8_t attempt = 0; attempt < 8 && !kill_done; attempt++) {
                         returnResponse = m100_kill_tag(
                             App->YRM100XWorker->module,
                             bytes_to_uint32(App->KillConfirmPwdTempBuffer, 4));
                         if(returnResponse == M100SuccessResponse) {
                             notification_message(App->Notifications, &sequence_success);
-                            break;
-                        } else if(returnResponse == M100APWrong) {
+                            kill_done = true;
+                        } else if(
+                            returnResponse == M100APWrong || returnResponse == M100NoTagResponse ||
+                            returnResponse == M100MemoryOverrun) {
+                            // definitive failure, retrying will not help
                             notification_message(App->Notifications, &sequence_error);
-                            break;
+                            kill_done = true;
+                        } else {
+                            furi_delay_ms(100); // timeout/empty/bad frame: short pause, retry
                         }
-                        continue;
+                    }
+                    if(!kill_done) {
+                        notification_message(App->Notifications, &sequence_error);
                     }
                     notification_message(App->Notifications, &uhf_sequence_blink_stop);
                     popup_reset(PopupLock);

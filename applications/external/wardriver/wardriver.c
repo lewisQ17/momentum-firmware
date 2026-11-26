@@ -168,6 +168,9 @@ static void render_callback(Canvas* canvas, void* context) {
     Context* ctx = context;
     FuriString* string = furi_string_alloc();
 
+    // take the lock in the thread that releases it (release below); guards draw vs app/uart writers
+    furi_mutex_acquire(ctx->mutex, FuriWaitForever);
+
     canvas_set_font(canvas, FontPrimary);
 
     if(ctx->access_points_count >= MAX_ACCESS_POINTS) {
@@ -329,6 +332,8 @@ int32_t wardriver_app() {
             default:
                 break;
             }
+            // release before view_port_update so the app never waits on the GUI while holding the lock
+            furi_mutex_release(ctx->mutex);
 
             view_port_update(view_port);
         } else {
@@ -343,9 +348,10 @@ int32_t wardriver_app() {
     furi_record_close(RECORD_GUI);
 
     furi_message_queue_free(ctx->queue);
-    furi_mutex_free(ctx->mutex);
 
     wardriver_uart_deinit(ctx);
+    // free only after the uart workers (which take it) are joined
+    furi_mutex_free(ctx->mutex);
 
     save_file(ctx);
 

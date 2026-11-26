@@ -109,17 +109,18 @@ static const NotificationSequence*
     return (NotificationSequence*)scene_state->notification_sequence_automation;
 }
 
-static void update_totp_params(PluginState* const plugin_state, size_t token_index) {
+static void
+    update_totp_params(PluginState* const plugin_state, size_t token_index, uint32_t timeout) {
     SceneState* scene_state = (SceneState*)plugin_state->current_scene_state;
     TokenInfoIteratorContext* iterator_context =
         totp_config_get_token_iterator_context(plugin_state);
-    // Worker decrypts the shared token under this mutex; go_to() frees/reallocs it, so exclude it
-    bool locked = furi_mutex_acquire(scene_state->last_code_update_sync, FuriWaitForever) ==
-                  FuriStatusOk;
-    bool moved = totp_token_info_iterator_go_to(iterator_context, token_index);
-    if(locked) {
-        furi_mutex_release(scene_state->last_code_update_sync);
+    // Worker decrypts the shared token under this mutex; go_to() frees/reallocs it, so exclude it.
+    // Bounded wait: the auto-type worker holds it for the whole typing run, never block the main loop on it
+    if(furi_mutex_acquire(scene_state->last_code_update_sync, timeout) != FuriStatusOk) {
+        return;
     }
+    bool moved = totp_token_info_iterator_go_to(iterator_context, token_index);
+    furi_mutex_release(scene_state->last_code_update_sync);
 
     if(moved) {
         totp_generate_code_worker_notify(
@@ -276,8 +277,11 @@ void totp_scene_generate_token_activate(PluginState* plugin_state) {
         &on_code_lifetime_updated_generated,
         plugin_state);
 
+    // scene init: no typing worker runs yet, keep the original unbounded wait
     update_totp_params(
-        plugin_state, totp_token_info_iterator_get_current_token_index(iterator_context));
+        plugin_state,
+        totp_token_info_iterator_get_current_token_index(iterator_context),
+        FuriWaitForever);
 }
 
 void totp_scene_generate_token_render(Canvas* const canvas, PluginState* plugin_state) {
@@ -457,7 +461,8 @@ bool totp_scene_generate_token_handle_event(
                 totp_token_info_iterator_get_total_count(iterator_context) - 1,
                 RollOverflowBehaviorRoll);
 
-            update_totp_params(plugin_state, current_token_index);
+            // key ignored while auto-typing holds the lock
+            update_totp_params(plugin_state, current_token_index, 200);
             break;
         }
         case InputKeyLeft: {
@@ -472,7 +477,8 @@ bool totp_scene_generate_token_handle_event(
                 totp_token_info_iterator_get_total_count(iterator_context) - 1,
                 RollOverflowBehaviorRoll);
 
-            update_totp_params(plugin_state, current_token_index);
+            // key ignored while auto-typing holds the lock
+            update_totp_params(plugin_state, current_token_index, 200);
             break;
         }
         case InputKeyOk:

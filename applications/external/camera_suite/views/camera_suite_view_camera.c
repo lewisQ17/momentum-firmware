@@ -1,5 +1,6 @@
 #include "../camera_suite.h"
 #include <furi.h>
+#include <string.h>
 #include <furi_hal.h>
 #include <input/input.h>
 #include <gui/elements.h>
@@ -160,10 +161,9 @@ static void camera_suite_view_camera_draw(Canvas* canvas, void* model) {
     }
 }
 
-static void save_image_to_flipper_sd_card(void* model) {
-    furi_assert(model);
-
-    UartDumpModel* uartDumpModel = model;
+// Works on a private snapshot: SD I/O must never run under the view-model lock (GUI draw needs it).
+static void save_image_to_flipper_sd_card(uint8_t* pixels, bool is_inverted) {
+    furi_assert(pixels);
 
     // This pointer is used to access the storage.
     Storage* storage = furi_record_open(RECORD_STORAGE);
@@ -206,9 +206,9 @@ static void save_image_to_flipper_sd_card(void* model) {
     // Free the file name after use.
     furi_string_free(file_name);
 
-    if(!uartDumpModel->is_inverted) {
+    if(!is_inverted) {
         for(size_t i = 0; i < FRAME_BUFFER_LENGTH; ++i) {
-            uartDumpModel->pixels[i] = ~uartDumpModel->pixels[i];
+            pixels[i] = ~pixels[i];
         }
     }
 
@@ -227,7 +227,7 @@ static void save_image_to_flipper_sd_card(void* model) {
         // @todo - Save image based on orientation.
         for(size_t i = 64; i > 0; --i) {
             for(size_t j = 0; j < ROW_BUFFER_LENGTH; ++j) {
-                row_buffer[j] = uartDumpModel->pixels[((i + 32 - 1) * ROW_BUFFER_LENGTH) + j];
+                row_buffer[j] = pixels[((i + 32 - 1) * ROW_BUFFER_LENGTH) + j];
             }
             storage_file_write(file, row_buffer, ROW_BUFFER_LENGTH);
         }
@@ -261,159 +261,137 @@ static bool camera_suite_view_camera_input(InputEvent* event, void* context) {
 
     CameraSuiteViewCamera* instance = context;
 
+    // Haptics, LED, UART delays and SD I/O all run OUTSIDE the view-model lock: the GUI draw
+    // callback takes that lock with FuriWaitForever, so holding it here freezes the whole GUI.
     if(event->type == InputTypeRelease) {
         switch(event->key) {
         default: // Stop all sounds, reset the LED.
-            with_view_model(
-                instance->view,
-                UartDumpModel * model,
-                {
-                    UNUSED(model);
-                    camera_suite_play_bad_bump(instance->context);
-                    camera_suite_stop_all_sound(instance->context);
-                    camera_suite_led_set_rgb(instance->context, 0, 0, 0);
-                },
-                true);
+            camera_suite_play_bad_bump(instance->context);
+            camera_suite_stop_all_sound(instance->context);
+            camera_suite_led_set_rgb(instance->context, 0, 0, 0);
             break;
         }
     } else if(event->type == InputTypePress) {
         switch(event->key) {
         case InputKeyBack: {
-            with_view_model(
-                instance->view,
-                UartDumpModel * model,
-                {
-                    UNUSED(model);
+            // Stop camera stream.
+            furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'s'}, 1);
+            furi_delay_ms(50);
 
-                    // Stop camera stream.
-                    furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'s'}, 1);
-                    furi_delay_ms(50);
-
-                    // Go back to the main menu.
-                    instance->callback(CameraSuiteCustomEventSceneCameraBack, instance->context);
-                },
-                true);
+            // Go back to the main menu.
+            instance->callback(CameraSuiteCustomEventSceneCameraBack, instance->context);
             break;
         }
         case InputKeyLeft: {
+            // Play sound.
+            camera_suite_play_happy_bump(instance->context);
+            camera_suite_play_input_sound(instance->context);
+            camera_suite_led_set_rgb(instance->context, 0, 0, 255);
+
+            bool is_inverted = false;
             with_view_model(
-                instance->view,
-                UartDumpModel * model,
-                {
-                    // Play sound.
-                    camera_suite_play_happy_bump(instance->context);
-                    camera_suite_play_input_sound(instance->context);
-                    camera_suite_led_set_rgb(instance->context, 0, 0, 255);
+                instance->view, UartDumpModel * model, { is_inverted = model->is_inverted; }, false);
 
-                    if(model->is_inverted) {
-                        // Camera: Set invert to false on the ESP32-CAM.
-                        furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'i'}, 1);
-                        furi_delay_ms(50);
+            if(is_inverted) {
+                // Camera: Set invert to false on the ESP32-CAM.
+                furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'i'}, 1);
+            } else {
+                // Camera: Set invert to true on the ESP32-CAM.
+                furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'I'}, 1);
+            }
+            furi_delay_ms(50);
 
-                        model->is_inverted = false;
-                    } else {
-                        // Camera: Set invert to true on the ESP32-CAM.
-                        furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'I'}, 1);
-                        furi_delay_ms(50);
+            with_view_model(
+                instance->view, UartDumpModel * model, { model->is_inverted = !is_inverted; }, true);
 
-                        model->is_inverted = true;
-                    }
-
-                    instance->callback(CameraSuiteCustomEventSceneCameraLeft, instance->context);
-                },
-                true);
+            instance->callback(CameraSuiteCustomEventSceneCameraLeft, instance->context);
             break;
         }
         case InputKeyRight: {
+            // Play sound.
+            camera_suite_play_happy_bump(instance->context);
+            camera_suite_play_input_sound(instance->context);
+            camera_suite_led_set_rgb(instance->context, 0, 0, 255);
+
+            bool is_dithering_enabled = false;
             with_view_model(
                 instance->view,
                 UartDumpModel * model,
-                {
-                    // Play sound.
-                    camera_suite_play_happy_bump(instance->context);
-                    camera_suite_play_input_sound(instance->context);
-                    camera_suite_led_set_rgb(instance->context, 0, 0, 255);
+                { is_dithering_enabled = model->is_dithering_enabled; },
+                false);
 
-                    if(model->is_dithering_enabled) {
-                        // Camera: Disable dithering.
-                        furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'d'}, 1);
-                        furi_delay_ms(50);
+            if(is_dithering_enabled) {
+                // Camera: Disable dithering.
+                furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'d'}, 1);
+            } else {
+                // Camera: Enable dithering.
+                furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'D'}, 1);
+            }
+            furi_delay_ms(50);
 
-                        model->is_dithering_enabled = false;
-                    } else {
-                        // Camera: Enable dithering.
-                        furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'D'}, 1);
-                        furi_delay_ms(50);
-
-                        model->is_dithering_enabled = true;
-                    }
-
-                    instance->callback(CameraSuiteCustomEventSceneCameraRight, instance->context);
-                },
+            with_view_model(
+                instance->view,
+                UartDumpModel * model,
+                { model->is_dithering_enabled = !is_dithering_enabled; },
                 true);
+
+            instance->callback(CameraSuiteCustomEventSceneCameraRight, instance->context);
             break;
         }
         case InputKeyUp: {
-            with_view_model(
-                instance->view,
-                UartDumpModel * model,
-                {
-                    UNUSED(model);
+            // Play sound.
+            camera_suite_play_happy_bump(instance->context);
+            camera_suite_play_input_sound(instance->context);
+            camera_suite_led_set_rgb(instance->context, 0, 0, 255);
 
-                    // Play sound.
-                    camera_suite_play_happy_bump(instance->context);
-                    camera_suite_play_input_sound(instance->context);
-                    camera_suite_led_set_rgb(instance->context, 0, 0, 255);
+            // Camera: Increase contrast.
+            furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'C'}, 1);
+            furi_delay_ms(50);
 
-                    // Camera: Increase contrast.
-                    furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'C'}, 1);
-                    furi_delay_ms(50);
-
-                    instance->callback(CameraSuiteCustomEventSceneCameraUp, instance->context);
-                },
-                true);
+            instance->callback(CameraSuiteCustomEventSceneCameraUp, instance->context);
             break;
         }
         case InputKeyDown: {
-            with_view_model(
-                instance->view,
-                UartDumpModel * model,
-                {
-                    UNUSED(model);
+            // Play sound.
+            camera_suite_play_happy_bump(instance->context);
+            camera_suite_play_input_sound(instance->context);
+            camera_suite_led_set_rgb(instance->context, 0, 0, 255);
 
-                    // Play sound.
-                    camera_suite_play_happy_bump(instance->context);
-                    camera_suite_play_input_sound(instance->context);
-                    camera_suite_led_set_rgb(instance->context, 0, 0, 255);
+            // Camera: Reduce contrast.
+            furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'c'}, 1);
+            furi_delay_ms(50);
 
-                    // Camera: Reduce contrast.
-                    furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'c'}, 1);
-                    furi_delay_ms(50);
-
-                    instance->callback(CameraSuiteCustomEventSceneCameraDown, instance->context);
-                },
-                true);
+            instance->callback(CameraSuiteCustomEventSceneCameraDown, instance->context);
             break;
         }
         case InputKeyOk: {
-            with_view_model(
-                instance->view,
-                UartDumpModel * model,
-                {
-                    // Play sound.
-                    camera_suite_play_long_bump(instance->context);
-                    camera_suite_play_input_sound(instance->context);
-                    camera_suite_led_set_rgb(instance->context, 0, 0, 255);
+            // Play sound.
+            camera_suite_play_long_bump(instance->context);
+            camera_suite_play_input_sound(instance->context);
+            camera_suite_led_set_rgb(instance->context, 0, 0, 255);
 
-                    // @todo - Save picture directly to ESP32-CAM.
-                    // furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'P'}, 1);
+            // @todo - Save picture directly to ESP32-CAM.
+            // furi_hal_serial_tx(instance->serial_handle, (uint8_t[]){'P'}, 1);
 
-                    // Save currently displayed image to the Flipper Zero SD card.
-                    save_image_to_flipper_sd_card(model);
+            // Snapshot the displayed image under the lock, save it to the SD card after releasing it.
+            uint8_t* snapshot = malloc(FRAME_BUFFER_LENGTH);
+            if(snapshot) {
+                bool is_inverted = false;
+                with_view_model(
+                    instance->view,
+                    UartDumpModel * model,
+                    {
+                        memcpy(snapshot, model->pixels, FRAME_BUFFER_LENGTH);
+                        is_inverted = model->is_inverted;
+                    },
+                    false);
 
-                    instance->callback(CameraSuiteCustomEventSceneCameraOk, instance->context);
-                },
-                true);
+                // Save currently displayed image to the Flipper Zero SD card.
+                save_image_to_flipper_sd_card(snapshot, is_inverted);
+                free(snapshot);
+            }
+
+            instance->callback(CameraSuiteCustomEventSceneCameraOk, instance->context);
             break;
         }
         case InputKeyMAX:

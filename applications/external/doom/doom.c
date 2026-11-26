@@ -997,6 +997,8 @@ int32_t doom_app() {
         furi_check(
             furi_mutex_acquire(plugin_state->music_instance->model_mutex, FuriWaitForever) ==
             FuriStatusOk);
+        // tracks ownership so early releases are not repeated at the loop end
+        bool model_locked = true;
 #endif
         bool key_event = false;
         if(event_status == FuriStatusOk) {
@@ -1008,6 +1010,7 @@ int32_t doom_app() {
 #ifdef SOUND
                     if(plugin_state->intro_sound) {
                         furi_mutex_release(plugin_state->music_instance->model_mutex);
+                        model_locked = false;
                         music_player_worker_stop(plugin_state->music_instance->worker);
                     }
 #endif
@@ -1027,6 +1030,7 @@ int32_t doom_app() {
                         initializeLevel(sto_level_1, plugin_state);
 #ifdef SOUND
                         furi_mutex_release(plugin_state->music_instance->model_mutex);
+                        model_locked = false;
                         music_player_worker_stop(plugin_state->music_instance->worker);
                         plugin_state->intro_sound = false;
 #endif
@@ -1088,7 +1092,7 @@ int32_t doom_app() {
             }
         }
 #ifdef SOUND
-        furi_mutex_release(plugin_state->music_instance->model_mutex);
+        if(model_locked) furi_mutex_release(plugin_state->music_instance->model_mutex);
 #endif
 
         furi_mutex_release(plugin_state->mutex);

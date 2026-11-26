@@ -315,9 +315,9 @@ static bool game_fetch(DataLoaderModel *model)
         if (!load_char("is_logged_in", is_logged_in, sizeof(is_logged_in)))
         {
             FURI_LOG_E(TAG, "Failed to load is_logged_in");
-            easy_flipper_dialog("Error", "Failed to load is_logged_in\nGo to user settings to update.");
             view_dispatcher_switch_to_view(app->view_dispatcher,
-                                           FlipWorldViewSubmenu); // just go back to the main menu for now
+                                           FlipWorldViewSubmenu); // leave the loader view before the modal dialog
+            easy_flipper_dialog("Error", "Failed to load is_logged_in\nGo to user settings to update.");
             return false;
         }
         if (is_str(is_logged_in, "false") && is_str(model->title, "Registering..."))

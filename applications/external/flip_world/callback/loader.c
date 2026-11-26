@@ -135,28 +135,36 @@ static void loader_process_callback(void *context)
 
     if (current_data_state == DataStateInitial)
     {
+        // fetch() can block (dialogs, storage, HTTP start): run it without the model lock
+        // so the GUI draw never stalls on it, and never return from inside with_view_model
+        DataLoaderFetch fetch = NULL;
         with_view_model(
             view,
             DataLoaderModel * model,
             {
                 model->data_state = DataStateRequested;
-                DataLoaderFetch fetch = model->fetcher;
+                fetch = model->fetcher;
                 if (fetch == NULL)
                 {
                     FURI_LOG_E(TAG, "Model doesn't have Fetch function assigned.");
                     model->data_state = DataStateError;
-                    return;
                 }
-
-                // Clear any previous responses
-                strncpy(model->fhttp->last_response, "", 1);
-                bool request_status = fetch(model);
-                if (!request_status)
+                else
                 {
-                    model->data_state = DataStateError;
+                    // Clear any previous responses
+                    strncpy(model->fhttp->last_response, "", 1);
                 }
             },
             true);
+
+        if (fetch != NULL)
+        {
+            bool request_status = fetch(loader_model);
+            if (!request_status)
+            {
+                with_view_model(view, DataLoaderModel * model, { model->data_state = DataStateError; }, true);
+            }
+        }
     }
     else if (current_data_state == DataStateRequested || current_data_state == DataStateError)
     {

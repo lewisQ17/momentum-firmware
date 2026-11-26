@@ -303,7 +303,10 @@ static int32_t uart_worker_esp(void* context) {
                             // put a null terminator in place of the newline, to delimit the line string
                             *newline = '\0';
 
+                            // short lock: draw callback reads this shared state
+                            furi_mutex_acquire(ctx->mutex, FuriWaitForever);
                             uart_parse_esp(ctx, line_current);
+                            furi_mutex_release(ctx->mutex);
 
                             // move the cursor to the character after the newline
                             line_current = newline + 1;
@@ -431,7 +434,10 @@ static int32_t uart_worker_gps(void* context) {
                             // put a null terminator in place of the newline, to delimit the line string
                             *newline = '\0';
 
+                            // short lock: draw callback reads this shared state
+                            furi_mutex_acquire(ctx->mutex, FuriWaitForever);
                             uart_parse_gps(ctx, line_current);
+                            furi_mutex_release(ctx->mutex);
 
                             // move the cursor to the character after the newline
                             line_current = newline + 1;

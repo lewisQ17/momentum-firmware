@@ -1285,6 +1285,7 @@ static bool mine_sweeper_game_screen_view_end_input_callback(InputEvent* event, 
 
     MineSweeperGameScreen* instance = context;
     bool consumed = false;
+    bool restart_now = false;
 
     with_view_model(
         instance->view,
@@ -1309,42 +1310,13 @@ static bool mine_sweeper_game_screen_view_end_input_callback(InputEvent* event, 
                 event->key == InputKeyOk) {
                 // After restart flagged is triggered this should also trigger and restart the game
 
-                mine_sweeper_led_reset(instance->context);
-
-                mine_sweeper_game_screen_reset_clock(instance);
+                // Callbacks switch here; the board generation below runs OUTSIDE the lock
                 view_set_draw_callback(
                     instance->view, mine_sweeper_game_screen_view_play_draw_callback);
                 view_set_input_callback(
                     instance->view, mine_sweeper_game_screen_view_play_input_callback);
 
-                // Here we are going to generate a valid map for the player
-                bool is_valid_board = false;
-
-                size_t memsz = sizeof(MineSweeperTile) * MINESWEEPER_BOARD_MAX_TILES;
-
-                uint16_t attempts = 0;
-
-                do {
-                    setup_board(instance);
-
-                    // Verifier result only matters when "Ensure Solvable" is on.
-                    if(!model->ensure_solvable_board) break;
-
-                    memset(board_t, 0, memsz);
-                    memcpy(
-                        board_t,
-                        model->board,
-                        sizeof(MineSweeperTile) * (model->board_width * model->board_height));
-
-                    is_valid_board = check_board_with_verifier(
-                        board_t, model->board_width, model->board_height, model->mines_left);
-
-                    // Yield now and then; give up after the cap and keep the last board.
-                    attempts++;
-                    if(!is_valid_board && (attempts % 4) == 0) furi_delay_tick(1);
-
-                } while(!is_valid_board && attempts < MINESWEEPER_SOLVABLE_MAX_ATTEMPTS);
-
+                restart_now = true;
                 consumed = true;
 
             } else if((event->type == InputTypePress || event->type == InputTypeRepeat)) {
@@ -1354,6 +1326,59 @@ static bool mine_sweeper_game_screen_view_end_input_callback(InputEvent* event, 
             }
         },
         false);
+
+    if(restart_now) {
+        mine_sweeper_led_reset(instance->context);
+
+        mine_sweeper_game_screen_reset_clock(instance);
+
+        // Here we are going to generate a valid map for the player
+        // (verifier runs without the model lock so the GUI keeps drawing)
+        bool is_valid_board = false;
+
+        size_t memsz = sizeof(MineSweeperTile) * MINESWEEPER_BOARD_MAX_TILES;
+
+        uint16_t attempts = 0;
+
+        do {
+            setup_board(instance);
+
+            bool ensure_solvable = false;
+            uint16_t num_mines = 1;
+            uint16_t board_width = 16;
+            uint16_t board_height = 7;
+
+            with_view_model(
+                instance->view,
+                MineSweeperGameScreenModel * model,
+                {
+                    ensure_solvable = model->ensure_solvable_board;
+                    num_mines = model->mines_left;
+                    board_width = model->board_width;
+                    board_height = model->board_height;
+
+                    if(ensure_solvable) {
+                        memset(board_t, 0, memsz);
+                        memcpy(
+                            board_t,
+                            model->board,
+                            sizeof(MineSweeperTile) * (board_width * board_height));
+                    }
+                },
+                false);
+
+            // Verifier result only matters when "Ensure Solvable" is on.
+            if(!ensure_solvable) break;
+
+            is_valid_board =
+                check_board_with_verifier(board_t, board_width, board_height, num_mines);
+
+            // Yield now and then; give up after the cap and keep the last board.
+            attempts++;
+            if(!is_valid_board && (attempts % 4) == 0) furi_delay_tick(1);
+
+        } while(!is_valid_board && attempts < MINESWEEPER_SOLVABLE_MAX_ATTEMPTS);
+    }
 
     return consumed;
 }

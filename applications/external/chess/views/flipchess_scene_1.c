@@ -67,6 +67,18 @@ typedef struct {
 
 } FlipChessScene1Model;
 
+// AI search job: inputs copied under the model lock, search runs outside it (GUI stays live)
+typedef struct {
+    bool valid; // set once the search finished and from/to/prom hold its result
+    SCL_Board board;
+    uint8_t level;
+    uint16_t ply;
+    int clockSeconds;
+    uint8_t rs0, rs1;
+    uint8_t from, to;
+    char prom;
+} FlipChessAiJob;
+
 static uint8_t picture[SCL_BOARD_PICTURE_WIDTH * SCL_BOARD_PICTURE_WIDTH];
 
 void flipchess_putImagePixel(uint8_t pixel, uint16_t index) {
@@ -86,35 +98,36 @@ uint8_t flipchess_stringsEqual(const char* s1, const char* s2, int max) {
     return 1;
 }
 
-int16_t flipchess_makeAIMove(
+// Pure search on caller-owned data: safe to run outside the view-model lock
+static int16_t flipchess_aiSearch(
     SCL_Board board,
+    uint8_t level,
+    uint16_t ply,
+    int clockSeconds,
+    uint8_t rs0,
+    uint8_t rs1,
     uint8_t* s0,
     uint8_t* s1,
-    char* prom,
-    FlipChessScene1Model* model) {
-    uint8_t level = SCL_boardWhitesTurn(board) ? model->paramPlayerW : model->paramPlayerB;
+    char* prom) {
     uint8_t depth = (level > 0) ? level : 1;
     uint8_t extraDepth = 3;
     uint8_t endgameDepth = 1;
     uint8_t randomness =
-        model->game.ply < 2 ? 1 : 0; /* in first moves increase randomness for different 
+        ply < 2 ? 1 : 0; /* in first moves increase randomness for different 
                              openings */
-    uint8_t rs0, rs1;
 
-    SCL_gameGetRepetiotionMove(&(model->game), &rs0, &rs1);
-
-    if(model->clockSeconds >= 0) // when using clock, choose AI params accordingly
+    if(clockSeconds >= 0) // when using clock, choose AI params accordingly
     {
-        if(model->clockSeconds <= 5) {
+        if(clockSeconds <= 5) {
             depth = 1;
             extraDepth = 2;
             endgameDepth = 0;
-        } else if(model->clockSeconds < 15) {
+        } else if(clockSeconds < 15) {
             depth = 2;
             extraDepth = 2;
-        } else if(model->clockSeconds < 100) {
+        } else if(clockSeconds < 100) {
             depth = 2;
-        } else if(model->clockSeconds < 5 * 60) {
+        } else if(clockSeconds < 5 * 60) {
             depth = 3;
         } else {
             depth = 3;
@@ -135,6 +148,21 @@ int16_t flipchess_makeAIMove(
         s0,
         s1,
         prom);
+}
+
+int16_t flipchess_makeAIMove(
+    SCL_Board board,
+    uint8_t* s0,
+    uint8_t* s1,
+    char* prom,
+    FlipChessScene1Model* model) {
+    uint8_t level = SCL_boardWhitesTurn(board) ? model->paramPlayerW : model->paramPlayerB;
+    uint8_t rs0, rs1;
+
+    SCL_gameGetRepetiotionMove(&(model->game), &rs0, &rs1);
+
+    return flipchess_aiSearch(
+        board, level, model->game.ply, model->clockSeconds, rs0, rs1, s0, s1, prom);
 }
 
 bool flipchess_isPlayerTurn(FlipChessScene1Model* model) {
@@ -189,7 +217,40 @@ static void flipchess_syncGameState(FlipChessScene1Model* model) {
     }
 }
 
-uint8_t flipchess_turn(FlipChessScene1Model* model) {
+// Under the model lock: marks "thinking" and snapshots the search inputs when the AI is to move.
+// Returns false (nothing to search) for a player turn or a finished game.
+static bool flipchess_aiPrepare(FlipChessScene1Model* model, FlipChessAiJob* job) {
+    job->valid = false;
+    if(model->game.state != SCL_GAME_STATE_PLAYING || flipchess_isPlayerTurn(model)) return false;
+    model->thinking = 1;
+    memcpy(job->board, model->game.board, sizeof(SCL_Board));
+    job->level = SCL_boardWhitesTurn(model->game.board) ? model->paramPlayerW : model->paramPlayerB;
+    job->ply = model->game.ply;
+    job->clockSeconds = model->clockSeconds;
+    SCL_gameGetRepetiotionMove(&(model->game), &(job->rs0), &(job->rs1));
+    job->from = 0;
+    job->to = 0;
+    job->prom = 'q';
+    return true;
+}
+
+// Outside any lock: the long part
+static void flipchess_aiRun(FlipChessAiJob* job) {
+    flipchess_aiSearch(
+        job->board,
+        job->level,
+        job->ply,
+        job->clockSeconds,
+        job->rs0,
+        job->rs1,
+        &(job->from),
+        &(job->to),
+        &(job->prom));
+    job->valid = true;
+}
+
+// job: finished AI search for this position (NULL = search here, under the caller's lock)
+uint8_t flipchess_turn(FlipChessScene1Model* model, const FlipChessAiJob* job) {
     // 0: none, 1: player, 2: AI, 3: undo
     uint8_t moveType = FlipChessStatusNone;
 
@@ -285,8 +346,21 @@ uint8_t flipchess_turn(FlipChessScene1Model* model) {
             model->squareSelected = 255;
             model->squareFrom = 0;
             model->squareTo = 0;
-            flipchess_makeAIMove(
-                model->game.board, &(model->squareFrom), &(model->squareTo), &movePromote, model);
+            if(job != NULL) {
+                // search ran outside the lock; apply only if the position is unchanged
+                if(job->valid && memcmp(job->board, model->game.board, sizeof(SCL_Board)) == 0) {
+                    model->squareFrom = job->from;
+                    model->squareTo = job->to;
+                    movePromote = job->prom;
+                }
+            } else {
+                flipchess_makeAIMove(
+                    model->game.board,
+                    &(model->squareFrom),
+                    &(model->squareTo),
+                    &movePromote,
+                    model);
+            }
             model->turnState = 0;
             if(model->squareFrom == model->squareTo) {
                 // CPU has no legal move (mate/stalemate): never apply the null move a1->a1
@@ -623,30 +697,28 @@ bool flipchess_scene_1_input(InputEvent* event, void* context) {
                 true);
             break;
         case InputKeyOk: {
-            bool speak_game_end = false; // voice runs outside the model lock so the GUI stays live
+            bool speak_game_end = false; // haptic+voice run outside the model lock
+            FlipChessAiJob job;
+            bool ai_job;
+
+            // first turn of round, probably player but could be AI
+            ai_job = false;
             with_view_model(
                 instance->view,
                 FlipChessScene1Model * model,
-                {
-                    // if(model->paramExit == FlipChessStatusReturn) {
-                    //     instance->callback(FlipChessCustomEventScene1Back, instance->context);
-                    //     break;
-                    // }
-                    if(!flipchess_isPlayerTurn(model)) {
-                        model->thinking = 1;
-                    }
-                },
+                { ai_job = flipchess_aiPrepare(model, &job); },
                 true);
-            furi_thread_flags_wait(0, FuriFlagWaitAny, THREAD_WAIT_TIME);
+            if(ai_job) {
+                furi_thread_flags_wait(0, FuriFlagWaitAny, THREAD_WAIT_TIME);
+                flipchess_aiRun(&job); // long search, no lock held
+            }
 
             with_view_model(
                 instance->view,
                 FlipChessScene1Model * model,
                 {
-                    // first turn of round, probably player but could be AI
-                    if(flipchess_turn(model) == FlipChessStatusReturn) {
+                    if(flipchess_turn(model, ai_job ? &job : NULL) == FlipChessStatusReturn) {
                         speak_game_end = true;
-                        flipchess_play_long_bump(app);
                     }
                     flipchess_saveState(app, model);
                     flipchess_drawBoard(model);
@@ -654,37 +726,36 @@ bool flipchess_scene_1_input(InputEvent* event, void* context) {
                 true);
             if(speak_game_end) {
                 speak_game_end = false;
+                flipchess_play_long_bump(app);
                 if(app->sound == 1) flipchess_voice_a_strange_game();
             }
 
+            // if player played, let AI play
+            ai_job = false;
             with_view_model(
                 instance->view,
                 FlipChessScene1Model * model,
-                {
-                    if(!flipchess_isPlayerTurn(model)) {
-                        model->thinking = 1;
-                    }
-                },
+                { ai_job = flipchess_aiPrepare(model, &job); },
                 true);
-            furi_thread_flags_wait(0, FuriFlagWaitAny, THREAD_WAIT_TIME);
+            if(ai_job) {
+                furi_thread_flags_wait(0, FuriFlagWaitAny, THREAD_WAIT_TIME);
+                flipchess_aiRun(&job); // long search, no lock held
 
-            with_view_model(
-                instance->view,
-                FlipChessScene1Model * model,
-                {
-                    // if player played, let AI play
-                    if(!flipchess_isPlayerTurn(model)) {
-                        if(flipchess_turn(model) == FlipChessStatusReturn) {
+                with_view_model(
+                    instance->view,
+                    FlipChessScene1Model * model,
+                    {
+                        if(flipchess_turn(model, &job) == FlipChessStatusReturn) {
                             speak_game_end = true;
-                            flipchess_play_long_bump(app);
                         }
                         flipchess_saveState(app, model);
                         flipchess_drawBoard(model);
-                    }
-                },
-                true);
-            if(speak_game_end) {
-                if(app->sound == 1) flipchess_voice_a_strange_game();
+                    },
+                    true);
+                if(speak_game_end) {
+                    flipchess_play_long_bump(app);
+                    if(app->sound == 1) flipchess_voice_a_strange_game();
+                }
             }
             break;
         }
@@ -714,6 +785,9 @@ void flipchess_scene_1_enter(void* context) {
         if(app->sound == 1) flipchess_voice_how_about_chess();
     }
 
+    FlipChessAiJob job;
+    bool ai_job = false;
+
     with_view_model(
         instance->view,
         FlipChessScene1Model * model,
@@ -728,14 +802,16 @@ void flipchess_scene_1_enter(void* context) {
                 model, app->white_mode, app->black_mode, import_game_text);
 
             if(init == FlipChessStatusNone) {
-                // perform initial turn, sets up and lets white
-                // AI play if applicable
-                const uint8_t turn = flipchess_turn(model);
-                if(turn == FlipChessStatusReturn) {
-                    init = turn;
-                } else {
-                    flipchess_saveState(app, model);
-                    flipchess_drawBoard(model);
+                // initial turn: if the AI plays white, only snapshot here, search below
+                ai_job = flipchess_aiPrepare(model, &job);
+                if(!ai_job) {
+                    const uint8_t turn = flipchess_turn(model, NULL);
+                    if(turn == FlipChessStatusReturn) {
+                        init = turn;
+                    } else {
+                        flipchess_saveState(app, model);
+                        flipchess_drawBoard(model);
+                    }
                 }
             }
 
@@ -745,6 +821,20 @@ void flipchess_scene_1_enter(void* context) {
             // }
         },
         true);
+
+    if(ai_job) {
+        flipchess_aiRun(&job); // long search, no lock held
+        with_view_model(
+            instance->view,
+            FlipChessScene1Model * model,
+            {
+                if(flipchess_turn(model, &job) != FlipChessStatusReturn) {
+                    flipchess_saveState(app, model);
+                    flipchess_drawBoard(model);
+                }
+            },
+            true);
+    }
 }
 
 FlipChessScene1* flipchess_scene_1_alloc() {

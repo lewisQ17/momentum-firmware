@@ -658,6 +658,9 @@ void web_crawler_http_method_change(VariableItem *item)
     save_simply();
 }
 
+// fetch runs inside the loader model lock: it only records the message, the caller shows the dialog outside the lock
+static char *web_crawler_fetch_error_text = NULL;
+
 static bool web_crawler_fetch(DataLoaderModel *model)
 {
     WebCrawlerApp *app = (WebCrawlerApp *)model->parser_context;
@@ -666,37 +669,37 @@ static bool web_crawler_fetch(DataLoaderModel *model)
     char url[128];
     if (!load_char("path", url, 128))
     {
-        easy_flipper_dialog("Error", "Failed to load URL.\nGo into Settings -> Request\n and enter a Path.");
+        web_crawler_fetch_error_text = "Failed to load URL.\nGo into Settings -> Request\n and enter a Path.";
         return false;
     }
     char file_type[16];
     if (!load_char("file_type", file_type, 16))
     {
-        easy_flipper_dialog("Error", "Failed to load file type.\nGo into settings and\nre-save the file type.");
+        web_crawler_fetch_error_text = "Failed to load file type.\nGo into settings and\nre-save the file type.";
         return false;
     }
     char file_rename[128];
     if (!load_char("file_rename", file_rename, 128))
     {
-        easy_flipper_dialog("Error", "Failed to load file rename.\nGo into Settings -> File\n and Rename the file.");
+        web_crawler_fetch_error_text = "Failed to load file rename.\nGo into Settings -> File\n and Rename the file.";
         return false;
     }
     char http_method[16];
     if (!load_char("http_method", http_method, 16))
     {
-        easy_flipper_dialog("Error", "Failed to load http method.\nGo into Settings -> Request\n and select an HTTP Method.");
+        web_crawler_fetch_error_text = "Failed to load http method.\nGo into Settings -> Request\n and select an HTTP Method.";
         return false;
     }
     char headers[256];
     if (!load_char("headers", headers, 256))
     {
-        easy_flipper_dialog("Error", "Failed to load headers.\nGo into Settings -> Request\n and add Headers.");
+        web_crawler_fetch_error_text = "Failed to load headers.\nGo into Settings -> Request\n and add Headers.";
         return false;
     }
     char payload[256];
     if (!load_char("payload", payload, 256))
     {
-        easy_flipper_dialog("Error", "Failed to load payload.\nGo into Settings -> Request\n and add a Payload.");
+        web_crawler_fetch_error_text = "Failed to load payload.\nGo into Settings -> Request\n and add a Payload.";
         return false;
     }
 
@@ -1622,6 +1625,7 @@ static void web_crawler_loader_process_callback(void *context)
 
     if (current_data_state == DataStateInitial)
     {
+        web_crawler_fetch_error_text = NULL;
         with_view_model(
             view,
             DataLoaderModel * model,
@@ -1632,18 +1636,35 @@ static void web_crawler_loader_process_callback(void *context)
                 {
                     FURI_LOG_E(TAG, "Model doesn't have Fetch function assigned.");
                     model->data_state = DataStateError;
-                    return;
                 }
-
-                // Clear any previous responses
-                strncpy(model->fhttp->last_response, "", 1);
-                bool request_status = fetch(model);
-                if (!request_status)
+                else
                 {
-                    model->data_state = DataStateError;
+                    // Clear any previous responses
+                    strncpy(model->fhttp->last_response, "", 1);
+                    bool request_status = fetch(model);
+                    if (!request_status)
+                    {
+                        model->data_state = DataStateError;
+                    }
                 }
             },
             true);
+
+        // blocking dialog outside the model lock; pause the 250 ms timer so it cannot flood the dispatcher queue
+        char *error_text = web_crawler_fetch_error_text;
+        web_crawler_fetch_error_text = NULL;
+        if (error_text != NULL)
+        {
+            if (loader_model->timer)
+            {
+                furi_timer_stop(loader_model->timer);
+            }
+            easy_flipper_dialog("Error", error_text);
+            if (loader_model->timer)
+            {
+                furi_timer_start(loader_model->timer, 250);
+            }
+        }
     }
     else if (current_data_state == DataStateRequested || current_data_state == DataStateError)
     {

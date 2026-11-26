@@ -99,7 +99,8 @@ static void insert_addr(uint8_t* addr, uint8_t addr_size) {
 static void render_callback(Canvas* const canvas, void* ctx) {
     furi_assert(ctx);
     const PluginState* plugin_state = ctx;
-    furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
+    // bounded acquire: never let the GUI thread wait on the app thread
+    if(furi_mutex_acquire(plugin_state->mutex, 25) != FuriStatusOk) return;
 
     uint8_t rate = 2;
     char sniffing[] = "Yes";
@@ -135,7 +136,8 @@ static void input_callback(InputEvent* input_event, void* ctx) {
     FuriMessageQueue* event_queue = ctx;
 
     PluginEvent event = {.type = EventTypeKey, .input = *input_event};
-    furi_message_queue_put(event_queue, &event, FuriWaitForever);
+    // never block the GUI thread: a full queue drops the event
+    furi_message_queue_put(event_queue, &event, 0);
 }
 
 static void hexlify(uint8_t* in, uint8_t size, char* out) {
@@ -148,7 +150,8 @@ static bool save_addr_to_file(
     Storage* storage,
     uint8_t* data,
     uint8_t size,
-    NotificationApp* notification) {
+    NotificationApp* notification,
+    FuriMutex* mutex) {
     size_t file_size = 0;
     uint8_t linesize = 0;
     char filepath[42] = {0};
@@ -206,7 +209,10 @@ static bool save_addr_to_file(
                 notification_message(notification, &sequence_success);
 
                 stream_free(stream);
+                // draw callback reads this counter
+                furi_mutex_acquire(mutex, FuriWaitForever);
                 unique_saved_count++;
+                furi_mutex_release(mutex);
                 return true;
             }
         }
@@ -260,7 +266,7 @@ static bool previously_confirmed(uint8_t* addr) {
     return found;
 }
 
-static void wrap_up(Storage* storage, NotificationApp* notification) {
+static void wrap_up(Storage* storage, NotificationApp* notification, FuriMutex* mutex) {
     uint8_t ch;
     uint8_t addr[5];
     uint8_t altaddr[5];
@@ -292,9 +298,12 @@ static void wrap_up(Storage* storage, NotificationApp* notification) {
         }
 
         if(ch <= LOGITECH_MAX_CHANNEL) {
+            // lock only for the fields the draw callback reads, radio/SD work stays outside
+            furi_mutex_acquire(mutex, FuriWaitForever);
             hexlify(addr, 5, top_address);
             found_count++;
-            save_addr_to_file(storage, addr, 5, notification);
+            furi_mutex_release(mutex);
+            save_addr_to_file(storage, addr, 5, notification, mutex);
             if(confirmed_idx < MAX_CONFIRMED) memcpy(confirmed[confirmed_idx++], addr, 5);
             break;
         }
@@ -369,7 +378,7 @@ int32_t nrfsniff_app(void* p) {
     PluginEvent event;
     for(bool processing = true; processing;) {
         FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
-        furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
+        // plugin_state->mutex is only taken around writes the draw callback reads
 
         if(event_status == FuriStatusOk) {
             // press events
@@ -380,10 +389,12 @@ int32_t nrfsniff_app(void* p) {
                     case InputKeyUp:
                         // toggle rate  1/2Mbps
                         if(!sniffing_state) {
+                            furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
                             if(target_rate == 0)
                                 target_rate = 8;
                             else
                                 target_rate = 0;
+                            furi_mutex_release(plugin_state->mutex);
                         }
                         break;
                     case InputKeyDown:
@@ -401,23 +412,30 @@ int32_t nrfsniff_app(void* p) {
                         // increment channel
                         //if(!sniffing_state && target_channel <= LOGITECH_MAX_CHANNEL)
                         //    target_channel++;
+                        furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
                         sample_time += 500;
+                        furi_mutex_release(plugin_state->mutex);
                         break;
                     case InputKeyLeft:
                         // decrement channel
                         //if(!sniffing_state && target_channel > 0) target_channel--;
+                        furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
                         if(sample_time > 500) sample_time -= 500;
+                        furi_mutex_release(plugin_state->mutex);
                         break;
                     case InputKeyOk:
                         // toggle sniffing
                         if(nrf_ready) {
-                            sniffing_state = !sniffing_state;
-                            if(sniffing_state) {
-                                clear_cache();
+                            bool sniffing_new = !sniffing_state;
+                            furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
+                            sniffing_state = sniffing_new;
+                            if(sniffing_new) clear_cache();
+                            furi_mutex_release(plugin_state->mutex);
+                            if(sniffing_new) {
                                 start_sniffing();
                                 start = furi_get_tick();
                             } else {
-                                wrap_up(storage, notification);
+                                wrap_up(storage, notification, plugin_state->mutex);
                             }
                         } else {
                             notification_message(notification, &sequence_error);
@@ -433,7 +451,7 @@ int32_t nrfsniff_app(void* p) {
                     case InputKeyBack:
                         if(nrf_ready) {
                             if(sniffing_state) {
-                                wrap_up(storage, notification);
+                                wrap_up(storage, notification, plugin_state->mutex);
                             }
                         } else {
                             if(nrf24_check_connected(nrf24_HANDLE)) {
@@ -464,15 +482,19 @@ int32_t nrfsniff_app(void* p) {
                         counts[idx]++;
 
                     top_addr = candidates[get_highest_idx()];
+                    furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
                     hexlify(top_addr, 5, top_address);
+                    furi_mutex_release(plugin_state->mutex);
                 }
             }
 
             if(furi_get_tick() - start >= sample_time) {
+                furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
                 target_channel++;
                 if(target_channel > LOGITECH_MAX_CHANNEL) target_channel = 2;
+                furi_mutex_release(plugin_state->mutex);
                 {
-                    wrap_up(storage, notification);
+                    wrap_up(storage, notification, plugin_state->mutex);
                     start_sniffing();
                 }
 
@@ -480,14 +502,15 @@ int32_t nrfsniff_app(void* p) {
             }
         }
 
-        furi_mutex_release(plugin_state->mutex);
         view_port_update(view_port);
     }
 
+    furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
     clear_cache();
     sample_time = DEFAULT_SAMPLE_TIME;
     target_rate = 8; // rate can be either 8 (2Mbps) or 0 (1Mbps)
     sniffing_state = false;
+    furi_mutex_release(plugin_state->mutex);
     nrf24_deinit();
 
     if(furi_hal_power_is_otg_enabled() && !otg_was_enabled) {

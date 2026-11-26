@@ -197,10 +197,6 @@ int32_t gps_app(void* p) {
                         }
 
                         gps_uart->view_state = CHANGE_BACKLIGHT;
-                        furi_mutex_release(gps_uart->mutex);
-                        view_port_update(view_port);
-                        furi_delay_ms(1000);
-                        gps_uart->view_state = NORMAL;
                         break;
                     default:
                         break;
@@ -219,10 +215,6 @@ int32_t gps_app(void* p) {
 
                         gps_uart_init_thread(gps_uart);
                         gps_uart->view_state = CHANGE_BAUDRATE;
-                        furi_mutex_release(gps_uart->mutex);
-                        view_port_update(view_port);
-                        furi_delay_ms(1000);
-                        gps_uart->view_state = NORMAL;
                         break;
                     case InputKeyRight:
                         gps_uart->speed_units++;
@@ -231,10 +223,6 @@ int32_t gps_app(void* p) {
                         }
 
                         gps_uart->view_state = CHANGE_SPEEDUNIT;
-                        furi_mutex_release(gps_uart->mutex);
-                        view_port_update(view_port);
-                        furi_delay_ms(1000);
-                        gps_uart->view_state = NORMAL;
                         break;
                     case InputKeyDown:
                         gps_uart->view_state = CHANGE_DEEPSLEEP;
@@ -245,11 +233,6 @@ int32_t gps_app(void* p) {
                             gps_uart->serial_handle,
                             (uint8_t*)"$PMTK161,0*28\r\n",
                             strlen("$PMTK161,0*28\r\n"));
-
-                        furi_mutex_release(gps_uart->mutex);
-                        view_port_update(view_port);
-                        furi_delay_ms(1000);
-                        gps_uart->view_state = NORMAL;
                         break;
                     case InputKeyBack:
                         processing = false;
@@ -260,7 +243,13 @@ int32_t gps_app(void* p) {
                 }
             }
         }
-        if(gps_uart->view_state == NORMAL) {
+        // release exactly once per iteration; the 1 s message delay runs without the lock
+        furi_mutex_release(gps_uart->mutex);
+        view_port_update(view_port);
+        if(gps_uart->view_state != NORMAL) {
+            furi_delay_ms(1000);
+            furi_mutex_acquire(gps_uart->mutex, FuriWaitForever);
+            gps_uart->view_state = NORMAL;
             furi_mutex_release(gps_uart->mutex);
             view_port_update(view_port);
         }

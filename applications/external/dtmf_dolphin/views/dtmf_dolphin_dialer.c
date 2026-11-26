@@ -278,20 +278,37 @@ static bool
     dtmf_dolphin_dialer_process_ok(DTMFDolphinDialer* dtmf_dolphin_dialer, InputEvent* event) {
     bool consumed = false;
 
-    with_view_model(
-        dtmf_dolphin_dialer->view,
-        DTMFDolphinDialerModel * model,
-        {
-            if(event->type == InputTypePress) {
-                model->playing = dtmf_dolphin_audio_play_tones(
-                    model->freq1, model->freq2, model->pulses, model->pulse_ms, model->gap_ms);
-            } else if(event->type == InputTypeRelease) {
-                // false from stop means nothing was playing, so the UI is not playing either way
-                dtmf_dolphin_audio_stop_tones();
-                model->playing = false;
-            }
-        },
-        true);
+    if(event->type == InputTypePress) {
+        // copy tone params under the lock, speaker wait happens outside it
+        float freq1 = 0.0f, freq2 = 0.0f;
+        uint16_t pulses = 0, pulse_ms = 0, gap_ms = 0;
+        with_view_model(
+            dtmf_dolphin_dialer->view,
+            DTMFDolphinDialerModel * model,
+            {
+                freq1 = model->freq1;
+                freq2 = model->freq2;
+                pulses = model->pulses;
+                pulse_ms = model->pulse_ms;
+                gap_ms = model->gap_ms;
+            },
+            false);
+        bool playing = dtmf_dolphin_audio_play_tones(freq1, freq2, pulses, pulse_ms, gap_ms);
+        with_view_model(
+            dtmf_dolphin_dialer->view,
+            DTMFDolphinDialerModel * model,
+            { model->playing = playing; },
+            true);
+    } else if(event->type == InputTypeRelease) {
+        // false from stop means nothing was playing, so the UI is not playing either way
+        // blocking tick loop runs outside the model lock
+        dtmf_dolphin_audio_stop_tones();
+        with_view_model(
+            dtmf_dolphin_dialer->view,
+            DTMFDolphinDialerModel * model,
+            { model->playing = false; },
+            true);
+    }
 
     return consumed;
 }
