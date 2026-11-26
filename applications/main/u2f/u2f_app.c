@@ -84,6 +84,8 @@ int32_t u2f_app(void* p) {
     U2fApp* u2f_app = u2f_app_alloc();
 
     view_dispatcher_run(u2f_app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(u2f_app->scene_manager);
 
     u2f_app_free(u2f_app);
 

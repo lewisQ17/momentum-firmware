@@ -262,6 +262,9 @@ int32_t nfc_playlist_main(void* p) {
    scene_manager_next_scene(nfc_playlist->scene_manager, NfcPlaylistScene_MainMenu);
    view_dispatcher_run(nfc_playlist->view_dispatcher);
 
+   // run the active scene's on_exit also when closed via loader/RPC
+   scene_manager_stop(nfc_playlist->scene_manager);
+
    furi_record_close(RECORD_GUI);
    nfc_playlist_free(nfc_playlist);
 

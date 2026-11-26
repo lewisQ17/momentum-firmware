@@ -200,6 +200,15 @@ int32_t pocsag_pager_app(void* p) {
 
     view_dispatcher_run(pocsag_pager_app->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(pocsag_pager_app->scene_manager);
+
+    // the receiver scene stops RX only on its Back event (its on_exit is empty), so stop a
+    // still-running RX worker + async RX here before the radio is put to sleep and freed
+    if(pocsag_pager_app->txrx->txrx_state == PCSGTxRxStateRx) {
+        pcsg_rx_end(pocsag_pager_app);
+    }
+
     pocsag_pager_app_free(pocsag_pager_app);
 
     return 0;

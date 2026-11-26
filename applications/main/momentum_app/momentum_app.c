@@ -635,6 +635,8 @@ extern int32_t momentum_app(void* p) {
 
     scene_manager_next_scene(app->scene_manager, first_scene);
     view_dispatcher_run(app->view_dispatcher);
+    // Run the active scene's on_exit also when closed via loader/RPC (before views/resources are freed)
+    scene_manager_stop(app->scene_manager);
     momentum_app_free(app);
     return 0;
 }

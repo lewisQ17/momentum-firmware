@@ -102,6 +102,8 @@ int32_t quac_app(void* p) {
     view_dispatcher_attach_to_gui(app->view_dispatcher, gui, ViewDispatcherTypeFullscreen);
     scene_manager_next_scene(app->scene_manager, QScene_Items);
     view_dispatcher_run(app->view_dispatcher);
+    // Run the active scene's on_exit also when closed via loader/RPC (before views/resources are freed)
+    scene_manager_stop(app->scene_manager);
 
     furi_record_close(RECORD_GUI);
     app_free(app);

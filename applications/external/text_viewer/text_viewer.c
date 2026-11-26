@@ -77,6 +77,8 @@ extern int32_t text_viewer(void* p) {
 
         scene_manager_next_scene(app->scene_manager, TextViewerSceneShow);
         view_dispatcher_run(app->view_dispatcher);
+        // Run the active scene's on_exit also when closed via loader/RPC (before views/resources are freed)
+        scene_manager_stop(app->scene_manager);
     } while(false);
 
     text_viewer_free(app);

@@ -99,6 +99,9 @@ int32_t scheduler_app(void* p) {
 
     view_dispatcher_run(scheduler_app->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(scheduler_app->scene_manager);
+
     scheduler_app_free(scheduler_app);
 
     return 0;

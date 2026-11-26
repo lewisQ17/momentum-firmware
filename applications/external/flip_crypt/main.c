@@ -3574,6 +3574,8 @@ int32_t flip_crypt_app(void* p) {
     view_dispatcher_attach_to_gui(app->view_dispatcher, gui, ViewDispatcherTypeFullscreen);
     scene_manager_next_scene(app->scene_manager, FlipCryptMainMenuScene);
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
     app_free(app);
     return 0; // return of 0 means success, return of 1 means failure
 }

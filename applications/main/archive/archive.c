@@ -153,6 +153,9 @@ int32_t archive_app(void* p) {
     scene_manager_next_scene(archive->scene_manager, ArchiveAppSceneBrowser);
     view_dispatcher_run(archive->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(archive->scene_manager);
+
     archive_free(archive);
     return 0;
 }

@@ -140,6 +140,8 @@ int32_t flipp_pomodoro_app(void *p)
     dolphin_deed(DolphinDeedPluginGameStart);
 
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
 
     flipp_pomodoro_app_free(app);
 

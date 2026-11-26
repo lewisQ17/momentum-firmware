@@ -115,5 +115,7 @@ void scene_on_exit_settings_scene(void* context) {
     FURI_LOG_I(TAG, "scene_on_exit_settings_scene");
     UNUSED(context);
     free(frequencyStr);
+    frequencyStr = NULL;
     free(volumeStr);
+    volumeStr = NULL;
 }

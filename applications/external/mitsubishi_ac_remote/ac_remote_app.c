@@ -71,6 +71,8 @@ int32_t ac_remote_app(void* p) {
     UNUSED(p);
     AC_RemoteApp* ac_remote_app = ac_remote_app_alloc();
     view_dispatcher_run(ac_remote_app->view_dispatcher);
+    // Run the active scene's on_exit also when closed via loader/RPC (before views/resources are freed)
+    scene_manager_stop(ac_remote_app->scene_manager);
     ac_remote_app_free(ac_remote_app);
     return 0;
 }

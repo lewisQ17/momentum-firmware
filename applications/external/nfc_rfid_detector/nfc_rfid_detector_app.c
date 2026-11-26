@@ -100,6 +100,8 @@ int32_t nfc_rfid_detector_app(void* p) {
     NfcRfidDetectorApp* nfc_rfid_detector_app = nfc_rfid_detector_app_alloc();
 
     view_dispatcher_run(nfc_rfid_detector_app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(nfc_rfid_detector_app->scene_manager);
 
     nfc_rfid_detector_app_free(nfc_rfid_detector_app);
 

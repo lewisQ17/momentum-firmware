@@ -313,6 +313,8 @@ int32_t passy_app(void* p) {
     scene_manager_next_scene(passy->scene_manager, PassySceneMainMenu);
 
     view_dispatcher_run(passy->view_dispatcher);
+    // Run the active scene's on_exit also when closed via loader/RPC (before views/resources are freed)
+    scene_manager_stop(passy->scene_manager);
 
     passy_free(passy);
 

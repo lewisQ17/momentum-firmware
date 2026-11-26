@@ -128,6 +128,8 @@ int32_t tone_gen_app(void* p) {
             scene_manager_next_scene(appContext->scene_manager, ToneGenAppScene_Starting);
             FURI_LOG_D(TAG, "Starting the view dispatcher");
             view_dispatcher_run(appContext->view_dispatcher);
+            // run the active scene's on_exit also when closed via loader/RPC
+            scene_manager_stop(appContext->scene_manager);
         }
 
         // free all memory

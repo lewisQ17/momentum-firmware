@@ -153,6 +153,8 @@ void mass_storage_app_free(MassStorageApp* app) {
 int32_t mass_storage_app(void* p) {
     MassStorageApp* mass_storage_app = mass_storage_app_alloc((char*)p);
     view_dispatcher_run(mass_storage_app->view_dispatcher);
+    // Run the active scene's on_exit also when closed via loader/RPC (before views/resources are freed)
+    scene_manager_stop(mass_storage_app->scene_manager);
     mass_storage_app_free(mass_storage_app);
     return 0;
 }

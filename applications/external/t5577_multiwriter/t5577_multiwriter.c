@@ -161,6 +161,8 @@ int32_t t5577_multiwriter_app(void* p) {
     }
 
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
 
     t5577_multiwriter_free(app);
 

@@ -320,6 +320,8 @@ int32_t nfc_magic_app(void* p) {
     scene_manager_next_scene(instance->scene_manager, NfcMagicSceneStart);
 
     view_dispatcher_run(instance->view_dispatcher);
+    // Run the active scene's on_exit also when closed via loader/RPC (before views/resources are freed)
+    scene_manager_stop(instance->scene_manager);
 
     nfc_magic_app_free(instance);
 

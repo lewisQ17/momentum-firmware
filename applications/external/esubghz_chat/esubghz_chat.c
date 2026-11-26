@@ -754,6 +754,9 @@ int32_t esubghz_chat(const char* args) {
         esubghz_bgloader_loop(state, bg_app_path);
     }
 
+    /* run the active scene's on_exit also when closed via loader/RPC */
+    scene_manager_stop(state->scene_manager);
+
     /* if it is running, stop the Sub-GHz worker */
     if(subghz_tx_rx_worker_is_running(state->subghz_worker)) {
         exit_chat(state);

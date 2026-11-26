@@ -40,6 +40,7 @@ static bool nfc_eink_app_back_event_callback(void* context) {
 
 static NfcEinkApp* nfc_eink_app_alloc() {
     NfcEinkApp* instance = malloc(sizeof(NfcEinkApp));
+    instance->listener = NULL;
 
     // Open GUI record
     instance->gui = furi_record_open(RECORD_GUI);
@@ -267,6 +268,8 @@ int32_t nfc_eink(/* void* p */) {
     scene_manager_next_scene(app->scene_manager, NfcEinkAppSceneStart);
 
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
 
     nfc_eink_app_free(app);
     return 0;

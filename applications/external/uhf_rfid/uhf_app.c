@@ -208,6 +208,8 @@ int32_t uhf_app_main(void* ctx) {
     // enter app
     scene_manager_next_scene(uhf_app->scene_manager, UHFSceneModuleInfo);
     view_dispatcher_run(uhf_app->view_dispatcher);
+    // run the active scene's on_exit (stops worker) also when closed via loader/RPC
+    scene_manager_stop(uhf_app->scene_manager);
     // disable 5v pin if enabled by app
     if(is_5v_enabled_by_app) {
         furi_hal_power_disable_otg();

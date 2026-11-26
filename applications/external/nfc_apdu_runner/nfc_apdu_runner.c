@@ -766,6 +766,8 @@ int32_t nfc_apdu_runner_app(void* p) {
 
     // 运行事件循环
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
 
     // 释放应用程序资源
     nfc_apdu_runner_free(app);

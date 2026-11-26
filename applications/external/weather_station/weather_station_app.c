@@ -123,6 +123,12 @@ WeatherStationApp* weather_station_app_alloc() {
 void weather_station_app_free(WeatherStationApp* app) {
     furi_assert(app);
 
+    // RX is only stopped by the receiver scene's Back event, not its on_exit; stop it here when
+    // closed via loader/RPC (no-op after Back, state is then Sleep)
+    if(app->txrx->txrx_state == WSTxRxStateRx) {
+        ws_rx_end(app);
+    }
+
     subghz_devices_sleep(app->txrx->radio_device);
     radio_device_loader_end(app->txrx->radio_device);
 
@@ -181,6 +187,8 @@ int32_t weather_station_app(void* p) {
     WeatherStationApp* weather_station_app = weather_station_app_alloc();
 
     view_dispatcher_run(weather_station_app->view_dispatcher);
+    // Run the active scene's on_exit also when closed via loader/RPC (before views/resources are freed)
+    scene_manager_stop(weather_station_app->scene_manager);
 
     weather_station_app_free(weather_station_app);
 

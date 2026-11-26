@@ -250,6 +250,8 @@ int32_t picopass_app(const char* p) {
     scene_manager_next_scene(picopass->scene_manager, start_scene);
 
     view_dispatcher_run(picopass->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(picopass->scene_manager);
 
     picopass_free(picopass);
 

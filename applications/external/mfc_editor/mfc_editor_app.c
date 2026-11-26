@@ -298,6 +298,9 @@ int32_t mfc_editor_app(void* p) {
 
     view_dispatcher_run(instance->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(instance->scene_manager);
+
     mfc_editor_app_free(instance);
 
     return 0;

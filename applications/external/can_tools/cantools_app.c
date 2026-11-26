@@ -2573,6 +2573,8 @@ int32_t cantools_app(void* p) {
 
     scene_manager_next_scene(app->scene_manager, CantoolsScenesMainMenuScene);
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
 
     app_free(app);
     furi_record_close(RECORD_GUI);

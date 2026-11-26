@@ -225,6 +225,9 @@ int32_t ibutton_converter_app(void* arg) {
 
     view_dispatcher_run(ibutton_converter->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(ibutton_converter->scene_manager);
+
     ibutton_converter_free(ibutton_converter);
     return 0;
 }

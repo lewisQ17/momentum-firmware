@@ -208,6 +208,8 @@ int32_t seos_app(void* p) {
     }
 
     view_dispatcher_run(seos->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(seos->scene_manager);
 
     seos_free(seos);
 

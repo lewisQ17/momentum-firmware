@@ -155,6 +155,8 @@ int32_t esp_flasher_app(void* p) {
     esp_flasher_app->uart = esp_flasher_usart_init(esp_flasher_app);
 
     view_dispatcher_run(esp_flasher_app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(esp_flasher_app->scene_manager);
 
     esp_flasher_app_free(esp_flasher_app);
 

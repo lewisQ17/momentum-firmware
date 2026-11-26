@@ -10,6 +10,7 @@ static void nfc_eink_stop_emulation(NfcEinkApp* instance, bool free_screen) {
     furi_delay_ms(5);
     nfc_listener_stop(instance->listener);
     nfc_listener_free(instance->listener);
+    instance->listener = NULL;
     if(free_screen) {
         nfc_eink_screen_free(instance->screen);
         instance->screen_loaded = false;
@@ -94,6 +95,10 @@ bool nfc_eink_scene_emulate_on_event(void* context, SceneManagerEvent event) {
 
 void nfc_eink_scene_emulate_on_exit(void* context) {
     NfcEinkApp* instance = context;
+    // Still emulating (e.g. app closed via loader/RPC): stop the listener here
+    if(instance->listener) {
+        nfc_eink_stop_emulation(instance, true);
+    }
     nfc_eink_blink_stop(instance);
     widget_reset(instance->widget);
 }

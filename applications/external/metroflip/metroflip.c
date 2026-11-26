@@ -263,6 +263,8 @@ extern int32_t metroflip(void* p) {
     scene_manager_set_scene_state(app->scene_manager, MetroflipSceneStart, MetroflipSceneAuto);
     scene_manager_next_scene(app->scene_manager, MetroflipSceneStart);
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
     metroflip_free(app);
     return 0;
 }

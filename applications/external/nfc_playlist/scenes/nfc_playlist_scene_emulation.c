@@ -256,8 +256,12 @@ void nfc_playlist_emulation_scene_on_exit(void* context) {
    NfcPlaylist* nfc_playlist = context;
    nfc_playlist_led_worker_stop(nfc_playlist->notification_app);
    dialog_ex_reset(nfc_playlist->views.dialog_ex);
-   nfc_playlist_worker_free(nfc_playlist->worker_info.worker);
-   nfc_playlist->worker_info.worker = NULL;
+   if(nfc_playlist->worker_info.worker) {
+      // stop+join first: the thread may still run when closed via loader/RPC (join is idempotent)
+      nfc_playlist_worker_stop(nfc_playlist->worker_info.worker);
+      nfc_playlist_worker_free(nfc_playlist->worker_info.worker);
+      nfc_playlist->worker_info.worker = NULL;
+   }
    if(header_str_static) {
       furi_string_free(header_str_static);
       header_str_static = NULL;

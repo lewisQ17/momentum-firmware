@@ -221,6 +221,8 @@ int32_t nfc_maker(void* p) {
     scene_manager_set_scene_state(app->scene_manager, NfcMakerSceneStart, NfcMakerSceneHttps);
     scene_manager_next_scene(app->scene_manager, NfcMakerSceneStart);
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
     nfc_maker_free(app);
     return 0;
 }

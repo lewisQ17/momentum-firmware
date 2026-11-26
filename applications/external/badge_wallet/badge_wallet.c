@@ -310,6 +310,8 @@ int32_t badge_wallet_app(void* p) {
 
     scene_manager_next_scene(app->scene_manager, BadgeWalletSceneStart);
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
 
     badge_wallet_free(app);
     return 0;

@@ -320,6 +320,8 @@ int32_t bad_usb_app(void* p) {
     BadUsbApp* bad_usb_app = bad_usb_app_alloc((char*)p);
 
     view_dispatcher_run(bad_usb_app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(bad_usb_app->scene_manager);
 
     bad_usb_app_free(bad_usb_app);
     return 0;

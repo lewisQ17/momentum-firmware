@@ -514,6 +514,8 @@ int32_t weebo_app(void* p) {
     }
 
     view_dispatcher_run(weebo->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(weebo->scene_manager);
 
     weebo_free(weebo);
 
