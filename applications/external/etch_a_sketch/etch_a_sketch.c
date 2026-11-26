@@ -144,7 +144,8 @@ void etch_draw_callback(Canvas* canvas, void* ctx) {
 void etch_input_callback(InputEvent* input_event, void* ctx) {
     furi_assert(ctx);
     FuriMessageQueue* event_queue = ctx;
-    furi_message_queue_put(event_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(event_queue, input_event, 0);
 }
 
 int32_t etch_a_sketch_app(void* p) {

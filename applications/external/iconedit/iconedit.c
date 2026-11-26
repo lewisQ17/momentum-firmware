@@ -164,7 +164,8 @@ bool iconedit_input_process_event(InputEvent* event, void* context) {
 
 void iconedit_input_callback(InputEvent* input_event, void* context) {
     FuriMessageQueue* event_queue = context;
-    furi_message_queue_put(event_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(event_queue, input_event, 0);
 }
 
 IconEdit* iconedit_app_alloc() {

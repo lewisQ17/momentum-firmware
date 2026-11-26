@@ -670,7 +670,8 @@ void poker_draw_callback(Canvas* canvas, void* ctx) {
 
 void poker_input_callback(InputEvent* input, void* ctx) {
     PokerPlayer* poker_player = ctx;
-    furi_message_queue_put(poker_player->event_queue, input, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(poker_player->event_queue, input, 0);
 }
 
 PokerPlayer* poker_player_alloc() {

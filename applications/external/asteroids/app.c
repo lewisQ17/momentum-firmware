@@ -1527,7 +1527,8 @@ void save_game(AsteroidsApp* app) {
  * in the while() loop of the app entry point function. */
 void input_callback(InputEvent* input_event, void* ctx) {
     AsteroidsApp* app = ctx;
-    furi_message_queue_put(app->event_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(app->event_queue, input_event, 0);
 }
 
 /* Allocate the application state and initialize a number of stuff.

@@ -82,7 +82,8 @@ static void clock_settings_alarm_draw_callback(Canvas* canvas, void* ctx) {
 static void clock_settings_alarm_input_callback(InputEvent* input_event, void* ctx) {
     furi_assert(ctx);
     FuriMessageQueue* event_queue = ctx;
-    furi_message_queue_put(event_queue, input_event, FuriWaitForever);
+    // GUI thread: never block here (full queue + exit would deadlock the GUI)
+    furi_message_queue_put(event_queue, input_event, 0);
 }
 
 void clock_settings_alarm_animation_callback(IconAnimation* instance, void* context) {
