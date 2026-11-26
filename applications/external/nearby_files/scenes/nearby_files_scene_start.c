@@ -56,5 +56,7 @@ bool nearby_files_scene_start_on_event(void* context, SceneManagerEvent event) {
 
 void nearby_files_scene_start_on_exit(void* context) {
     NearbyFilesApp* app = context;
+    // Back while waiting for a fix: the timer callback must not fire into a closing app
+    furi_timer_stop(app->gps_timer);
     widget_reset(app->widget);
 }

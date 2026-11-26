@@ -309,9 +309,10 @@ void pokemon_str_to_encoded_array(uint8_t* dest, char* src, size_t n) {
 
 /* decode n bytes, any currently noninputtable characters are set with '\0' */
 void pokemon_encoded_array_to_str(char* dest, uint8_t* src, size_t n) {
-    for(; n > 0; n--) {
-        *dest = pokemon_encoded_to_char(*src);
-        dest++;
-        src++;
+    if(n == 0) return;
+    for(size_t i = 0; i < n; i++) {
+        dest[i] = pokemon_encoded_to_char(src[i]);
     }
+    /* Always NUL terminate (names are at most n-1 chars), a link partner's name may lack TERM_ */
+    dest[n - 1] = '\0';
 }

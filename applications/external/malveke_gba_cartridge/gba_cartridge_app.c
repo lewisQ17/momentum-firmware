@@ -91,6 +91,7 @@ void gba_cartridge_app_app_free(GBACartridge* app) {
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_STORAGE);
     furi_record_close(RECORD_DIALOGS);
+    furi_record_close(RECORD_NOTIFICATION); // opened in alloc, was never closed
 
     app->gui = NULL;
     app->notification = NULL;

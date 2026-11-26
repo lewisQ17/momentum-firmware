@@ -13,9 +13,10 @@ char* sequential_file_resolve_path(
     int file_index = 0;
 
     do {
-        if(snprintf(
-               file_path, sizeof(file_path), "%s/%s_%d.%s", dir, prefix, file_index, extension) <
-           0) {
+        // prefix/extension come from the cartridge: cap them so the _N suffix never gets truncated
+        int written = snprintf(
+            file_path, sizeof(file_path), "%s/%.128s_%d.%.8s", dir, prefix, file_index, extension);
+        if(written < 0 || written >= (int)sizeof(file_path)) {
             return NULL;
         }
         file_index++;

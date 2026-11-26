@@ -178,7 +178,9 @@ int32_t app_radar_scanner(void* p) {
 
         // Exit on back key
         InputEvent event;
-        if(furi_message_queue_get(event_queue, &event, EVENT_PERIOD_MS) == FuriStatusOk) {
+        // idle (not active): nothing to poll, sleep until the next key press
+        if(furi_message_queue_get(event_queue, &event, active ? EVENT_PERIOD_MS : FuriWaitForever) ==
+           FuriStatusOk) {
             if(event.type == InputTypePress) {
                 if(event.key == InputKeyBack) {
                     break;
@@ -212,6 +214,11 @@ int32_t app_radar_scanner(void* p) {
     if(furi_hal_power_is_otg_enabled() && !otg_was_enabled) {
         furi_hal_power_disable_otg();
     }
+
+    // pins back to idle: no pull-downs left on, PA6 no longer driven low
+    furi_hal_gpio_init_simple(radarPin, GpioModeAnalog);
+    furi_hal_gpio_init_simple(altRadarPin, GpioModeAnalog);
+    furi_hal_gpio_init_simple(altGroundPin, GpioModeAnalog);
 
     view_port_enabled_set(view_port, false);
     gui_remove_view_port(gui, view_port);

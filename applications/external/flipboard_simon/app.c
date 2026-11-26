@@ -510,6 +510,8 @@ int32_t flipboard_simon_app(void* p) {
     view_dispatcher_run(flipboard_get_view_dispatcher(app));
 
     flipboard_free(app);
+    // freed only after flipboard_free so no draw/input callback can still use it
+    free(simon_game);
 
     return 0;
 }

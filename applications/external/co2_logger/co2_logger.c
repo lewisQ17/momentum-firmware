@@ -12,6 +12,7 @@
 struct co2_logger {
     FuriStreamBuffer* stream;
     FuriHalSerialHandle* serial;
+    bool otg_enabled_by_app; // 5V was off before open(): only then close() switches it off
 };
 
 static uint8_t co2_logger_checksum(uint8_t* packet) {
@@ -45,6 +46,7 @@ co2_logger* co2_logger_alloc() {
     }
     
     FURI_LOG_D("CO2", "Allocating stream buffer");
+    instance->otg_enabled_by_app = false;
     instance->stream = furi_stream_buffer_alloc(32, co2_logger_UART_EXCHANGE_SIZE);
     if (!instance->stream) {
         FURI_LOG_E("CO2", "Failed to allocate stream buffer");
@@ -92,6 +94,7 @@ void co2_logger_open(co2_logger* instance) {
         instance->serial, co2_logger_uart_worker_uart_cb, instance->stream, false);
     
     FURI_LOG_D("CO2", "Enabling OTG power");
+    instance->otg_enabled_by_app = !furi_hal_power_is_otg_enabled();
     furi_hal_power_enable_otg();
     
     FURI_LOG_I("CO2", "CO2 logger opened successfully");
@@ -102,7 +105,10 @@ void co2_logger_close(co2_logger* instance) {
     FURI_LOG_I("CO2", "Closing CO2 logger connection");
     
     FURI_LOG_D("CO2", "Disabling OTG power");
-    furi_hal_power_disable_otg();
+    if(instance->otg_enabled_by_app && furi_hal_power_is_otg_enabled()) {
+        furi_hal_power_disable_otg();
+    }
+    instance->otg_enabled_by_app = false;
     
     FURI_LOG_D("CO2", "Stopping async RX");
     furi_hal_serial_async_rx_stop(instance->serial);

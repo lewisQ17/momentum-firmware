@@ -17,7 +17,8 @@ float getMinDistance(float x, float v1, float v2) {
 }
 
 float normalizeAperture(float a) {
-    for(int i = 0; i < AP_NUM; i++) {
+    // i + 1 must stay inside the table
+    for(int i = 0; i < AP_NUM - 1; i++) {
         float a1 = aperture_numbers[i];
         float a2 = aperture_numbers[i + 1];
 
@@ -26,11 +27,13 @@ float normalizeAperture(float a) {
         }
     }
 
-    return 0;
+    // out of range: clamp to the first/last table value instead of 0
+    return a <= aperture_numbers[0] ? aperture_numbers[0] : aperture_numbers[AP_NUM - 1];
 }
 
 float normalizeTime(float a) {
-    for(int i = 0; i < SPEED_NUM; i++) {
+    // i + 1 must stay inside the table
+    for(int i = 0; i < SPEED_NUM - 1; i++) {
         float a1 = speed_numbers[i];
         float a2 = speed_numbers[i + 1];
 
@@ -39,5 +42,6 @@ float normalizeTime(float a) {
         }
     }
 
-    return 0;
+    // out of range: clamp to the first/last table value instead of 0
+    return a <= speed_numbers[0] ? speed_numbers[0] : speed_numbers[SPEED_NUM - 1];
 }

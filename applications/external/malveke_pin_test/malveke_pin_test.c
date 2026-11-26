@@ -1,6 +1,7 @@
 #include "malveke_pin_test.h"
 #include <stdio.h> // Para sprintf
 #include <string.h> // Para strlen
+#include <expansion/expansion.h>
 
 static void gb_live_camera_view_draw_callback(Canvas* canvas, void* _model) {
     UartDumpModel* model = _model;
@@ -20,8 +21,39 @@ static uint32_t gb_live_camera_exit(void* context) {
     UNUSED(context);
     return VIEW_NONE;
 }
+// Shows the pin and sends the matching gbpin command (used by the OK sweep).
+static void gb_live_camera_sweep_send_pin(UartEchoApp* app, int pin) {
+    with_view_model(
+        app->view,
+        UartDumpModel * model,
+        {
+            model->pin = pin;
+            char gbpin_start_command[80]; // A reasonably sized buffer.
+            snprintf(gbpin_start_command, sizeof(gbpin_start_command), "gbpin -p %d\n", model->pin);
+            furi_hal_serial_tx(
+                app->serial_handle, (uint8_t*)gbpin_start_command, strlen(gbpin_start_command));
+        },
+        true);
+}
+
+static void gb_live_camera_sweep_timer_callback(void* context) {
+    UartEchoApp* app = context;
+    if(app->sweep_pin <= 31) {
+        gb_live_camera_sweep_send_pin(app, app->sweep_pin);
+        app->sweep_pin++;
+    } else {
+        app->sweeping = false;
+        furi_timer_stop(app->sweep_timer);
+    }
+}
+
 static void gb_live_camera_app_free(UartEchoApp* app) {
     furi_assert(app);
+
+    // stop the sweep before the view and serial handle go away
+    furi_timer_stop(app->sweep_timer);
+    furi_timer_free(app->sweep_timer);
+    app->sweep_timer = NULL;
 
     // furi_thread_flags_set(furi_thread_get_id(app->worker_thread), WorkerEventStop);
     // furi_thread_join(app->worker_thread);
@@ -42,7 +74,6 @@ static void gb_live_camera_app_free(UartEchoApp* app) {
 
     // Close gui record
     furi_record_close(RECORD_GUI);
-    furi_record_close(RECORD_NOTIFICATION);
     app->gui = NULL;
 
     // furi_stream_buffer_free(app->rx_stream);
@@ -53,6 +84,10 @@ static void gb_live_camera_app_free(UartEchoApp* app) {
 static bool gb_live_camera_view_input_callback(InputEvent* event, void* context) {
     UartEchoApp* app = context;
     if(event->type == InputTypePress) {
+        if(app->sweeping && event->key != InputKeyBack) {
+            // a sweep is running: ignore pin input until it is done (Back still exits)
+            return false;
+        }
         if(event->key == InputKeyRight) {
             with_view_model(
                 app->view,
@@ -95,26 +130,11 @@ static bool gb_live_camera_view_input_callback(InputEvent* event, void* context)
                 },
                 true);
         } else if(event->key == InputKeyOk) {
-            for(int i = 2; i <= 31; i++) {
-                with_view_model(
-                    app->view,
-                    UartDumpModel * model,
-                    {
-                        model->pin = i;
-                        char gbpin_start_command[80]; // A reasonably sized buffer.
-                        snprintf(
-                            gbpin_start_command,
-                            sizeof(gbpin_start_command),
-                            "gbpin -p %d\n",
-                            model->pin);
-                        furi_hal_serial_tx(
-                            app->serial_handle,
-                            (uint8_t*)gbpin_start_command,
-                            strlen(gbpin_start_command));
-                    },
-                    true);
-                furi_delay_ms(600);
-            }
+            // sweep pins 2..31, one every 600 ms, from a timer so Back stays responsive
+            app->sweeping = true;
+            gb_live_camera_sweep_send_pin(app, 2);
+            app->sweep_pin = 3;
+            furi_timer_start(app->sweep_timer, furi_ms_to_ticks(600));
         }
     }
     return false;
@@ -141,6 +161,10 @@ static UartEchoApp* gb_live_camera_app_alloc() {
 
     with_view_model(app->view, UartDumpModel * model, { model->pin = 2; }, true);
 
+    app->sweep_timer =
+        furi_timer_alloc(gb_live_camera_sweep_timer_callback, FuriTimerTypePeriodic, app);
+    app->sweeping = false;
+
     view_set_previous_callback(app->view, gb_live_camera_exit);
     view_dispatcher_add_view(app->view_dispatcher, 0, app->view);
     view_dispatcher_switch_to_view(app->view_dispatcher, 0);
@@ -163,9 +187,17 @@ static UartEchoApp* gb_live_camera_app_alloc() {
 int32_t malveke_pin_test_app(void* p) {
     UNUSED(p);
 
+    // Disable expansion protocol so it does not hold the USART we acquire below
+    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+    expansion_disable(expansion);
+
     UartEchoApp* app = gb_live_camera_app_alloc();
     view_dispatcher_run(app->view_dispatcher);
     gb_live_camera_app_free(app);
+
+    // Return previous state of expansion
+    expansion_enable(expansion);
+    furi_record_close(RECORD_EXPANSION);
 
     furi_hal_power_disable_otg();
 

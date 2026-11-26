@@ -14,13 +14,18 @@ void gpio_scene_reader_ok_callback(InputType type, void* context) {
 void gpio_scene_reader_on_enter(void* context) {
     GpioApp* app = context;
     gpio_item_configure_all_pins(GpioModeInput);
+    gpio_reader_reset(app->gpio_reader);
     gpio_reader_set_ok_callback(app->gpio_reader, gpio_scene_reader_ok_callback, app);
     view_dispatcher_switch_to_view(app->view_dispatcher, GpioAppViewGpioReader);
 }
 
 bool gpio_scene_reader_on_event(void* context, SceneManagerEvent event) {
-    UNUSED(context);
-    UNUSED(event);
+    GpioApp* app = context;
+
+    // refresh the live pin levels, they are read in the draw callback
+    if(event.type == SceneManagerEventTypeTick) {
+        gpio_reader_redraw(app->gpio_reader);
+    }
     return false;
 }
 

@@ -15,3 +15,7 @@ void gpio_reader_set_ok_callback(
     GpioReader* gpio_reader,
     GpioReaderOkCallback callback,
     void* context);
+
+void gpio_reader_redraw(GpioReader* gpio_reader);
+
+void gpio_reader_reset(GpioReader* gpio_reader);

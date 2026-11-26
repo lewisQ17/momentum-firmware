@@ -88,7 +88,7 @@ void boilerplate_scene_1_draw(Canvas* canvas, BoilerplateScene1Model* model) {
 
         if(app->camera_ram_sav) {
             storage_file_seek(app->camera_ram_sav, (app->page) + 0x11B2, true);
-            uint8_t status;
+            uint8_t status = 0; // stays 0 if the read fails
             storage_file_read(app->camera_ram_sav, &status, 1);
             FURI_LOG_I(TAG, "Status/Nº Photo \"%x\"\n", status);
             storage_file_seek(app->camera_ram_sav, count, true);

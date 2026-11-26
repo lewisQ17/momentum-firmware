@@ -289,6 +289,10 @@ bool action_model_set_keystroke(
  * @param count The number of keystrokes for the button.
  */
 void action_model_append_keystroke(ActionModel* model, uint16_t button_code, uint8_t count) {
+    // keystrokes_count is a uint8_t: refuse the 256th entry (it would wrap to 0 and realloc(.., 0))
+    if(model->keystrokes_count == UINT8_MAX) {
+        return;
+    }
     model->keystrokes_count++;
     if(model->keystrokes == NULL) {
         model->keystrokes = malloc(sizeof(Keystroke));

@@ -106,6 +106,8 @@ int32_t spi_mem_app(void* p) {
     UNUSED(p);
     SPIMemApp* instance = spi_mem_alloc();
     view_dispatcher_run(instance->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(instance->scene_manager);
     spi_mem_free(instance);
     return 0;
 }

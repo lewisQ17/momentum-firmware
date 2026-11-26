@@ -50,6 +50,7 @@ LightMeterApp* lightmeter_app_alloc(uint32_t first_scene) {
     FlipperFormat* cfg_fmt = flipper_format_file_alloc(app->storage);
     if(flipper_format_file_open_existing(cfg_fmt, furi_string_get_cstr(app->cfg_path))) {
         flipper_format_read_int32(cfg_fmt, "iso", &app->config->iso, 1);
+        flipper_format_read_int32(cfg_fmt, "nd", &app->config->nd, 1);
         flipper_format_read_int32(cfg_fmt, "aperture", &app->config->aperture, 1);
         flipper_format_read_int32(cfg_fmt, "dome", &app->config->dome, 1);
         flipper_format_read_int32(cfg_fmt, "backlight", &app->config->backlight, 1);
@@ -63,6 +64,7 @@ LightMeterApp* lightmeter_app_alloc(uint32_t first_scene) {
 
     // The values are used as array indices: fall back to defaults when out of range
     if((uint32_t)app->config->iso >= ISO_NUM) app->config->iso = DEFAULT_ISO;
+    if((uint32_t)app->config->nd >= ND_NUM) app->config->nd = DEFAULT_ND;
     if((uint32_t)app->config->aperture >= AP_NUM) app->config->aperture = DEFAULT_APERTURE;
     if((uint32_t)app->config->dome > WITH_DOME) app->config->dome = DEFAULT_DOME;
     if((uint32_t)app->config->backlight > BACKLIGHT_ON) app->config->backlight = DEFAULT_BACKLIGHT;
@@ -72,6 +74,11 @@ LightMeterApp* lightmeter_app_alloc(uint32_t first_scene) {
     if((uint32_t)app->config->device_addr > ADDR_HIGH) app->config->device_addr = ADDR_LOW;
     if((uint32_t)app->config->sensor_type > SENSOR_MAX44009)
         app->config->sensor_type = SENSOR_BH1750;
+
+    // Saved backlight=On has to be applied at start (app_free pairs it with enforce_auto)
+    if(app->config->backlight == BACKLIGHT_ON) {
+        notification_message(app->notifications, &sequence_display_backlight_enforce_on);
+    }
 
     // Sensor
     lightmeter_app_i2c_init_sensor(app);
@@ -163,6 +170,8 @@ int32_t lightmeter_app(void* p) {
     uint32_t first_scene = LightMeterAppSceneMain;
     LightMeterApp* app = lightmeter_app_alloc(first_scene);
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
     lightmeter_app_free(app);
     return 0;
 }

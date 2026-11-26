@@ -15,6 +15,7 @@
 #include <string.h> // Para strlen
 
 static uint64_t last_toggle_time = 0;
+#define GB_RAM_WRITE_MAX_SIZE (64 * 1024)
 struct GBCartridgeScene5 {
     View* view;
     GBCartridgeScene5Callback callback;
@@ -76,10 +77,16 @@ static int32_t cartridge_writting_worker_thread(void* thread_context) {
     UNUSED(app);
     File* file = storage_file_alloc(app->storage);
 
-    if(select_ram_file(app, file)) {
-        uint16_t fileSize = storage_file_size(file);
+    // a .sav must fit the cartridge RAM write (32 KB typical); 0 and oversized files are refused
+    uint32_t fileSize = 0;
+    bool file_selected = select_ram_file(app, file);
+    if(file_selected) {
+        uint64_t size64 = storage_file_size(file);
+        if(size64 > 0 && size64 <= GB_RAM_WRITE_MAX_SIZE) fileSize = (uint32_t)size64;
+    }
 
-        FURI_LOG_I(TAG, "fileSize: %d ", fileSize);
+    if(fileSize > 0) {
+        FURI_LOG_I(TAG, "fileSize: %lu ", (unsigned long)fileSize);
         with_view_model(
             app->gb_cartridge_scene_5->view,
             GameBoyCartridgeRAMWriteModel * model,
@@ -93,8 +100,8 @@ static int32_t cartridge_writting_worker_thread(void* thread_context) {
         snprintf(
             gbcartridge_start_command,
             sizeof(gbcartridge_start_command),
-            "gbcartridge -w -a %d\n",
-            fileSize);
+            "gbcartridge -w -a %lu\n",
+            (unsigned long)fileSize);
 
         uart_tx(app->uart, (uint8_t*)gbcartridge_start_command, strlen(gbcartridge_start_command));
 
@@ -110,13 +117,14 @@ static int32_t cartridge_writting_worker_thread(void* thread_context) {
                 model->start_time = furi_hal_rtc_get_timestamp(); // Registra el tiempo de inicio
             },
             true);
-        the_savefile = malloc(fileSize); // to be freed by caller
+        the_savefile = malloc(fileSize); // freed below
         uint8_t* buf_ptr = the_savefile;
         size_t read = 0;
         while(read < fileSize) {
             size_t to_read = fileSize - read;
             if(to_read > UINT16_MAX) to_read = UINT16_MAX;
             uint16_t now_read = storage_file_read(file, buf_ptr, (uint16_t)to_read);
+            if(now_read == 0) break; // read error / short file: do not spin forever
             read += now_read;
             buf_ptr += now_read;
         }
@@ -129,11 +137,18 @@ static int32_t cartridge_writting_worker_thread(void* thread_context) {
             { model->event_title = "Writing Cartridge..."; },
             true);
         free(the_savefile);
-
-        if(file && storage_file_is_open(file)) {
-            storage_file_close(file);
-        }
     }
+
+    // the File is local to this call: drop the model's pointer, close and free it on every path
+    with_view_model(
+        app->gb_cartridge_scene_5->view,
+        GameBoyCartridgeRAMWriteModel * model,
+        { model->selectedfile = NULL; },
+        false);
+    if(storage_file_is_open(file)) {
+        storage_file_close(file);
+    }
+    storage_file_free(file);
 
     return 0;
 }

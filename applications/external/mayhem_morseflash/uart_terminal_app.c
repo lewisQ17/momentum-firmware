@@ -113,6 +113,8 @@ int32_t uart_terminal_app(void* p) {
     furi_delay_ms(1);
 
     view_dispatcher_run(uart_terminal_app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(uart_terminal_app->scene_manager);
 
     uart_terminal_app_free(uart_terminal_app);
 

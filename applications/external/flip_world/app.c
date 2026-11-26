@@ -29,6 +29,8 @@ int32_t flip_world_main(void *p)
     if (!fhttp)
     {
         easy_flipper_dialog("FlipperHTTP Error", "The UART is likely busy.\nEnsure you have the correct\nflash for your board then\nrestart your Flipper Zero.");
+        furi_hal_gpio_init_simple(&gpio_ext_pc1, GpioModeAnalog); // give PC1 back
+        flip_world_app_free(app); // otherwise the dispatcher/view port stays on the GUI after exit
         return -1;
     }
 
@@ -38,6 +40,8 @@ int32_t flip_world_main(void *p)
     {
         FURI_LOG_E(TAG, "Failed to ping the device");
         flipper_http_free(fhttp);
+        furi_hal_gpio_init_simple(&gpio_ext_pc1, GpioModeAnalog); // give PC1 back
+        flip_world_app_free(app);
         return -1;
     }
 
@@ -73,6 +77,9 @@ int32_t flip_world_main(void *p)
 
     // Free the resources used by the FlipWorld application
     flip_world_app_free(app);
+
+    // stop driving PC1 low (init in main) so it cannot fight an expansion board after the app closes
+    furi_hal_gpio_init_simple(&gpio_ext_pc1, GpioModeAnalog);
 
     // Return 0 to indicate success
     return 0;

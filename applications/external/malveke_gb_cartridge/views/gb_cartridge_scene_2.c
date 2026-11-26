@@ -37,11 +37,13 @@ void dump_handle_rx_data_cb(uint8_t* buf, size_t len, void* context) {
     UNUSED(len);
     UNUSED(buf);
     GBCartridge* instance = context;
-    // cart_rom only exists/is open after OK was pressed
+    // cart_rom only exists/is open after OK was pressed; the mutex keeps Back from freeing it mid-write
+    furi_mutex_acquire(instance->dump_mutex, FuriWaitForever);
     if(instance->is_writing_rom && instance->cart_rom &&
        storage_file_is_open(instance->cart_rom)) {
         storage_file_write(instance->cart_rom, buf, len);
     }
+    furi_mutex_release(instance->dump_mutex);
     with_view_model(
         instance->gb_cartridge_scene_2->view,
         GameBoyCartridgeROMBackupModel * model,
@@ -254,7 +256,8 @@ bool gb_cartridge_scene_2_input(InputEvent* event, void* context) {
                     // // Unregister rx callback
                     uart_set_handle_rx_data_cb(app->uart, NULL);
                     uart_set_handle_rx_data_cb(app->lp_uart, NULL);
-                    //  Close file
+                    //  Close file (not while the LPUART worker is still writing to it)
+                    furi_mutex_acquire(app->dump_mutex, FuriWaitForever);
                     app->is_writing_rom = false;
                     if(app->cart_rom) {
                         if(storage_file_is_open(app->cart_rom)) {
@@ -263,6 +266,7 @@ bool gb_cartridge_scene_2_input(InputEvent* event, void* context) {
                         storage_file_free(app->cart_rom);
                         app->cart_rom = NULL;
                     }
+                    furi_mutex_release(app->dump_mutex);
                     notification_message(
                         app->notification, &sequence_display_backlight_enforce_auto);
                     instance->callback(GBCartridgeCustomEventScene2Back, instance->context);
@@ -284,6 +288,7 @@ bool gb_cartridge_scene_2_input(InputEvent* event, void* context) {
                     model->start_time =
                         furi_hal_rtc_get_timestamp(); // Registra el tiempo de inicio
                     // Reuse one File: a repeated OK restarts the dump instead of leaking
+                    furi_mutex_acquire(app->dump_mutex, FuriWaitForever);
                     app->is_writing_rom = false;
                     if(!app->cart_rom) {
                         app->cart_rom = storage_file_alloc(app->storage);
@@ -291,12 +296,15 @@ bool gb_cartridge_scene_2_input(InputEvent* event, void* context) {
                         storage_file_close(app->cart_rom);
                     }
 
-                    if(storage_file_open(
-                           app->cart_rom,
-                           model->cart_dump_rom_filename_sequential,
-                           FSAM_WRITE,
-                           FSOM_CREATE_ALWAYS)) {
-                        app->is_writing_rom = true;
+                    bool dump_opened = storage_file_open(
+                        app->cart_rom,
+                        model->cart_dump_rom_filename_sequential,
+                        FSAM_WRITE,
+                        FSOM_CREATE_ALWAYS);
+                    if(dump_opened) app->is_writing_rom = true;
+                    furi_mutex_release(app->dump_mutex);
+
+                    if(dump_opened) {
                         const char gbcartridge_command[] = "gbcartridge -d -o\n";
                         uart_tx(
                             app->uart, (uint8_t*)gbcartridge_command, strlen(gbcartridge_command));

@@ -558,6 +558,7 @@ FuriString *flipper_http_load_from_file(char *file_path)
     {
         FURI_LOG_E(HTTP_TAG, "Error reading from file.");
         furi_string_free(str_result);
+        free(buffer);
         storage_file_close(file);
         storage_file_free(file);
         furi_record_close(RECORD_STORAGE);
@@ -1306,7 +1307,7 @@ static void flipper_http_rx_callback(const char *line, void *context)
                 const char marker[] = "[GET/END]";
                 const size_t marker_len = sizeof(marker) - 1; // Exclude null terminator
 
-                for (size_t i = 0; i <= fhttp->file_buffer_len - marker_len; i++)
+                for (size_t i = 0; i + marker_len <= fhttp->file_buffer_len; i++) // no size_t underflow when the buffer is shorter than the marker
                 {
                     // Check if the marker is found
                     if (memcmp(&fhttp->file_buffer[i], marker, marker_len) == 0)
@@ -1320,13 +1321,15 @@ static void flipper_http_rx_callback(const char *line, void *context)
                 }
 
                 // If there is data left in the buffer, append it to the file
-                if (fhttp->file_buffer_len > 0)
+                // (just_started_bytes: a short reply with no earlier flush replaces the old file, also when empty)
+                if (fhttp->file_buffer_len > 0 || fhttp->just_started_bytes)
                 {
-                    if (!flipper_http_append_to_file(fhttp->file_buffer, fhttp->file_buffer_len, false, fhttp->file_path))
+                    if (!flipper_http_append_to_file(fhttp->file_buffer, fhttp->file_buffer_len, fhttp->just_started_bytes, fhttp->file_path))
                     {
                         FURI_LOG_E(HTTP_TAG, "Failed to append data to file.");
                     }
                     fhttp->file_buffer_len = 0;
+                    fhttp->just_started_bytes = false;
                 }
             }
 
@@ -1376,7 +1379,7 @@ static void flipper_http_rx_callback(const char *line, void *context)
                 const char marker[] = "[POST/END]";
                 const size_t marker_len = sizeof(marker) - 1; // Exclude null terminator
 
-                for (size_t i = 0; i <= fhttp->file_buffer_len - marker_len; i++)
+                for (size_t i = 0; i + marker_len <= fhttp->file_buffer_len; i++) // no size_t underflow when the buffer is shorter than the marker
                 {
                     // Check if the marker is found
                     if (memcmp(&fhttp->file_buffer[i], marker, marker_len) == 0)
@@ -1390,13 +1393,15 @@ static void flipper_http_rx_callback(const char *line, void *context)
                 }
 
                 // If there is data left in the buffer, append it to the file
-                if (fhttp->file_buffer_len > 0)
+                // (just_started_bytes: a short reply with no earlier flush replaces the old file, also when empty)
+                if (fhttp->file_buffer_len > 0 || fhttp->just_started_bytes)
                 {
-                    if (!flipper_http_append_to_file(fhttp->file_buffer, fhttp->file_buffer_len, false, fhttp->file_path))
+                    if (!flipper_http_append_to_file(fhttp->file_buffer, fhttp->file_buffer_len, fhttp->just_started_bytes, fhttp->file_path))
                     {
                         FURI_LOG_E(HTTP_TAG, "Failed to append data to file.");
                     }
                     fhttp->file_buffer_len = 0;
+                    fhttp->just_started_bytes = false;
                 }
             }
 

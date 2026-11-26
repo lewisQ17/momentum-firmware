@@ -112,13 +112,14 @@ static void _gpio_change_event_callback(void* context) {
     } else if(interface == &unitemp_1w) {
         OneWireSensor* instance = sensor->instance;
 
+        // read the old pin before the old bus is released (it may be freed)
+        const SensorGpioPin* old_bus_pin = instance->bus->bus_pin;
         //removing old bus
         unitemp_onewire_bus_free(
-            instance
-                ->bus); //This making a problem for developers. The function deinitializes the port and, for example, disables UART or SWD
+            instance->bus,
+            instance); //This making a problem for developers. The function deinitializes the port and, for example, disables UART or SWD
         //making new bus
-        const SensorGpioPin* bus_pin =
-            unitemp_gpio_get_aviable_pin(interface, index, instance->bus->bus_pin);
+        const SensorGpioPin* bus_pin = unitemp_gpio_get_aviable_pin(interface, index, old_bus_pin);
         instance->bus = unitemp_onewire_bus_alloc(bus_pin);
 
         variable_item_set_current_value_text(gpio_pin_item, bus_pin->name);

@@ -123,7 +123,9 @@ int GetObjectInfo(AppMTP* mtp, uint32_t handle, uint8_t* buffer) {
         header->format = MTP_FORMAT_UNDEFINED;
     }
 
-    header->compressed_size = fileinfo.size;
+    // MTP's 0xFFFFFFFF marks sizes that do not fit in 32 bits
+    header->compressed_size = (fileinfo.size >= 0xFFFFFFFFULL) ? 0xFFFFFFFFUL :
+                                                                 (uint32_t)fileinfo.size;
 
     header->thumb_format = 0;
     header->thumb_compressed_size = 0;
@@ -179,7 +181,17 @@ void GetObject(AppMTP* mtp, uint32_t transaction_id, uint32_t handle) {
         return;
     }
 
-    uint32_t size = storage_file_size(file);
+    uint64_t size64 = storage_file_size(file);
+    if(size64 >= 0xFFFFFFFFULL) {
+        // the 32-bit container length cannot describe it: refuse instead of sending a corrupt transfer
+        FURI_LOG_E("MTP", "Object too large for GetObject: %s", path);
+        storage_file_close(file);
+        storage_file_free(file);
+        send_mtp_response(
+            mtp, MTP_TYPE_RESPONSE, MTP_RESP_GENERAL_ERROR, transaction_id, NULL);
+        return;
+    }
+    uint32_t size = (uint32_t)size64;
 
     struct GetObjectContext ctx = {
         .file = file,

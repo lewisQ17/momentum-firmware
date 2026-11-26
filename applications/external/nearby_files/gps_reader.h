@@ -12,6 +12,9 @@
 
 #define GPS_RX_BUF_SIZE 512
 
+// A fix older than this is reported as not valid (fix lost, module unplugged)
+#define GPS_FIX_MAX_AGE_MS 10000
+
 typedef struct {
     bool valid;
     float latitude;
@@ -28,6 +31,7 @@ typedef struct {
     FuriHalSerialHandle* serial_handle;
     uint32_t baudrate;
     GpsCoordinates coordinates;
+    uint32_t last_fix_tick; // tick of the last sentence that carried a valid fix
 } GpsReader;
 
 // Initialize GPS reader with initial baudrate.

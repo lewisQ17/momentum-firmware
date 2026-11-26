@@ -42,6 +42,7 @@ void flipboard_leds_free(FlipboardLeds* leds) {
 
     furi_hal_gpio_init_simple(pin_ws2812_leds, GpioModeAnalog);
     furi_hal_gpio_init_simple(pin_status_led, GpioModeAnalog);
+    free(leds);
 }
 
 /**

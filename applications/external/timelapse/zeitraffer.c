@@ -136,7 +136,9 @@ int32_t zeitraffer_app(void* p) {
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
 
     // Конфигурим пины
-    gpio_item_configure_all_pins(GpioModeOutputPushPull);
+    // Only the two shutter pins (PB2, PC3) are driven, leave the other header pins untouched
+    gpio_item_configure_pin(4, GpioModeOutputPushPull);
+    gpio_item_configure_pin(5, GpioModeOutputPushPull);
 
     // Создаем периодический таймер с коллбэком, куда в качестве
     // контекста будет передаваться наша очередь событий
@@ -384,6 +386,9 @@ int32_t zeitraffer_app(void* p) {
         if(Count < -1)
             Count = 0; // А тут даём, бо 0 кадров это бесконечная съёмка, а -1 кадров - BULB
     }
+
+    // Return the header pins to analog (shutter released above)
+    gpio_item_configure_all_pins(GpioModeAnalog);
 
     // Схороняем настройки
     FlipperFormat* save = flipper_format_file_alloc(storage);

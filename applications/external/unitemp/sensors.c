@@ -178,6 +178,7 @@ bool unitemp_sensor_delete(Sensor* sensor) {
         }
     } else {
         free(sensors_list);
+        sensors_list = NULL; // a later add() reallocs from NULL, not from the freed pointer
     }
     UNITEMP_DEBUG("Sensor successfully deleted");
     return true;
@@ -302,6 +303,7 @@ void unitemp_sensors_free(void) {
         unitemp_sensor_free(sensors_list[i]);
     }
     free(sensors_list);
+    sensors_list = NULL;
     sensors_count = 0;
 }
 
@@ -467,7 +469,11 @@ bool unitemp_sensors_save(void* context) {
         //Replacing a space with ?
 
         char tmp_sensor_name[11];
-        strcpy(tmp_sensor_name, sensor->name);
+        // an empty name would make the line unparseable on load: fall back to the model name
+        strlcpy(
+            tmp_sensor_name,
+            sensor->name[0] != '\0' ? sensor->name : sensor->model->modelname,
+            sizeof(tmp_sensor_name));
         for(uint8_t i = 0; i < 10; i++) {
             if(tmp_sensor_name[i] == ' ') tmp_sensor_name[i] = '?';
         }

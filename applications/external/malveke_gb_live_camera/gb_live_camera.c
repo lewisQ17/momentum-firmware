@@ -82,8 +82,10 @@ static void save_image(void* context) {
     //bool result = storage_file_open(file, EXT_PATH("DCIM/test.bmp"), FSAM_WRITE, FSOM_OPEN_ALWAYS);
     furi_string_free(file_name);
 
+    bool write_ok = result;
     if(result) {
-        storage_file_write(file, bitmap_header, BITMAP_HEADER_LENGTH);
+        write_ok = storage_file_write(file, bitmap_header, BITMAP_HEADER_LENGTH) ==
+                   BITMAP_HEADER_LENGTH;
         with_view_model(
             app->view,
             UartDumpModel * model,
@@ -93,7 +95,10 @@ static void save_image(void* context) {
                     for(size_t j = 0; j < ROW_BUFFER_LENGTH; ++j) {
                         row_buffer[j] = model->pixels[((i - 1) * ROW_BUFFER_LENGTH) + j];
                     }
-                    storage_file_write(file, row_buffer, ROW_BUFFER_LENGTH);
+                    if(storage_file_write(file, row_buffer, ROW_BUFFER_LENGTH) !=
+                       ROW_BUFFER_LENGTH) {
+                        write_ok = false;
+                    }
                 }
             },
             false);
@@ -105,7 +110,11 @@ static void save_image(void* context) {
     // Freeing up memory
     storage_file_free(file);
 
-    notification_message(notifications, result ? &sequence_success : &sequence_error);
+    notification_message(notifications, write_ok ? &sequence_success : &sequence_error);
+
+    // pair the opens above: one open per photo would otherwise pile up holders
+    furi_record_close(RECORD_STORAGE);
+    furi_record_close(RECORD_NOTIFICATION);
 }
 
 static bool gb_live_camera_view_input_callback(InputEvent* event, void* context) {
@@ -327,6 +336,9 @@ static UartEchoApp* gb_live_camera_app_alloc() {
 
 static void gb_live_camera_app_free(UartEchoApp* app) {
     furi_assert(app);
+
+    // stop the LPUART RX callback first: it signals worker_thread / rx_stream, freed below
+    furi_hal_serial_async_rx_stop(app->serial_handle_lp_uart);
 
     furi_thread_flags_set(furi_thread_get_id(app->worker_thread), WorkerEventStop);
     furi_thread_join(app->worker_thread);

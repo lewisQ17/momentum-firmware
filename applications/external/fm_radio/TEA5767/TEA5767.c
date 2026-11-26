@@ -52,13 +52,32 @@ bool tea5767_read_registers(uint8_t* buffer) {
     return result;
 }
 
+// The chip has no readable mute bit: remember what we last wrote (write layout)
+static bool tea5767_muted = false;
+
 bool tea5767_write_registers(uint8_t* buffer) {
     bool result = false;
     if(buffer == NULL) return false; // Added NULL check
     furi_hal_i2c_acquire(&furi_hal_i2c_handle_external);
     result = furi_hal_i2c_tx(&furi_hal_i2c_handle_external, TEA5767_ADR, buffer, 5, TIMEOUT_MS);
     furi_hal_i2c_release(&furi_hal_i2c_handle_external);
+    if(result) {
+        tea5767_muted = (buffer[REG_1] & REG_1_MUTE) != 0;
+    }
     return result;
+}
+
+// Build a WRITE-layout buffer from the PLL word the chip is tuned to.
+// The 5 bytes read from the chip use a different layout and must never be written back.
+static bool tea5767_build_write_buffer(uint8_t* wbuf) {
+    uint8_t rbuf[5];
+    if(!tea5767_read_registers(rbuf)) return false;
+    wbuf[REG_1] = rbuf[REG_1] & REG_1_PLL;
+    wbuf[REG_2] = rbuf[REG_2];
+    wbuf[REG_3] = 0xB0; // same defaults as tea5767_init() / tea5767_set_frequency()
+    wbuf[REG_4] = REG_4_XTAL | REG_4_SMUTE;
+    wbuf[REG_5] = REG_5_PLLREF | REG_5_DTC;
+    return true;
 }
 
 bool tea5767_init(uint8_t* buffer) {
@@ -171,11 +190,8 @@ bool tea5767_get_radio_info(uint8_t* buffer, struct RADIO_INFO* info) {
 
     // Error handling: Check if buffer and info are not NULL
     if(buffer && info && tea5767_read_registers(buffer)) {
-        if(buffer[REG_3] & REG_3_MS) {
-            info->stereo = true;
-        } else {
-            info->stereo = false;
-        }
+        // read layout: byte 3 bit 7 = STEREO (bits 6:0 are the IF counter)
+        info->stereo = (buffer[REG_3] & 0x80) != 0;
 
         info->signalLevel = buffer[REG_4] >> 4;
 
@@ -198,12 +214,8 @@ bool tea5767_get_radio_info(uint8_t* buffer, struct RADIO_INFO* info) {
             result = true; // Only return true if both read_registers and get_frequency succeeded
         }
 
-        // Check if the radio is muted
-        if(buffer[REG_1] & REG_1_MUTE) {
-            info->muted = true;
-        } else {
-            info->muted = false;
-        }
+        // Mute is not readable from the chip (byte 1 bit 7 is READY): use the tracked state
+        info->muted = tea5767_muted;
     }
     return result;
 }
@@ -235,32 +247,24 @@ void tea5767_seekDown() {
 }
 
 void tea5767_ToggleMute() {
-    uint8_t buffer[5];
-    if(tea5767_read_registers(buffer)) {
-        if((buffer[REG_1] & REG_1_MUTE) == 0) {
-            tea5767_set_mute(buffer, true);
-        } else {
-            tea5767_set_mute(buffer, false);
-        }
+    if(tea5767_muted) {
+        tea5767_MuteOff();
+    } else {
+        tea5767_MuteOn();
     }
 }
 
 void tea5767_MuteOn() {
     uint8_t buffer[5];
-    if(tea5767_read_registers(buffer)) { // Read the current state into the buffer
+    if(tea5767_build_write_buffer(buffer)) {
         tea5767_set_mute(buffer, true); // Set the mute bit
     }
 }
 
 void tea5767_MuteOff() {
-    uint16_t frequency;
-    float value; // Changed to a float variable, not a pointer
     uint8_t buffer[5];
-    if(tea5767_read_registers(buffer)) { // Read the current state into the buffer
-        tea5767_set_mute(buffer, false); // Clear the mute bit
-        frequency = ((buffer[0] & REG_1_PLL) << 8) | buffer[1];
-        value = (float)(frequency * QUARTZ / 4 - FILTER) / 10000; // Explicitly cast to float
-        tea5767_SetFreqMHz(value / 100.0); // Pass the float value, not the pointer
+    if(tea5767_build_write_buffer(buffer)) {
+        tea5767_set_mute(buffer, false); // Clear the mute bit, PLL stays on the current station
     }
 }
 
@@ -289,7 +293,7 @@ float tea5767_GetFreq() {
 }
 
 void tea5767_sleep(uint8_t* buffer) {
-    if(tea5767_read_registers(buffer)) {
+    if(tea5767_build_write_buffer(buffer)) {
         buffer[REG_4] |= REG_4_STBY; // Set the Standby bit in register 4 to enter standby mode
         tea5767_write_registers(buffer);
     }

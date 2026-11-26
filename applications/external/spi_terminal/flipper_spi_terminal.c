@@ -84,6 +84,9 @@ int32_t flipper_spi_terminal_main(void* args) {
 
     view_dispatcher_run(app->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
+
     flipper_spi_terminal_free(app);
 
     return 0;

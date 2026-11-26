@@ -84,6 +84,8 @@ int32_t dap_gui_thread(void* arg) {
 
     notification_message_block(app->notifications, &sequence_display_backlight_enforce_on);
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
     notification_message_block(app->notifications, &sequence_display_backlight_enforce_auto);
 
     dap_gui_free(app);

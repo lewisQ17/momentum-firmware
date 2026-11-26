@@ -101,7 +101,7 @@ static char get_selected_char(UART_TextInputModel* model) {
 }
 
 static void uart_hex_input_backspace_cb(UART_TextInputModel* model) {
-    uint8_t text_length = model->clear_default_text ? 1 : strlen(model->text_buffer);
+    size_t text_length = model->clear_default_text ? 1 : strlen(model->text_buffer);
     if(text_length > 0) {
         model->text_buffer[text_length - 1] = 0;
     }
@@ -216,9 +216,7 @@ static void uart_hex_input_handle_up(UART_TextInput* uart_text_input, UART_TextI
     UNUSED(uart_text_input);
     if(model->selected_row > 0) {
         model->selected_row--;
-        if(model->selected_column > get_row_size(model->selected_row) - 6) {
-            model->selected_column = model->selected_column + 1;
-        }
+        // both rows have the same width, keep the column (no text-keyboard adjustment)
     }
 }
 
@@ -227,9 +225,6 @@ static void
     UNUSED(uart_text_input);
     if(model->selected_row < keyboard_row_count - 1) {
         model->selected_row++;
-        if(model->selected_column > get_row_size(model->selected_row) - 4) {
-            model->selected_column = model->selected_column - 1;
-        }
     }
 }
 
@@ -259,7 +254,7 @@ static void uart_hex_input_handle_ok(
     bool shift) {
     UNUSED(shift);
     char selected = get_selected_char(model);
-    uint8_t text_length = strlen(model->text_buffer);
+    size_t text_length = strlen(model->text_buffer);
 
     if(selected == ENTER_KEY) {
         if(model->validator_callback &&

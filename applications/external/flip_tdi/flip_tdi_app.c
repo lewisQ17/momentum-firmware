@@ -105,6 +105,9 @@ int32_t flip_tdi_app(void* p) {
 
     view_dispatcher_run(flip_tdi_app->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(flip_tdi_app->scene_manager);
+
     flip_tdi_app_free(flip_tdi_app);
 
     return 0;

@@ -406,31 +406,29 @@ void dashboard_read_update(App* app, const CcEvent* event, const char* title) {
                 model->read_rate_fps = 0U;
             }
 
-            if(model->read_hold) {
-                return;
-            }
+            // no return inside with_view_model: it would skip view_commit_model and keep the lock
+            const bool store =
+                !model->read_hold &&
+                !((model->mode == AppDashboardReadAll || model->mode == AppDashboardFiltered) &&
+                  model->read_overload);
 
-            if(
-                (model->mode == AppDashboardReadAll || model->mode == AppDashboardFiltered) &&
-                model->read_overload) {
-                return;
-            }
+            if(store) {
+                AppDashFrameEntry* slot = &model->read_frames[model->read_head];
+                memset(slot, 0, sizeof(AppDashFrameEntry));
+                slot->valid = true;
+                slot->ts_ms = event->data.can_frame.ts_ms;
+                slot->bus = event->data.can_frame.bus;
+                slot->id = event->data.can_frame.id;
+                slot->ext = event->data.can_frame.ext;
+                slot->dlc = event->data.can_frame.dlc > 8U ? 8U : event->data.can_frame.dlc;
+                memcpy(slot->data, event->data.can_frame.data, sizeof(slot->data));
 
-            AppDashFrameEntry* slot = &model->read_frames[model->read_head];
-            memset(slot, 0, sizeof(AppDashFrameEntry));
-            slot->valid = true;
-            slot->ts_ms = event->data.can_frame.ts_ms;
-            slot->bus = event->data.can_frame.bus;
-            slot->id = event->data.can_frame.id;
-            slot->ext = event->data.can_frame.ext;
-            slot->dlc = event->data.can_frame.dlc > 8U ? 8U : event->data.can_frame.dlc;
-            memcpy(slot->data, event->data.can_frame.data, sizeof(slot->data));
-
-            model->read_head = (uint8_t)((model->read_head + 1U) % APP_DASH_READ_HISTORY);
-            if(model->read_count < APP_DASH_READ_HISTORY) {
-                model->read_count++;
+                model->read_head = (uint8_t)((model->read_head + 1U) % APP_DASH_READ_HISTORY);
+                if(model->read_count < APP_DASH_READ_HISTORY) {
+                    model->read_count++;
+                }
+                model->read_selected = 0U;
             }
-            model->read_selected = 0U;
         },
         false);
 }

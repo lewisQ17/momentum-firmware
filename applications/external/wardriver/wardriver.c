@@ -34,6 +34,12 @@ void save_file(Context* ctx) {
         furi_string_free(filename);
         furi_record_close(RECORD_STORAGE);
 
+        // the data cannot be saved, but its strings must still be freed
+        for(int i = 0; i < ctx->access_points_count; i++) {
+            free(ctx->access_points[i].ssid);
+            free(ctx->access_points[i].bssid);
+        }
+
         furi_hal_light_blink_start(LightRed, 100, 100, 5000);
 
         return;

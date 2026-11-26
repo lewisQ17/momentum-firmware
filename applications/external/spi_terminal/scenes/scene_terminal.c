@@ -21,6 +21,12 @@
 #define SPI_DMA_TX_CHANNEL LL_DMA_CHANNEL_7
 #define SPI_DMA_TX_IRQ     FuriHalInterruptIdDma2Ch7
 
+// Master + Simplex RX clocks continuously: a tiny DMA buffer would cause an ISR storm
+#define SPI_TERM_MASTER_RX_MIN_DMA_BUFFER 64U
+
+// DMA half-buffer size actually in use (config value, raised for Master + Simplex RX)
+static size_t spi_terminal_rx_dma_buffer_size = 1;
+
 void flipper_spi_terminal_scene_terminal_process_receive_timer(void* context) {
     SPI_TERM_CONTEXT_TO_APP(context);
     view_dispatcher_send_custom_event(app->view_dispatcher, FlipperSPITerminalEventReceivedData);
@@ -81,17 +87,18 @@ static void flipper_spi_terminal_scene_terminal_dma_rx_isr(void* context) {
         return;
     }
 
-    uint8_t* startOfData = NULL;
-    if(LL_DMA_IsActiveFlag_TC6(SPI_DMA)) { // Second half
-        startOfData = app->terminal_screen.rx_dma_buffer + app->config.rx_dma_buffer_size;
-    } else if(LL_DMA_IsActiveFlag_HT6(SPI_DMA)) { // First half
-        startOfData = app->terminal_screen.rx_dma_buffer;
-    } else if(LL_DMA_IsActiveFlag_TE6(SPI_DMA)) { // Error
-    }
+    const size_t half_size = spi_terminal_rx_dma_buffer_size;
+    const bool half_transfer = LL_DMA_IsActiveFlag_HT6(SPI_DMA);
+    const bool transfer_complete = LL_DMA_IsActiveFlag_TC6(SPI_DMA);
 
-    if(startOfData != NULL) {
+    // handle HT and TC independently (both pending when ISR latency > half a buffer), in order
+    if(half_transfer) { // First half
         flipper_spi_terminal_scene_terminal_add_data(
-            app, startOfData, app->config.rx_dma_buffer_size);
+            app, app->terminal_screen.rx_dma_buffer, half_size);
+    }
+    if(transfer_complete) { // Second half
+        flipper_spi_terminal_scene_terminal_add_data(
+            app, app->terminal_screen.rx_dma_buffer + half_size, half_size);
     }
 
     LL_DMA_ClearFlag_HT6(SPI_DMA);
@@ -125,7 +132,7 @@ static void flipper_spi_terminal_scene_terminal_init_spi_dma(FlipperSPITerminalA
         .MemoryOrM2MDstIncMode = LL_DMA_MEMORY_INCREMENT,
         .PeriphOrM2MSrcDataSize = LL_DMA_PDATAALIGN_BYTE,
         .MemoryOrM2MDstDataSize = LL_DMA_MDATAALIGN_BYTE,
-        .NbData = app->config.rx_dma_buffer_size * 2,
+        .NbData = spi_terminal_rx_dma_buffer_size * 2,
         .PeriphRequest = SPI_DMA_RX_REQ,
         .Priority = LL_DMA_PRIORITY_MEDIUM,
     };
@@ -192,7 +199,13 @@ void flipper_spi_terminal_scene_terminal_on_enter(void* context) {
 
     // Minimum of 2 bytes for rx buffer
     furi_check(app->config.rx_dma_buffer_size >= 1);
-    app->terminal_screen.rx_dma_buffer = malloc(app->config.rx_dma_buffer_size * 2);
+    spi_terminal_rx_dma_buffer_size = app->config.rx_dma_buffer_size;
+    if(app->config.spi.Mode == LL_SPI_MODE_MASTER &&
+       app->config.spi.TransferDirection == LL_SPI_SIMPLEX_RX &&
+       spi_terminal_rx_dma_buffer_size < SPI_TERM_MASTER_RX_MIN_DMA_BUFFER) {
+        spi_terminal_rx_dma_buffer_size = SPI_TERM_MASTER_RX_MIN_DMA_BUFFER;
+    }
+    app->terminal_screen.rx_dma_buffer = malloc(spi_terminal_rx_dma_buffer_size * 2);
 
     flipper_spi_terminal_scene_terminal_init_spi_dma(app);
 

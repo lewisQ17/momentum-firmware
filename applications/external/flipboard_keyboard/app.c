@@ -114,9 +114,10 @@ void flipboard_enter_callback(void* context) {
  */
 void flipboard_exit_callback(void* context) {
     FlipboardModel* fm = flipboard_get_model((Flipboard*)context);
+    // stop (join) the button monitor first: it may still be typing over the HID instance we detach
+    flipboard_model_set_button_monitor(fm, NULL, NULL);
     flipboard_keyboard_detatch(flipboard_model_get_keyboard(fm));
     flipboard_model_set_colors(fm, NULL, 0x0);
-    flipboard_model_set_button_monitor(fm, NULL, NULL);
     flipboard_model_set_gui_refresh_speed_ms(fm, 0);
 }
 

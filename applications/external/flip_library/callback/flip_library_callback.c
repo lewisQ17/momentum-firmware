@@ -126,11 +126,15 @@ static char *flip_library_quote_parse(FactLoaderModel *model)
     UNUSED(model);
     // remove [ and ] from the start and end of the string
     char *response = fhttp.last_response;
+    if (!response || response[0] == '\0') // an empty reply would index response[-1] below
+    {
+        return "Failed to get response";
+    }
     if (response[0] == '[')
     {
         response++;
     }
-    if (response[strlen(response) - 1] == ']')
+    if (response[0] != '\0' && response[strlen(response) - 1] == ']')
     {
         response[strlen(response) - 1] = '\0';
     }
@@ -139,7 +143,7 @@ static char *flip_library_quote_parse(FactLoaderModel *model)
     {
         response++;
     }
-    while (response[strlen(response) - 1] == ' ')
+    while (response[0] != '\0' && response[strlen(response) - 1] == ' ')
     {
         response[strlen(response) - 1] = '\0';
     }
@@ -771,35 +775,41 @@ static bool flip_library_random_trivia_fetch(FactLoaderModel *model)
     UNUSED(model);
     return flipper_http_get_request_with_headers("https://opentdb.com/api.php?amount=1", "{\"Content-Type\":\"application/json\"}");
 }
+// decode the HTML entities OpenTDB sends, in a copy after the JSON was parsed (editing the JSON in place broke/truncated it)
+static void flip_library_decode_entities(char *text)
+{
+    char *dst = text;
+    const char *src = text;
+    while (*src)
+    {
+        if (strncmp(src, "&quot;", 6) == 0)
+        {
+            *dst++ = '"';
+            src += 6;
+        }
+        else if (strncmp(src, "&#039;", 6) == 0)
+        {
+            *dst++ = '\'';
+            src += 6;
+        }
+        else if (strncmp(src, "&amp;", 5) == 0)
+        {
+            *dst++ = '&';
+            src += 5;
+        }
+        else
+        {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+}
 static char *flip_library_random_trivia_parse(FactLoaderModel *model)
 {
     UNUSED(model);
     if (!fhttp.last_response)
     {
         return "Failed to get response";
-    }
-    // replace the &quot; with "
-    char *ptr = fhttp.last_response;
-    while ((ptr = strstr(ptr, "&quot;")) != NULL)
-    {
-        ptr[0] = '"';
-        ptr[1] = '"';
-        ptr[2] = '"';
-        ptr[3] = '"';
-    }
-    // replace the &#039; with '
-    ptr = fhttp.last_response;
-    while ((ptr = strstr(ptr, "&#039;")) != NULL)
-    {
-        ptr[0] = '\'';
-        ptr[1] = '\0';
-    }
-    // replace the &amp; with &
-    ptr = fhttp.last_response;
-    while ((ptr = strstr(ptr, "&amp;")) != NULL)
-    {
-        ptr[0] = '&';
-        ptr[1] = '\0';
     }
     char *results = get_json_array_value("results", 0, fhttp.last_response, 256);
     if (!results)
@@ -810,16 +820,27 @@ static char *flip_library_random_trivia_parse(FactLoaderModel *model)
     }
     char *question = get_json_value("question", results, 32);
     char *correct_answer = get_json_value("correct_answer", results, 32);
+    free(results);
     if (!question || !correct_answer)
     {
+        if (question)
+            free(question);
+        if (correct_answer)
+            free(correct_answer);
         return "Failed to get response";
     }
+    flip_library_decode_entities(question);
+    flip_library_decode_entities(correct_answer);
     char *result = (char *)malloc(strlen(question) + strlen(correct_answer) + 128);
     if (!result)
     {
+        free(question);
+        free(correct_answer);
         return "Failed to allocate memory";
     }
     snprintf(result, strlen(question) + strlen(correct_answer) + 128, "Q: %s\n\n(Scroll down for the answer)\n\nA: %s", question, correct_answer);
+    free(question);
+    free(correct_answer);
     return result;
 }
 static void flip_library_random_trivia_switch_to_view(FlipLibraryApp *app)
@@ -1150,6 +1171,7 @@ static void flip_library_widget_set_text(char *message, Widget **widget)
 
     // Add the formatted message to the widget
     widget_add_text_scroll_element(*widget, 0, 0, 128, 64, formatted_message);
+    free(formatted_message); // the widget copies the text, so the buffer would leak otherwise
 }
 
 void flip_library_loader_draw_callback(Canvas *canvas, void *model)

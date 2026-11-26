@@ -3,7 +3,7 @@ App(
     name="[GB/GBC] Cartridge",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="gb_cartridge_app",
-    cdefines=["APP_BOILERPLATE"],
+    cdefines=["APP_BOILERPLATE", "CJSON_NESTING_LIMIT=8"],
     requires=[
         "gui",
         "storage",

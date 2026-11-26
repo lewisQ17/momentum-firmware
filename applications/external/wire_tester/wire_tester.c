@@ -90,12 +90,15 @@ int32_t app_main(void* p) {
                 running = false;
             }
         }
-        view_port_update(view_port);
+        // static screen: drawn once above, no redraw per poll
     }
 
     // return control of the LED, beeper, and backlight
     stop_feedback(notifications);
     notification_message_block(notifications, &sequence_display_backlight_enforce_auto);
+
+    // return the input pin to analog (no pull-up left on the header)
+    furi_hal_gpio_init(INPUT_PIN, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
 
     view_port_enabled_set(view_port, false);
     gui_remove_view_port(gui, view_port);

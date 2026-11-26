@@ -504,5 +504,7 @@ FtdiUsb* ftdi_usb_start(void) {
 }
 
 void ftdi_usb_stop(FtdiUsb* ftdi_usb) {
+    // ftdi_usb_start() returns NULL when USB was locked: nothing to restore
+    if(!ftdi_usb) return;
     furi_hal_usb_set_config(ftdi_usb->usb_prev, NULL);
 }

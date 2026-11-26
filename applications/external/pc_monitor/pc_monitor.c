@@ -114,6 +114,9 @@ int32_t pc_monitor_app(void* p) {
         if(app->bt_state == BtStateRecieving &&
            (furi_hal_rtc_get_timestamp() - app->last_packet > 5))
             app->bt_state = BtStateLost;
+
+        // redraw on every poll, otherwise new packets only show when another viewport redraws
+        view_port_update(app->view_port);
     }
 
     ble_profile_serial_set_event_callback(app->ble_serial_profile, 0, NULL, NULL);

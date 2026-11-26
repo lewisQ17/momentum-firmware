@@ -21,16 +21,24 @@ static void removeSpaces(char* str) {
     }
 }
 
-static void sort_access_points(Context* ctx) {
-    for(int i = 0; i < ctx->access_points_count; i++) {
-        for(int j = i + 1; j < ctx->access_points_count; j++) {
-            if(strcmp(ctx->access_points[i].ssid, ctx->access_points[j].ssid) > 0) {
-                AccessPoint temp = ctx->access_points[i];
-                ctx->access_points[i] = ctx->access_points[j];
-                ctx->access_points[j] = temp;
-            }
+// keep the list sorted by ssid: insert at the sorted position instead of re-sorting everything
+static void insert_access_point_sorted(Context* ctx, const AccessPoint* ap) {
+    int lo = 0;
+    int hi = ctx->access_points_count;
+    while(lo < hi) {
+        int mid = (lo + hi) / 2;
+        if(strcmp(ctx->access_points[mid].ssid, ap->ssid) > 0) {
+            hi = mid;
+        } else {
+            lo = mid + 1;
         }
     }
+    memmove(
+        &ctx->access_points[lo + 1],
+        &ctx->access_points[lo],
+        (ctx->access_points_count - lo) * sizeof(AccessPoint));
+    ctx->access_points[lo] = *ap;
+    ctx->access_points_count++;
 }
 
 static void set_index_from_access_points(Context* ctx) {
@@ -176,8 +184,7 @@ static void uart_parse_esp(void* context, char* line) {
             // exhausted; free this AP's buffers instead of leaking them.
             if(ctx->access_points_count < MAX_ACCESS_POINTS &&
                memmgr_get_free_heap() > WARDRIVER_MIN_FREE_HEAP) {
-                memcpy(&ctx->access_points[ctx->access_points_count], &ap, sizeof(AccessPoint));
-                ctx->access_points_count++;
+                insert_access_point_sorted(ctx, &ap);
                 added = true;
             } else {
                 free(ap.ssid);
@@ -185,10 +192,8 @@ static void uart_parse_esp(void* context, char* line) {
             }
         }
 
-        // Only a newly appended AP can change the order; sorting on every line
-        // is O(n^2) and starves the UART stream buffer.
+        // Only a newly added AP can change the order (already inserted sorted above).
         if(added) {
-            sort_access_points(ctx);
             set_index_from_access_points(ctx);
         }
 

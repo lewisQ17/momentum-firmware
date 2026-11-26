@@ -187,22 +187,41 @@ void eth_troubleshooter_app_free(EthTroubleshooterApp* app) {
     free(app);
 }
 
+// explicit map: a plain cast is off by one for Reset (EthWorkerProcessTraceroute sits before it)
+static EthWorkerProcess draw_to_worker_process(DrawProcess process) {
+    switch(process) {
+    case PROCESS_INIT:
+        return EthWorkerProcessInit;
+    case PROCESS_DHCP:
+        return EthWorkerProcessDHCP;
+    case PROCESS_STATIC:
+        return EthWorkerProcessStatic;
+    case PROCESS_PING:
+        return EthWorkerProcessPing;
+    case PROCESS_RESET:
+    default:
+        return EthWorkerProcessReset;
+    }
+}
+
 void eth_troubleshooter_app_key_handler(EthTroubleshooterApp* app, InputKey key) {
     if(app->cursor_position == CURSOR_CHOOSE_PROCESS) {
         if(key == InputKeyUp || key == InputKeyDown) {
             app->draw_process =
                 (app->draw_process + PROCESS_RESET + (key == InputKeyDown ? 2 : 0)) %
                 (PROCESS_RESET + 1);
-            eth_worker_set_active_process(app->eth_worker, (EthWorkerProcess)app->draw_process);
+            eth_worker_set_active_process(
+                app->eth_worker, draw_to_worker_process(app->draw_process));
         } else if(key == InputKeyOk) {
             ethernet_view_process_move(app->eth_worker->active_process, 0);
             app->cursor_position = CURSOR_CLICK_PROCESS;
             view_port_update(app->view_port);
             furi_delay_ms(150);
-            eth_run(app->eth_worker, (EthWorkerProcess)app->draw_process);
+            eth_run(app->eth_worker, draw_to_worker_process(app->draw_process));
             app->cursor_position = CURSOR_CHOOSE_PROCESS;
         } else if(key == InputKeyRight) {
-            eth_worker_set_active_process(app->eth_worker, (EthWorkerProcess)app->draw_process);
+            eth_worker_set_active_process(
+                app->eth_worker, draw_to_worker_process(app->draw_process));
             app->cursor_position = CURSOR_INSIDE_PROCESS;
         } else if(key == InputKeyBack) {
             app->cursor_position = CURSOR_EXIT_ICON;

@@ -97,6 +97,8 @@ int32_t vgm_tool_app(void* arg) {
     scene_manager_next_scene(app->scene_manager, SceneProbe);
 
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
 
     flasher_deinit();
     app_free(app);

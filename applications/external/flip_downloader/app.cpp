@@ -105,7 +105,13 @@ bool FlipDownloaderApp::httpDownloadFile(
         FURI_LOG_E(TAG, "FlipDownloaderApp::httpDownloadFile: FlipperHTTP is NULL");
         return false;
     }
-    snprintf(flipperHttp->file_path, sizeof(flipperHttp->file_path), saveLocation);
+    // a previous body is still streaming (e.g. Back during progress): a new request would change file_path under it
+    if (flipperHttp->started_receiving)
+    {
+        FURI_LOG_E(TAG, "FlipDownloaderApp::httpDownloadFile: previous transfer still running");
+        return false;
+    }
+    snprintf(flipperHttp->file_path, sizeof(flipperHttp->file_path), "%s", saveLocation); // never use the (network-derived) path as format string
     flipperHttp->save_received_data = false;
     flipperHttp->is_bytes_request = true;
     flipperHttp->state = IDLE;
@@ -132,8 +138,9 @@ FuriString *FlipDownloaderApp::httpRequest(
         return NULL;
     }
     flipperHttp->state = RECEIVING;
-    // leave on ISSUE/INACTIVE too, otherwise a failed request hangs forever
-    while (flipperHttp->state == RECEIVING || flipperHttp->state == SENDING)
+    // leave on ISSUE/INACTIVE too, and after 2 minutes, otherwise a silent board hangs forever
+    const uint32_t waitStart = furi_get_tick();
+    while ((flipperHttp->state == RECEIVING || flipperHttp->state == SENDING) && (furi_get_tick() - waitStart) < 120000)
     {
         furi_delay_ms(100);
     }
@@ -455,6 +462,12 @@ FlipDownloaderApp::~FlipDownloaderApp()
 
 void FlipDownloaderApp::runDispatcher()
 {
+    if (!viewDispatcher || !flipperHttp)
+    {
+        // constructor bailed out (e.g. UART busy): no view is shown and Back could not exit, so tell the user and return
+        easy_flipper_dialog("FlipperHTTP Error", "The UART is busy or could\nnot be allocated.\nClose other apps using it\nand try again.");
+        return;
+    }
     view_dispatcher_run(viewDispatcher);
 }
 

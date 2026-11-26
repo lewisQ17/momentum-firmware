@@ -902,6 +902,9 @@ void pokemon_stat_memcpy(PokemonData* dst, PokemonData* src, uint8_t which) {
             &(((TradeBlockGenI*)src->trade_block)->ot_name[which]),
             sizeof(struct name));
     } else if(dst->gen == GEN_II) {
+        /* Reject a link partner's invalid species (0 or past the dex), it indexes the tables */
+        uint8_t src_index = ((TradeBlockGenII*)src->trade_block)->party[which].index;
+        if(src_index == 0 || src_index > dst->dex_max + 1) return;
         ((TradeBlockGenII*)dst->trade_block)->party_members[0] =
             ((TradeBlockGenII*)src->trade_block)->party_members[which];
         memcpy(

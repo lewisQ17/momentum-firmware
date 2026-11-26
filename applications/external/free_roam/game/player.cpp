@@ -2146,6 +2146,13 @@ void Player::updateEntitiesFromServer(const char *csv)
         }
     }
 
+    // hardening: a hostile server/lobby must not push NaN/inf into positions and the raycaster
+    for (int fi = 0; fi < 7; fi++)
+    {
+        if (!__builtin_isfinite(vals[fi]))
+            return;
+    }
+
     float ex = vals[0];
     float ey = vals[1];
     float ez = vals[2];
@@ -2194,6 +2201,20 @@ void Player::updateEntitiesFromServer(const char *csv)
 
         if (!found)
         {
+            // hardening: cap remote entities and the name pool, otherwise ever-new names exhaust the heap
+            const size_t MAX_REMOTE_ENTITIES = 16;
+            const size_t MAX_NAME_POOL = 64;
+            size_t remoteCount = 0;
+            for (int i = 0; i < game->current_level->getEntityCount(); i++)
+            {
+                Entity *e = game->current_level->getEntity(i);
+                if (e && e->name && remotePlayerNamePool.find(std::string(e->name)) != remotePlayerNamePool.end())
+                    remoteCount++;
+            }
+            if (remoteCount >= MAX_REMOTE_ENTITIES)
+                return;
+            if (remotePlayerNamePool.size() >= MAX_NAME_POOL && remotePlayerNamePool.find(std::string(entity_name)) == remotePlayerNamePool.end())
+                return;
             const char *name_ptr = remotePlayerNamePool.insert(std::string(entity_name)).first->c_str();
             Entity *remote = new Entity(
                 name_ptr,

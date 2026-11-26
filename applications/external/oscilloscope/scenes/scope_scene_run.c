@@ -562,6 +562,35 @@ static void app_input_callback(InputEvent* input_event, void* ctx) {
     furi_message_queue_put(event_queue, input_event, FuriWaitForever);
 }
 
+// Return ADC1, VREFBUF, their NVIC lines and the ADC clock to idle; call before restoring VTOR
+static void scope_adc_power_down(void) {
+    __IO uint32_t timeout = 100000U;
+
+    if(LL_ADC_REG_IsConversionOngoing(ADC1)) {
+        LL_ADC_REG_StopConversion(ADC1);
+        while(LL_ADC_REG_IsStopConversionOngoing(ADC1) && timeout--) {
+        }
+    }
+
+    timeout = 100000U;
+    if(LL_ADC_IsEnabled(ADC1)) {
+        LL_ADC_Disable(ADC1);
+        while(LL_ADC_IsEnabled(ADC1) && timeout--) {
+        }
+    }
+    LL_ADC_EnableDeepPowerDown(ADC1);
+
+    LL_VREFBUF_Disable();
+    LL_VREFBUF_EnableHIZ();
+
+    NVIC_DisableIRQ(ADC1_IRQn);
+    NVIC_ClearPendingIRQ(ADC1_IRQn);
+    NVIC_DisableIRQ(DMA1_Channel1_IRQn);
+    NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
+
+    LL_AHB2_GRP1_DisableClock(LL_AHB2_GRP1_PERIPH_ADC);
+}
+
 // Free malloc'd data
 void free_all() {
     free(aADCxConvertedData);
@@ -703,6 +732,9 @@ void scope_scene_run_on_enter(void* context) {
 
     // Stop DMA and switch back to original vector table
     LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_1);
+
+    // Power the ADC chain down again (bounded waits, never hang on exit)
+    scope_adc_power_down();
 
     __disable_irq();
     SCB->VTOR = 0;

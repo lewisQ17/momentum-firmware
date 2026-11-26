@@ -146,6 +146,7 @@ static void send_signal(
 static FuriHalSubGhzPreset signal_get_preset(FuriString* preset_str) {
     const char* preset_name = furi_string_get_cstr(preset_str);
     FuriHalSubGhzPreset preset = FuriHalSubGhzPresetIDLE;
+    // FuriHalSubGhzPresetCustom left unmapped on purpose: send_signal passes NULL preset data, which furi_check()-reboots
     if(!strcmp(preset_name, "FuriHalSubGhzPresetOok270Async")) {
         preset = FuriHalSubGhzPresetOok270Async;
     } else if(!strcmp(preset_name, "FuriHalSubGhzPresetOok650Async")) {
@@ -154,8 +155,6 @@ static FuriHalSubGhzPreset signal_get_preset(FuriString* preset_str) {
         preset = FuriHalSubGhzPreset2FSKDev238Async;
     } else if(!strcmp(preset_name, "FuriHalSubGhzPreset2FSKDev476Async")) {
         preset = FuriHalSubGhzPreset2FSKDev476Async;
-    } else if(!strcmp(preset_name, "FuriHalSubGhzPresetCustom")) {
-        preset = FuriHalSubGhzPresetCustom;
     } else if(!strcmp(preset_name, "FuriHalSubGhzPresetMSK99_97KbAsync")) {
         preset = FuriHalSubGhzPresetMSK99_97KbAsync;
     } else if(!strcmp(preset_name, "FuriHalSubGhzPresetGFSK9_99KbAsync")) {

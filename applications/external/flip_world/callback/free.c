@@ -78,66 +78,19 @@ void free_variable_item_list(void *context)
         variable_item_list_free(app->variable_item_list);
         app->variable_item_list = NULL;
     }
-    if (app->variable_item_wifi_ssid)
-    {
-        free(app->variable_item_wifi_ssid);
-        app->variable_item_wifi_ssid = NULL;
-    }
-    if (app->variable_item_wifi_pass)
-    {
-        free(app->variable_item_wifi_pass);
-        app->variable_item_wifi_pass = NULL;
-    }
-    if (app->variable_item_game_fps)
-    {
-        free(app->variable_item_game_fps);
-        app->variable_item_game_fps = NULL;
-    }
-    if (app->variable_item_game_screen_always_on)
-    {
-        free(app->variable_item_game_screen_always_on);
-        app->variable_item_game_screen_always_on = NULL;
-    }
-    if (app->variable_item_game_download_world)
-    {
-        free(app->variable_item_game_download_world);
-        app->variable_item_game_download_world = NULL;
-    }
-    if (app->variable_item_game_sound_on)
-    {
-        free(app->variable_item_game_sound_on);
-        app->variable_item_game_sound_on = NULL;
-    }
-    if (app->variable_item_game_vibration_on)
-    {
-        free(app->variable_item_game_vibration_on);
-        app->variable_item_game_vibration_on = NULL;
-    }
-    if (app->variable_item_game_player_sprite)
-    {
-        free(app->variable_item_game_player_sprite);
-        app->variable_item_game_player_sprite = NULL;
-    }
-    if (app->variable_item_game_vgm_x)
-    {
-        free(app->variable_item_game_vgm_x);
-        app->variable_item_game_vgm_x = NULL;
-    }
-    if (app->variable_item_game_vgm_y)
-    {
-        free(app->variable_item_game_vgm_y);
-        app->variable_item_game_vgm_y = NULL;
-    }
-    if (app->variable_item_user_username)
-    {
-        free(app->variable_item_user_username);
-        app->variable_item_user_username = NULL;
-    }
-    if (app->variable_item_user_password)
-    {
-        free(app->variable_item_user_password);
-        app->variable_item_user_password = NULL;
-    }
+    // the VariableItems live inside the list's own array (freed above): never free() them, only drop the pointers
+    app->variable_item_wifi_ssid = NULL;
+    app->variable_item_wifi_pass = NULL;
+    app->variable_item_game_fps = NULL;
+    app->variable_item_game_screen_always_on = NULL;
+    app->variable_item_game_download_world = NULL;
+    app->variable_item_game_sound_on = NULL;
+    app->variable_item_game_vibration_on = NULL;
+    app->variable_item_game_player_sprite = NULL;
+    app->variable_item_game_vgm_x = NULL;
+    app->variable_item_game_vgm_y = NULL;
+    app->variable_item_user_username = NULL;
+    app->variable_item_user_password = NULL;
 }
 
 void free_all_views(void *context, bool free_variable_list, bool free_settings_other, bool free_submenu_game)

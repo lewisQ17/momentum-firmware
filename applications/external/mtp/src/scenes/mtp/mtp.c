@@ -102,6 +102,14 @@ void handle_mtp_data_packet(AppMTP* mtp, uint8_t* buffer, int32_t length, bool c
         }
         case MTP_OP_SEND_OBJECT: {
             persistence.buffer_offset = 0;
+            if(header->len < sizeof(struct MTPHeader)) {
+                // a short length would underflow left_bytes and swallow all following packets as payload
+                FURI_LOG_E("MTP", "Invalid SendObject length: %ld", (long)header->len);
+                send_mtp_response(
+                    mtp, 3, MTP_RESP_GENERAL_ERROR, persistence.transaction_id, NULL);
+                persistence.left_bytes = 0;
+                return;
+            }
             persistence.left_bytes = header->len - sizeof(struct MTPHeader);
         }
         }
@@ -672,7 +680,17 @@ void send_mtp_response_stream(
         uint32_t usb_bytes = (ptr - buffer) + read_bytes;
         FURI_LOG_I("MTP", "USB packet size: %ld", usb_bytes);
 
-        usbd_ep_write(mtp->dev, MTP_EP_IN_ADDR, buffer, usb_bytes);
+        // ep_write returns -1 while the previous packet is still in the FIFO: wait (bounded), don't drop the chunk
+        int written;
+        uint32_t write_start = furi_get_tick();
+        while((written = usbd_ep_write(mtp->dev, MTP_EP_IN_ADDR, buffer, usb_bytes)) < 0) {
+            if(!mtp->usb_connected || (furi_get_tick() - write_start) > 500) break;
+            furi_delay_ms(1);
+        }
+        if(written < 0) {
+            FURI_LOG_E("MTP", "USB write failed/timed out, aborting stream");
+            break;
+        }
 
         sent_length += usb_bytes;
         chunk_idx++;

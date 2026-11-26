@@ -67,6 +67,14 @@ void flipboard_model_free(FlipboardModel* model) {
         resources_free(model->resources);
     }
 
+    // the monitor thread is gone by now, so nothing can still use the action models
+    for(size_t i = 0; i < COUNT_OF(model->action_model); i++) {
+        if(model->action_model[i]) {
+            action_model_free(model->action_model[i]);
+            model->action_model[i] = NULL;
+        }
+    }
+
     free(model);
 }
 

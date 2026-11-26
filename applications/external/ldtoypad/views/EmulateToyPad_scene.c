@@ -530,6 +530,17 @@ void ldtoypad_scene_emulate_enter_callback(void* context) {
     app->timer = furi_timer_alloc(
         ldtoypad_scene_emulate_view_game_timer_callback, FuriTimerTypePeriodic, app);
     furi_timer_start(app->timer, period);
+
+    // switch to the Toy Pad HID profile only while the emulate view is shown
+    if(usb_mode_prev == NULL) {
+        FuriHalUsbInterface* prev = furi_hal_usb_get_config();
+        furi_hal_usb_unlock();
+        if(furi_hal_usb_set_config(&usb_hid_ldtoypad, NULL)) {
+            usb_mode_prev = prev;
+        } else {
+            set_debug_text("USB busy");
+        }
+    }
 }
 
 void ldtoypad_scene_emulate_exit_callback(void* context) {
@@ -537,6 +548,12 @@ void ldtoypad_scene_emulate_exit_callback(void* context) {
     furi_timer_stop(app->timer);
     furi_timer_free(app->timer);
     app->timer = NULL;
+
+    // Change back profile
+    if(usb_mode_prev != NULL) {
+        furi_hal_usb_set_config(usb_mode_prev, NULL);
+        usb_mode_prev = NULL;
+    }
 }
 
 static bool ldtoypad_scene_emulate_custom_event_callback(uint32_t event, void* context) {
@@ -572,10 +589,7 @@ LDToyPadSceneEmulate* ldtoypad_scene_emulate_alloc(LDToyPadApp* new_app) {
 
     // ldtoypad_view_dispatcher = view_dispatcher;
 
-    usb_mode_prev = furi_hal_usb_get_config();
-
-    furi_hal_usb_unlock();
-    furi_check(furi_hal_usb_set_config(&usb_hid_ldtoypad, NULL) == true);
+    // USB profile is switched in the view enter callback, not at app launch
 
     view_set_context(instance->view, instance);
     view_allocate_model(instance->view, ViewModelTypeLockFree, sizeof(LDToyPadSceneEmulateModel));
@@ -600,6 +614,7 @@ void ldtoypad_scene_emulate_free(LDToyPadSceneEmulate* ldtoypad_emulate_view) {
     // Change back profile
     if(usb_mode_prev != NULL) {
         furi_hal_usb_set_config(usb_mode_prev, NULL);
+        usb_mode_prev = NULL;
     }
 
     free(ldtoypad_emulate_view);

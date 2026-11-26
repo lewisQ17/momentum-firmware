@@ -164,6 +164,26 @@ static void avr_isp_prog_breply(AvrIspProg* instance, uint8_t data) {
     }
 }
 
+// SPI is only usable after a successful ENTER_PROGMODE (spi is NULL when no target answered)
+static bool avr_isp_prog_spi_ready(AvrIspProg* instance) {
+    return instance->pmode && instance->spi;
+}
+
+// answer a command that needs the target while we are not in programming mode
+static void avr_isp_prog_failed_reply(AvrIspProg* instance, size_t payload_len) {
+    furi_assert(instance);
+    if(avr_isp_prog_getch(instance) == CRC_EOP) {
+        avr_isp_prog_tx_ch(instance, STK_INSYNC);
+        for(size_t x = 0; x < payload_len; x++) {
+            avr_isp_prog_tx_ch(instance, 0);
+        }
+        avr_isp_prog_tx_ch(instance, STK_FAILED);
+    } else {
+        instance->error++;
+        avr_isp_prog_tx_ch(instance, STK_NOSYNC);
+    }
+}
+
 static void avr_isp_prog_get_version(AvrIspProg* instance, uint8_t data) {
     furi_assert(instance);
     switch(data) {
@@ -310,7 +330,11 @@ static bool avr_isp_prog_auto_set_spi_speed_start_pmode(AvrIspProg* instance) {
                     if(i < (COUNT_OF(spi_speed) - 1)) {
                         avr_isp_prog_end_pmode(instance);
                         i++;
-                        return avr_isp_prog_start_pmode(instance, spi_speed[i]);
+                        if(avr_isp_prog_start_pmode(instance, spi_speed[i])) return true;
+                        // failed: do not leave a half-open spi behind
+                        if(instance->spi) avr_isp_spi_sw_free(instance->spi);
+                        instance->spi = NULL;
+                        return false;
                     }
                 }
                 return true;
@@ -331,6 +355,10 @@ static void avr_isp_prog_universal(AvrIspProg* instance) {
     uint8_t data;
 
     avr_isp_prog_fill(instance, 4);
+    if(!avr_isp_prog_spi_ready(instance)) {
+        avr_isp_prog_failed_reply(instance, 1);
+        return;
+    }
     data = avr_isp_prog_spi_transaction(
         instance, instance->buff[0], instance->buff[1], instance->buff[2], instance->buff[3]);
     avr_isp_prog_breply(instance, data);
@@ -460,6 +488,14 @@ static void avr_isp_prog_program_page(AvrIspProg* instance) {
     uint8_t result = STK_FAILED;
     uint16_t length = avr_isp_prog_getch(instance) << 8 | avr_isp_prog_getch(instance);
     uint8_t memtype = avr_isp_prog_getch(instance);
+    if((memtype == STK_SET_FLASH_TYPE || memtype == STK_SET_EEPROM_TYPE) &&
+       !avr_isp_prog_spi_ready(instance)) {
+        for(uint16_t x = 0; x < length; x++) {
+            avr_isp_prog_getch(instance); // drain the data, there is no target to write to
+        }
+        avr_isp_prog_failed_reply(instance, 0);
+        return;
+    }
     // flash memory @addr, (length) bytes
     if(memtype == STK_SET_FLASH_TYPE) {
         avr_isp_prog_write_flash(instance, length);
@@ -518,6 +554,10 @@ static void avr_isp_prog_read_page(AvrIspProg* instance) {
         return;
     }
     avr_isp_prog_tx_ch(instance, STK_INSYNC);
+    if(!avr_isp_prog_spi_ready(instance)) {
+        avr_isp_prog_tx_ch(instance, STK_FAILED);
+        return;
+    }
     if(memtype == STK_SET_FLASH_TYPE) result = avr_isp_prog_flash_read_page(instance, length);
     if(memtype == STK_SET_EEPROM_TYPE) result = avr_isp_prog_eeprom_read_page(instance, length);
     avr_isp_prog_tx_ch(instance, result);
@@ -525,6 +565,10 @@ static void avr_isp_prog_read_page(AvrIspProg* instance) {
 
 static void avr_isp_prog_read_signature(AvrIspProg* instance) {
     furi_assert(instance);
+    if(!avr_isp_prog_spi_ready(instance)) {
+        avr_isp_prog_failed_reply(instance, 3);
+        return;
+    }
     if(avr_isp_prog_getch(instance) != CRC_EOP) {
         instance->error++;
         avr_isp_prog_tx_ch(instance, STK_NOSYNC);
@@ -585,7 +629,10 @@ void avr_isp_prog_avrisp(AvrIspProg* instance) {
         break;
     case STK_ENTER_PROGMODE:
         FURI_LOG_D(TAG, "cmd STK_ENTER_PROGMODE");
-        if(!instance->pmode) avr_isp_prog_auto_set_spi_speed_start_pmode(instance);
+        if(!instance->pmode && !avr_isp_prog_auto_set_spi_speed_start_pmode(instance)) {
+            avr_isp_prog_failed_reply(instance, 0); // no target answered
+            break;
+        }
         avr_isp_prog_empty_reply(instance);
         break;
     case STK_LOAD_ADDRESS:

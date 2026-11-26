@@ -412,6 +412,7 @@ static void flip_weather_widget_set_text(char *message, Widget **widget)
 
     // Add the formatted message to the widget
     widget_add_text_scroll_element(*widget, 0, 0, 128, 64, formatted_message);
+    free(formatted_message); // the widget copies the text, so the buffer would leak otherwise
 }
 
 void flip_weather_loader_draw_callback(Canvas *canvas, void *model)

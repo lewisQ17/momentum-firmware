@@ -159,7 +159,8 @@ Uart* _uart_init(void* app, FuriHalSerialId channel, const char* thread_name) {
     uart->rx_stream = furi_stream_buffer_alloc(RX_BUF_SIZE, 1);
     uart->rx_thread = furi_thread_alloc();
     furi_thread_set_name(uart->rx_thread, thread_name);
-    furi_thread_set_stack_size(uart->rx_thread, 1024);
+    // 4 KB: cJSON_Parse runs on this thread via the rx callback
+    furi_thread_set_stack_size(uart->rx_thread, 4096);
     furi_thread_set_context(uart->rx_thread, uart);
     furi_thread_set_callback(uart->rx_thread, uart_worker);
     furi_thread_start(uart->rx_thread);

@@ -147,9 +147,13 @@ void gameboy_information_handle_rx_data_cb(uint8_t* buf, size_t len, void* conte
                 cJSON* gb_logo = cJSON_GetObjectItemCaseSensitive(json, "logo");
                 if(cJSON_IsArray(gb_logo)) {
                     // Leer los elementos del arreglo "logo"
-                    for(int i = 0; i < cJSON_GetArraySize(gb_logo); i++) {
+                    // bound by the buffer size: the array length comes from the UART device
+                    for(int i = 0; i < cJSON_GetArraySize(gb_logo) &&
+                                   i < (int)sizeof(model->cart_logo);
+                        i++) {
                         cJSON* logoElement = cJSON_GetArrayItem(gb_logo, i);
-                        if(cJSON_IsNumber(logoElement)) {
+                        if(cJSON_IsNumber(logoElement) && logoElement->valueint >= 0 &&
+                           logoElement->valueint <= 255) {
                             model->cart_logo[i] = logoElement->valueint;
                         }
                     }

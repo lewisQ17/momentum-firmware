@@ -163,6 +163,26 @@ bool FlipDownloaderRun::createDirectory(const char *dirPath)
         return false;
     }
 
+    // create missing parent levels first (nested GitHub paths); errors here surface in the final mkdir below
+    char partial[256];
+    size_t dirLen = strlen(dirPath);
+    if (dirLen < sizeof(partial))
+    {
+        memcpy(partial, dirPath, dirLen + 1);
+        for (size_t i = 1; i < dirLen; i++)
+        {
+            if (partial[i] == '/')
+            {
+                partial[i] = '\0';
+                if (!storage_common_exists(storage, partial))
+                {
+                    storage_common_mkdir(storage, partial);
+                }
+                partial[i] = '/';
+            }
+        }
+    }
+
     if (!storage_common_exists(storage, dirPath) && storage_common_mkdir(storage, dirPath) != FSE_OK)
     {
         FURI_LOG_E(TAG, "Failed to create directory %s", dirPath);
@@ -343,7 +363,7 @@ void FlipDownloaderRun::drawApps(Canvas *canvas)
         if (description[i] == ' ' || description[i] == '\n' || description[i + 1] == '\0')
         {
             // End of word, check if it fits
-            if (description[i + 1] == '\0' && description[i] != ' ')
+            if (description[i + 1] == '\0' && description[i] != ' ' && word_index < (int)sizeof(word_buffer) - 1)
             {
                 word_buffer[word_index++] = description[i];
             }
@@ -368,7 +388,7 @@ void FlipDownloaderRun::drawApps(Canvas *canvas)
 
             word_index = 0;
         }
-        else
+        else if (word_index < (int)sizeof(word_buffer) - 1) // overlong word: drop the excess instead of overflowing the stack
         {
             word_buffer[word_index++] = description[i];
         }
@@ -1400,7 +1420,8 @@ bool FlipDownloaderRun::githubDownloadRepositoryFile(const char *author, const c
         // Use nextChunkOffset if set from previous object, otherwise use currentOffset
         size_t readOffset = (nextChunkOffset > 0) ? nextChunkOffset : currentOffset;
 
-        if (!loadFileChunk(s_filePath, s_chunkBuffer, CHUNK_SIZE, readOffset / CHUNK_SIZE))
+        // exact byte offset: readOffset is end of the last object, not a multiple of CHUNK_SIZE (reads CHUNK_SIZE bytes + NUL)
+        if (!loadFileChunkFromOffset(s_filePath, s_chunkBuffer, CHUNK_SIZE + 1, readOffset))
         {
             FURI_LOG_E(TAG, "End of file or read error at iteration %d, offset %zu", iteration, readOffset);
             break;

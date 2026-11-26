@@ -126,6 +126,8 @@ int32_t scope_main(void* p) {
     UNUSED(p);
     ScopeApp* scope_app = scope_app_alloc();
     view_dispatcher_run(scope_app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(scope_app->scene_manager);
     scope_app_free(scope_app);
     return 0;
 }

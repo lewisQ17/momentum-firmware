@@ -177,6 +177,9 @@ int32_t flipper_atomicdiceroller_app() {
     mutexVal.mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     if(!mutexVal.mutex) {
         furi_message_queue_free(event_queue);
+        // TIM2 was started above: return it to idle on this exit path too
+        LL_TIM_DisableCounter(TIM2);
+        furi_hal_bus_disable(FuriHalBusTIM2);
         expansion_enable(expansion);
         furi_record_close(RECORD_EXPANSION);
         return 255;
@@ -464,8 +467,6 @@ int32_t flipper_atomicdiceroller_app() {
     free(bufferTim2);
     free(hash);
 
-    furi_record_close(RECORD_NOTIFICATION);
-
     if(furi_hal_power_is_otg_enabled() && !otg_was_enabled) {
         furi_hal_power_disable_otg();
     }
@@ -475,12 +476,15 @@ int32_t flipper_atomicdiceroller_app() {
 
     furi_hal_gpio_init_simple(&gpio_ext_pa7, GpioModeAnalog);
 
-    furi_message_queue_free(event_queue);
-    furi_mutex_free(mutexVal.mutex);
-    gui_remove_view_port(gui, view_port);
-    view_port_free(view_port);
+    // timers and the view port use the queue / mutex: stop them first, free those last
+    furi_timer_stop(timer);
+    furi_timer_stop(timerPause);
     furi_timer_free(timer);
     furi_timer_free(timerPause);
+    gui_remove_view_port(gui, view_port);
+    view_port_free(view_port);
+    furi_message_queue_free(event_queue);
+    furi_mutex_free(mutexVal.mutex);
     furi_record_close(RECORD_GUI);
 
     expansion_enable(expansion);

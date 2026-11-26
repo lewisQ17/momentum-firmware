@@ -142,9 +142,12 @@ bool auto_complete_add_dictionary(AutoComplete *context, const char *filename)
 // Add word to dictionary
 bool auto_complete_add_word(AutoComplete *context, const char *word)
 {
+    if (!context || !word || !context->root)
+    {
+        return false;
+    }
     const size_t len = strlen(word);
-
-    if (!context || !word || len == 0 || !context->root)
+    if (len == 0)
     {
         return false;
     }
@@ -169,11 +172,16 @@ bool auto_complete_add_word(AutoComplete *context, const char *word)
 
     current->is_end_of_word = true;
 
-    // Store complete word at end node
-    current->word = (char *)MEMORY_ALLOC(len + 1);
-    if (current->word)
+    // Store complete word at end node (duplicates map to the same node: release the old copy, no leak)
+    char *new_word = (char *)MEMORY_ALLOC(len + 1);
+    if (new_word)
     {
-        snprintf(current->word, len + 1, "%s", word);
+        snprintf(new_word, len + 1, "%s", word);
+        if (current->word)
+        {
+            MEMORY_FREE(current->word);
+        }
+        current->word = new_word;
         return true;
     }
 

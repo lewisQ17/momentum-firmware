@@ -239,6 +239,8 @@ int32_t ifttt_virtual_button_app(void* p) {
     send_serial_command_config(app->serial_handle, ESerialCommand_Config, &(app->settings));
 
     view_dispatcher_run(app->view_dispatcher);
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
     ifttt_virtual_button_app_free(app);
 
     // Return previous state of expansion

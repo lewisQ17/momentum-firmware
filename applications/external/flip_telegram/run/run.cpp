@@ -509,6 +509,7 @@ void FlipTelegramRun::drawViewingView(Canvas *canvas)
                     return;
                 }
 
+                tempChunk[0] = '\0'; // stays empty when loadFileChunk fails/EOF (no uninitialised strlen)
                 bool chunkLoadSuccess = app->loadFileChunk(STORAGE_EXT_PATH_PREFIX "/apps_data/flip_telegram/data/messages.txt", tempChunk, PARSING_CHUNK_SIZE, iteration);
 
                 if (!chunkLoadSuccess && iteration == 0)
@@ -947,6 +948,7 @@ void FlipTelegramRun::updateInput(InputEvent *event)
         else if (lastInput == InputKeyBack)
         {
             currentView = RUN_MENU_MAIN;
+            viewingStatus = ViewingWaiting; // so View refetches after an error/empty feed
             currentScrollLine = 0;
             shouldDebounce = true;
         }

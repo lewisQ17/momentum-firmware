@@ -73,9 +73,10 @@ UnitempOneWireBus* unitemp_onewire_bus_alloc(const SensorGpioPin* gpio);
  * After calling this function, the pointer should not be used.
  * 
  * @param[in] unitemp_one_wire_bus Pointer to the OneWire bus instance to be freed
+ * @param[in] owner Sensor instance that releases the bus; other listed sensors on the same bus keep it alive
  * 
  */
-void unitemp_onewire_bus_free(UnitempOneWireBus* unitemp_one_wire_bus);
+void unitemp_onewire_bus_free(UnitempOneWireBus* unitemp_one_wire_bus, const void* owner);
 
 /**
  * @brief One wire bus initialization

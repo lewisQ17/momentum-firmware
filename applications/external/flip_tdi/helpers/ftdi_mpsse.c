@@ -9,7 +9,8 @@
 
 typedef void (*FtdiMpsseGpioO)(uint8_t state);
 
-#define FTDI_MPSSE_TIMEOUT 5000
+#define FTDI_MPSSE_TIMEOUT      5000
+#define FTDI_MPSSE_IDLE_POLL_MS 10
 #define FTDI_MPSSE_TX_RX_SIZE (4096UL)
 
 typedef enum {
@@ -210,7 +211,9 @@ static inline void ftdi_mpsse_immediate(FtdiMpsse* ftdi_mpsse) {
 }
 void ftdi_mpsse_state_machine(FtdiMpsse* ftdi_mpsse) {
     ftdi_mpsse->error = FtdiMpsseErrorNone;
-    uint8_t data = ftdi_mpsse_get_data_stream(ftdi_mpsse);
+    uint8_t data = 0;
+    // first byte: wait only briefly and return when idle, so a stop request is seen quickly
+    if(ftdi_get_rx_buf(ftdi_mpsse->ftdi, &data, 1, FTDI_MPSSE_IDLE_POLL_MS) != 1) return;
     uint8_t gpio_state_io = 0xFF;
     switch(data) {
     case FtdiMpsseCommandsSetBitsLow: // 0x80  Change LSB GPIO output */

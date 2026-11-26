@@ -249,6 +249,9 @@ static UartEchoApp* malveke_gb_emulator_app_alloc() {
 static void malveke_gb_emulator_app_free(UartEchoApp* app) {
     furi_assert(app);
 
+    // stop the LPUART RX callback first: it signals worker_thread / rx_stream, freed below
+    furi_hal_serial_async_rx_stop(app->serial_handle_lp_uart);
+
     furi_thread_flags_set(furi_thread_get_id(app->worker_thread), WorkerEventStop);
     furi_thread_join(app->worker_thread);
     furi_thread_free(app->worker_thread);

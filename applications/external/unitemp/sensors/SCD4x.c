@@ -156,7 +156,7 @@ bool SCD4x_read_measurement(Sensor* sensor) {
     //Converting values
     sensor->co2 = (buff[0] << 8) | buff[1];
     sensor->temperature = -45.0f + 175.0f * ((buff[3] << 8) | buff[4]) / 65535.0f;
-    sensor->humidity = 100.0f * ((buff[3] << 8) | buff[4]) / 65535.0f;
+    sensor->humidity = 100.0f * ((buff[6] << 8) | buff[7]) / 65535.0f;
 
     return true;
 }

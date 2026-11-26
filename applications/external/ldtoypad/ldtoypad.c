@@ -343,10 +343,10 @@ static void ldtoypad_app_free(LDToyPadApp* app) {
     view_dispatcher_remove_view(app->view_dispatcher, ViewAbout);
     widget_free(app->widget_about);
 
-    ldtoypad_scene_emulate_free(app->view_scene_emulate);
+    // remove the view before the emulate free (which frees the View and the instance itself)
     view_dispatcher_remove_view(app->view_dispatcher, ViewEmulate);
-
-    free(app->view_scene_emulate);
+    ldtoypad_scene_emulate_free(app->view_scene_emulate);
+    app->view_scene_emulate = NULL;
 
     variable_item_list_reset(app->variable_item_list_config);
     view_dispatcher_remove_view(app->view_dispatcher, ViewConfigure);

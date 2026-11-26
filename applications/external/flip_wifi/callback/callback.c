@@ -125,7 +125,9 @@ void callback_text_updated_deauth(void *context)
         loading = NULL;
         return;
     }
-    while (app->fhttp->last_response == NULL || strlen(app->fhttp->last_response) == 0)
+    // bounded wait (30 s): a silent board must not block the GUI thread forever (Back is not processed here)
+    uint32_t deauth_wait_start = furi_get_tick();
+    while ((app->fhttp->last_response == NULL || strlen(app->fhttp->last_response) == 0) && (furi_get_tick() - deauth_wait_start) < 30000)
     {
         furi_delay_ms(100);
     }
@@ -142,7 +144,8 @@ void callback_text_updated_deauth(void *context)
         loading = NULL;
         return;
     }
-    while (strstr(app->fhttp->last_response, "[DEAUTH/STARTING]") != NULL)
+    deauth_wait_start = furi_get_tick();
+    while (strstr(app->fhttp->last_response, "[DEAUTH/STARTING]") != NULL && (furi_get_tick() - deauth_wait_start) < 10000)
     {
         furi_delay_ms(100);
     }
@@ -440,7 +443,9 @@ static bool callback_run_ap_mode(void *context)
     int32_t loading_view_id = 87654321; // Random ID
     view_dispatcher_add_view(app->view_dispatcher, loading_view_id, loading_get_view(loading));
     view_dispatcher_switch_to_view(app->view_dispatcher, loading_view_id);
-    while (app->fhttp->last_response == NULL || strlen(app->fhttp->last_response) == 0)
+    // bounded wait (30 s): a silent board must not block the GUI thread forever (Back is not processed here)
+    uint32_t ap_wait_start = furi_get_tick();
+    while ((app->fhttp->last_response == NULL || strlen(app->fhttp->last_response) == 0) && (furi_get_tick() - ap_wait_start) < 30000)
     {
         furi_delay_ms(100);
     }
@@ -452,39 +457,49 @@ static bool callback_run_ap_mode(void *context)
         if (!load_char("ap_html_path", html_path, sizeof(html_path)))
         {
             FURI_LOG_E(TAG, "Failed to load HTML path");
-            return false;
-        }
-        flipper_http_send_data(app->fhttp, "[WIFI/AP/UPDATE]");
-        furi_delay_ms(1000);
-        FuriString *html_content = flipper_http_load_from_file(html_path);
-        if (html_content == NULL || furi_string_size(html_content) == 0)
-        {
-            FURI_LOG_E(TAG, "Failed to load HTML file");
-            if (html_content)
-                furi_string_free(html_content);
+            // release the loading view on this path too, otherwise the next AP start re-adds the same view id
             view_dispatcher_switch_to_view(app->view_dispatcher, FlipWiFiViewSubmenu);
             view_dispatcher_remove_view(app->view_dispatcher, loading_view_id);
             loading_free(loading);
             loading = NULL;
             return false;
         }
-        furi_string_cat_str(html_content, "\n");
-        const char *send_buffer = furi_string_get_cstr(html_content);
-        const size_t send_buffer_size = furi_string_size(html_content);
+        // stream the file in chunks (the old loader cut pages at 4096 bytes, mid-tag)
+        Storage *html_storage = furi_record_open(RECORD_STORAGE);
+        File *html_file = storage_file_alloc(html_storage);
+        uint8_t *html_chunk = (uint8_t *)malloc(512);
+        if (!html_chunk || !storage_file_open(html_file, html_path, FSAM_READ, FSOM_OPEN_EXISTING) || storage_file_size(html_file) == 0)
+        {
+            FURI_LOG_E(TAG, "Failed to load HTML file");
+            if (html_chunk)
+                free(html_chunk);
+            storage_file_close(html_file);
+            storage_file_free(html_file);
+            furi_record_close(RECORD_STORAGE);
+            view_dispatcher_switch_to_view(app->view_dispatcher, FlipWiFiViewSubmenu);
+            view_dispatcher_remove_view(app->view_dispatcher, loading_view_id);
+            loading_free(loading);
+            loading = NULL;
+            return false;
+        }
+        flipper_http_send_data(app->fhttp, "[WIFI/AP/UPDATE]");
+        furi_delay_ms(1000);
 
         app->fhttp->state = SENDING;
-        size_t offset = 0;
-        while (offset < send_buffer_size)
+        size_t chunk_size;
+        while ((chunk_size = storage_file_read(html_file, html_chunk, 512)) > 0)
         {
-            size_t chunk_size = send_buffer_size - offset > 512 ? 512 : send_buffer_size - offset;
-            furi_hal_serial_tx(app->fhttp->serial_handle, (const uint8_t *)(send_buffer + offset), chunk_size);
-            offset += chunk_size;
+            furi_hal_serial_tx(app->fhttp->serial_handle, html_chunk, chunk_size);
             furi_delay_ms(50); // cant go faster than this, no matter the chunk size
         }
+        furi_hal_serial_tx(app->fhttp->serial_handle, (const uint8_t *)"\n", 1);
+        storage_file_close(html_file);
+        storage_file_free(html_file);
+        furi_record_close(RECORD_STORAGE);
+        free(html_chunk);
         // send the [WIFI/AP/UPDATE/END] command
         flipper_http_send_data(app->fhttp, "[WIFI/AP/UPDATE/END]");
         app->fhttp->state = IDLE;
-        furi_string_free(html_content);
         view_dispatcher_switch_to_view(app->view_dispatcher, FlipWiFiViewSubmenu);
         view_dispatcher_remove_view(app->view_dispatcher, loading_view_id);
         loading_free(loading);
@@ -840,16 +855,24 @@ void callback_submenu_choices(void *context, uint32_t index)
         default:
             break;
         }
-        while (app->fhttp->last_response == NULL || strlen(app->fhttp->last_response) == 0)
         {
-            // Wait for the response
-            furi_delay_ms(100);
-        }
-        if (app->fhttp->last_response != NULL)
-        {
-            char response[100];
-            snprintf(response, sizeof(response), "%s", app->fhttp->last_response);
-            easy_flipper_dialog("", response);
+            // bounded wait (5 s): without a responding board this callback would block the GUI thread forever
+            uint32_t cmd_wait_start = furi_get_tick();
+            while ((app->fhttp->last_response == NULL || strlen(app->fhttp->last_response) == 0) && (furi_get_tick() - cmd_wait_start) < 5000)
+            {
+                // Wait for the response
+                furi_delay_ms(100);
+            }
+            if (app->fhttp->last_response != NULL && strlen(app->fhttp->last_response) > 0)
+            {
+                char response[100];
+                snprintf(response, sizeof(response), "%s", app->fhttp->last_response);
+                easy_flipper_dialog("", response);
+            }
+            else
+            {
+                easy_flipper_dialog("No response", "The board did not answer.\nCheck the connection.");
+            }
         }
         flipper_http_free(app->fhttp);
         app->fhttp = NULL;

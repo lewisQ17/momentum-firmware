@@ -26,6 +26,7 @@ int32_t longwave_clock_app(void* p) {
     FURI_LOG_D(TAG, "Returning from view dispatcher, freeing the app.");
 
     app_free(app);
+    furi_record_close(RECORD_GUI);
 
     FURI_LOG_I(TAG, "Long Wave Clock app ended.");
     return 0;

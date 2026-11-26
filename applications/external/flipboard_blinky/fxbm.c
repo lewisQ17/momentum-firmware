@@ -1,6 +1,8 @@
 #include "fxbm.h"
 #include <storage/storage.h>
 
+#define FXBM_MAX_SIZE 4096 // 128x64 bitmap is 1 KiB; generous upper bound
+
 struct FxbmFile {
     uint32_t width;
     uint32_t height;
@@ -22,8 +24,21 @@ FxbmFile* fxbm_alloc(const char* path) {
             break;
         }
 
+        // size comes from the file: a huge value would crash malloc, a tiny one under-allocates the header
+        if(size < sizeof(FxbmFile) || size > FXBM_MAX_SIZE) {
+            break;
+        }
+
         fxbm = malloc(size);
         if(storage_file_read(file, fxbm, size) != size) {
+            free(fxbm);
+            fxbm = NULL;
+            break;
+        }
+
+        // the bitmap rows (w+7)/8 * h must fit in the data that was actually loaded
+        uint64_t bitmap_bytes = (((uint64_t)fxbm->width + 7) / 8) * (uint64_t)fxbm->height;
+        if(bitmap_bytes > size - sizeof(FxbmFile)) {
             free(fxbm);
             fxbm = NULL;
             break;

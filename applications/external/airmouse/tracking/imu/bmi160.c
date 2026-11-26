@@ -81,6 +81,11 @@ int bmi160_read(double* vec) {
 }
 
 void bmi160_end() {
+    if(bmi160dev.delay_ms == NULL) return; // never initialised
+    // put accel and gyro back in suspend (the LSM6 backends switch their ODR off too)
+    bmi160dev.accel_cfg.power = BMI160_ACCEL_SUSPEND_MODE;
+    bmi160dev.gyro_cfg.power = BMI160_GYRO_SUSPEND_MODE;
+    bmi160_set_power_mode(&bmi160dev);
 }
 
 struct imu_t imu_bmi160 = {BMI160_DEV_ADDR, bmi160_begin, bmi160_end, bmi160_read, BMI160_TAG};

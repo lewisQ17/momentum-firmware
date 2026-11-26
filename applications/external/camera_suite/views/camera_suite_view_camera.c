@@ -480,7 +480,8 @@ static void
     }
 }
 
-static void process_ringbuffer(UartDumpModel* model, uint8_t const byte) {
+// Returns true when a full row was completed (the picture changed).
+static bool process_ringbuffer(UartDumpModel* model, uint8_t const byte) {
     furi_assert(model);
     furi_assert(byte);
 
@@ -489,19 +490,19 @@ static void process_ringbuffer(UartDumpModel* model, uint8_t const byte) {
         // Validate the start of row characters 'Y' and ':'.
         if(model->ringbuffer_index == 0 && byte != 'Y') {
             // Incorrect start of frame; reset.
-            return;
+            return false;
         }
         if(model->ringbuffer_index == 1 && byte != ':') {
             // Incorrect start of frame; reset.
             model->ringbuffer_index = 0;
-            return;
+            return false;
         }
         if(model->ringbuffer_index == 2) {
             // Assign the third byte as the row identifier.
             model->row_identifier = byte;
         }
         model->ringbuffer_index++; // Increment index for the next byte.
-        return;
+        return false;
     }
 
     // Store pixel value directly after the header.
@@ -518,28 +519,46 @@ static void process_ringbuffer(UartDumpModel* model, uint8_t const byte) {
 
         // Ensure the row start index is within the valid range.
         if(row_start_index > LAST_ROW_INDEX) {
-            return; // Drop the row instead of overwriting row 0.
+            return true; // Drop the row instead of overwriting row 0.
         }
 
         // Flush the contents of the ring buffer to the pixel buffer.
         for(size_t i = 0; i < ROW_BUFFER_LENGTH; ++i) {
             model->pixels[row_start_index + i] = model->row_ringbuffer[i];
         }
+        return true;
     }
+    return false;
 }
+
+#define CAMERA_REDRAW_MS 70
 
 static int32_t camera_suite_camera_worker(void* context) {
     furi_assert(context);
 
     CameraSuiteViewCamera* instance = context;
 
-    while(1) {
-        // Wait for any event on the worker thread.
-        uint32_t events =
-            furi_thread_flags_wait(CAMERA_WORKER_EVENTS_MASK, FuriFlagWaitAny, FuriWaitForever);
+    // Redraw at most every CAMERA_REDRAW_MS: a redraw per UART burst keeps the GUI thread at 100%.
+    bool dirty = false;
+    uint32_t last_redraw = 0;
 
-        // Check if an error occurred.
-        furi_check((events & FuriFlagError) == 0);
+    while(1) {
+        // Wait for any event on the worker thread; while a redraw is pending only until it is due.
+        uint32_t wait_ms = FuriWaitForever;
+        if(dirty) {
+            uint32_t elapsed = furi_get_tick() - last_redraw;
+            wait_ms = (elapsed >= CAMERA_REDRAW_MS) ? 0 : (CAMERA_REDRAW_MS - elapsed);
+        }
+        uint32_t events =
+            furi_thread_flags_wait(CAMERA_WORKER_EVENTS_MASK, FuriFlagWaitAny, wait_ms);
+
+        if(events == (uint32_t)FuriFlagErrorTimeout) {
+            // Only the pending redraw is due.
+            events = 0;
+        } else {
+            // Check if an error occurred.
+            furi_check((events & FuriFlagError) == 0);
+        }
 
         // Check if the thread should stop.
         if(events & WorkerEventStop) {
@@ -562,14 +581,18 @@ static int32_t camera_suite_camera_worker(void* context) {
                         {
                             // Process the data.
                             for(size_t i = 0; i < length; i++) {
-                                process_ringbuffer(model, data[i]);
+                                if(process_ringbuffer(model, data[i])) dirty = true;
                             }
                         },
                         false);
                 }
             } while(length > 0);
+        }
 
+        if(dirty && (furi_get_tick() - last_redraw) >= CAMERA_REDRAW_MS) {
             with_view_model(instance->view, UartDumpModel * model, { UNUSED(model); }, true);
+            dirty = false;
+            last_redraw = furi_get_tick();
         }
     }
 

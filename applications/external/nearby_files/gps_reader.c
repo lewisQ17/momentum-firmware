@@ -92,18 +92,22 @@ static void gps_reader_serial_deinit(GpsReader* gps_reader) {
 static void gps_reader_parse_nmea(GpsReader* gps_reader, char* line) {
     FURI_LOG_D("GPS", "Parsing NMEA: %s", line);
 
-    // Mark GPS module as detected when any valid NMEA sentence is received
-    furi_mutex_acquire(gps_reader->mutex, FuriWaitForever);
-    gps_reader->coordinates.module_detected = true;
-    furi_mutex_release(gps_reader->mutex);
+    // Mark GPS module as detected only when the line is an NMEA sentence, not line noise
+    const enum minmea_sentence_id sentence_id = minmea_sentence_id(line, false);
+    if(sentence_id != MINMEA_INVALID) {
+        furi_mutex_acquire(gps_reader->mutex, FuriWaitForever);
+        gps_reader->coordinates.module_detected = true;
+        furi_mutex_release(gps_reader->mutex);
+    }
 
-    switch(minmea_sentence_id(line, false)) {
+    switch(sentence_id) {
     case MINMEA_SENTENCE_RMC: {
         struct minmea_sentence_rmc frame;
         if(minmea_parse_rmc(&frame, line) && frame.valid) {
             FURI_LOG_I("GPS", "Valid RMC sentence parsed, updating coordinates");
             furi_mutex_acquire(gps_reader->mutex, FuriWaitForever);
             gps_reader->coordinates.valid = true;
+            gps_reader->last_fix_tick = furi_get_tick();
             gps_reader->coordinates.latitude = minmea_tocoord(&frame.latitude);
             gps_reader->coordinates.longitude = minmea_tocoord(&frame.longitude);
             furi_mutex_release(gps_reader->mutex);
@@ -124,9 +128,12 @@ static void gps_reader_parse_nmea(GpsReader* gps_reader, char* line) {
                     "Valid GGA sentence parsed, updating coordinates (sats: %d)",
                     frame.satellites_tracked);
                 gps_reader->coordinates.valid = true;
+                gps_reader->last_fix_tick = furi_get_tick();
                 gps_reader->coordinates.latitude = minmea_tocoord(&frame.latitude);
                 gps_reader->coordinates.longitude = minmea_tocoord(&frame.longitude);
             } else {
+                // GGA without a fix: the position is no longer current
+                gps_reader->coordinates.valid = false;
                 FURI_LOG_D(
                     "GPS", "GGA sentence parsed, no fix (sats: %d)", frame.satellites_tracked);
             }
@@ -142,6 +149,7 @@ static void gps_reader_parse_nmea(GpsReader* gps_reader, char* line) {
             FURI_LOG_I("GPS", "Valid GLL sentence parsed, updating coordinates");
             furi_mutex_acquire(gps_reader->mutex, FuriWaitForever);
             gps_reader->coordinates.valid = true;
+            gps_reader->last_fix_tick = furi_get_tick();
             gps_reader->coordinates.latitude = minmea_tocoord(&frame.latitude);
             gps_reader->coordinates.longitude = minmea_tocoord(&frame.longitude);
             furi_mutex_release(gps_reader->mutex);
@@ -267,6 +275,7 @@ GpsReader* gps_reader_alloc(uint32_t initial_baudrate) {
     gps_reader->coordinates.longitude = 0.0f;
     gps_reader->coordinates.module_detected = false;
     gps_reader->coordinates.satellite_count = 0;
+    gps_reader->last_fix_tick = 0;
 
     gps_reader_start_worker(gps_reader);
 
@@ -288,7 +297,11 @@ GpsCoordinates gps_reader_get_coordinates(GpsReader* gps_reader) {
 
     furi_mutex_acquire(gps_reader->mutex, FuriWaitForever);
     GpsCoordinates coords = gps_reader->coordinates;
+    const uint32_t fix_age_ticks = furi_get_tick() - gps_reader->last_fix_tick;
     furi_mutex_release(gps_reader->mutex);
+
+    // stale fix (lost signal / module gone) must not be used as the current position
+    if(coords.valid && fix_age_ticks > furi_ms_to_ticks(GPS_FIX_MAX_AGE_MS)) coords.valid = false;
 
     return coords;
 }

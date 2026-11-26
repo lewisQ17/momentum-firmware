@@ -148,7 +148,10 @@ int gblink_pin_get_default(void *handle)
 int gblink_pin_set(void *handle, gblink_bus_pins pin, unsigned int pinnum)
 {
 	furi_assert(handle);
-	furi_assert(pinnum < gpio_pins_count);
+
+	/* real runtime check: furi_assert is compiled out in release builds */
+	if (pinnum >= gpio_pins_count || gpio_pins[pinnum].debug)
+		return -1;
 
 	struct gblink *gblink = handle;
 
@@ -266,6 +269,7 @@ bool gblink_pinconf_load(void *gblink)
 	FlipperFormat *data_file = NULL;
 	FuriString *string = NULL;
 	uint32_t val;
+	uint32_t si, so, clk;
 	bool ret = false;
 
 	storage = furi_record_open(RECORD_STORAGE);
@@ -313,31 +317,42 @@ bool gblink_pinconf_load(void *gblink)
 		FURI_LOG_I("pinconf", "Setting Custom pinout");
 	}
 
-	if (!flipper_format_read_uint32(data_file, PINCONF_SI, &val, 1)) {
+	if (!flipper_format_read_uint32(data_file, PINCONF_SI, &si, 1)) {
 		FURI_LOG_E("pinconf", "Missing SI");
 		goto out;
-	} else {
-		gblink_pin_set(gblink, PIN_SERIN, val);
 	}
 
-	if (!flipper_format_read_uint32(data_file, PINCONF_SO, &val, 1)) {
+	if (!flipper_format_read_uint32(data_file, PINCONF_SO, &so, 1)) {
 		FURI_LOG_E("pinconf", "Missing SO");
 		goto out;
-	} else {
-		gblink_pin_set(gblink, PIN_SEROUT, val);
 	}
 
-	if (!flipper_format_read_uint32(data_file, PINCONF_CLK, &val, 1)) {
+	if (!flipper_format_read_uint32(data_file, PINCONF_CLK, &clk, 1)) {
 		FURI_LOG_E("pinconf", "Missing CLK");
 		goto out;
-	} else {
-		gblink_pin_set(gblink, PIN_CLK, val);
 	}
+
+	/* validate all three before applying any, so a corrupt file keeps the default pinout */
+	if (si >= gpio_pins_count || gpio_pins[si].debug ||
+	    so >= gpio_pins_count || gpio_pins[so].debug ||
+	    clk >= gpio_pins_count || gpio_pins[clk].debug) {
+		FURI_LOG_E("pinconf", "Pin index out of range");
+		goto out;
+	}
+
+	if (gblink_pin_set(gblink, PIN_SERIN, si) ||
+	    gblink_pin_set(gblink, PIN_SEROUT, so) ||
+	    gblink_pin_set(gblink, PIN_CLK, clk))
+		goto out;
 
 	ret = true;
 
 out:
-	flipper_format_file_close(data_file);
+	if (data_file) {
+		flipper_format_file_close(data_file);
+		/* was leaked on every call */
+		flipper_format_free(data_file);
+	}
 	furi_string_free(string);
 	furi_record_close(RECORD_STORAGE);
 	return ret;
@@ -387,6 +402,12 @@ bool gblink_pinconf_save(void *gblink)
 		goto out;
 		break;
 	case -1:
+		/* don't persist an unknown pin (-1 would load back as out-of-range) */
+		if (gblink_pin_get(gblink, PIN_SERIN) < 0 || gblink_pin_get(gblink, PIN_SEROUT) < 0 ||
+		    gblink_pin_get(gblink, PIN_CLK) < 0) {
+			FURI_LOG_E("pinconf", "Unknown pin, not saving");
+			goto out;
+		}
 		if (!flipper_format_write_string_cstr(data_file, "Mode", PINCONF_CUST))
 			FURI_LOG_E("pinconf", "Error writing mode to file");
 		break;
@@ -416,7 +437,11 @@ bool gblink_pinconf_save(void *gblink)
 	ret = true;
 
 out:
-	flipper_format_file_close(data_file);
+	if (data_file) {
+		flipper_format_file_close(data_file);
+		/* was leaked on every call */
+		flipper_format_free(data_file);
+	}
 	furi_string_free(string);
 	furi_record_close(RECORD_STORAGE);
 	return ret;

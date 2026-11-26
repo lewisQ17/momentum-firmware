@@ -141,6 +141,8 @@ int32_t GPIO_reader_app(void* p) {
         view_port_update(view_port);
     }
 
+    gpio_item_release_all_pins();
+
     view_port_enabled_set(view_port, false);
     gui_remove_view_port(gui, view_port);
     furi_record_close("gui");

@@ -503,6 +503,10 @@ static bool update_update_app(FlipperHTTP *fhttp, DateTime *time_current, bool u
 // checks the "last_checked" value, and if it is more than one hour old, calls for an update.
 bool update_is_ready(FlipperHTTP *fhttp, bool use_flipper_api)
 {
+    // hardened fork: never overwrite the installed (patched) .fap with an unverified upstream download
+    UNUSED(fhttp);
+    UNUSED(use_flipper_api);
+    return false;
     if (!fhttp)
     {
         FURI_LOG_E(TAG, "fhttp is NULL");

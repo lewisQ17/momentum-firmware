@@ -1,6 +1,7 @@
 #include "ping.h"
 #include "socket.h"
 #include "w5500.h"
+#include <string.h>
 
 PINGMSGR PingRequest; // Variable for Ping Request
 PINGMSGR PingReply; // Variable for Ping Reply
@@ -188,10 +189,27 @@ uint8_t ping_reply(uint8_t s, uint8_t* addr, uint16_t rlen) {
     uint16_t len;
     uint16_t i;
     uint8_t data_buf[128];
+    uint8_t src_addr[4];
     uint16_t port = 3000;
     PINGMSGR PingReply;
-    /* receive data from a destination */
-    len = recvfrom(s, (uint8_t*)data_buf, rlen, addr, &port);
+    /* cap the read to our buffer: a large LAN ICMP datagram must not overflow the stack */
+    if(rlen > sizeof(data_buf)) rlen = sizeof(data_buf);
+    /* receive data from a destination (sender IP into scratch, do not overwrite the target) */
+    int32_t got = recvfrom(s, (uint8_t*)data_buf, rlen, src_addr, &port);
+    /* drain the rest of an oversized datagram so it is not parsed as a new packet */
+    if(got == (int32_t)sizeof(data_buf)) {
+        uint8_t drain_buf[32];
+        uint8_t drain_addr[4];
+        uint8_t guard = 0;
+        int32_t d = (int32_t)sizeof(drain_buf);
+        /* only read while data is waiting: recvfrom would block on an empty socket */
+        while(d == (int32_t)sizeof(drain_buf) && getSn_RX_RSR(s) > 0 && guard++ < 64) {
+            d = recvfrom(s, drain_buf, sizeof(drain_buf), drain_addr, &port);
+        }
+    }
+    /* drop runt packets and packets not from the ping target */
+    if(got < 8 || memcmp(src_addr, addr, sizeof(src_addr)) != 0) return 0;
+    len = (uint16_t)got;
     if(data_buf[0] == PING_REPLY) {
         PingReply.Type = data_buf[0];
         PingReply.Code = data_buf[1];
@@ -199,7 +217,7 @@ uint8_t ping_reply(uint8_t s, uint8_t* addr, uint16_t rlen) {
         PingReply.ID = (data_buf[5] << 8) + data_buf[4];
         PingReply.SeqNum = (data_buf[7] << 8) + data_buf[6];
 
-        for(i = 0; i < len - 8; ++i) {
+        for(i = 0; i < len - 8 && i < sizeof(PingReply.Data); ++i) {
             PingReply.Data[i] = data_buf[8 + i];
         }
         /* check Checksum of Ping Reply */
@@ -227,13 +245,14 @@ uint8_t ping_reply(uint8_t s, uint8_t* addr, uint16_t rlen) {
         PingReply.ID = (data_buf[5] << 8) + data_buf[4];
         PingReply.SeqNum = (data_buf[7] << 8) + data_buf[6];
 
-        for(i = 0; i < len - 8; ++i) {
+        for(i = 0; i < len - 8 && i < sizeof(PingReply.Data); ++i) {
             PingReply.Data[i] = data_buf[8 + i];
         }
         /* check Checksum of Ping Reply */
         tmp_checksum = PingReply.CheckSum;
         PingReply.CheckSum = 0;
-        PingReply.CheckSum = htons(checksum((uint8_t*)&PingReply, len));
+        PingReply.CheckSum = htons(
+            checksum((uint8_t*)&PingReply, len < sizeof(PingReply) ? len : sizeof(PingReply)));
 
         if(tmp_checksum != PingReply.CheckSum) {
             eth_printf(

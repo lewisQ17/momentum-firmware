@@ -463,7 +463,7 @@ void boilerplate_scene_settings_on_enter(void* context) {
     // Palette
     item = variable_item_list_add(
         app->variable_item_list, "Palette:", 57, boilerplate_scene_settings_set_palette, app);
-    value_index = value_index_uint32(app->palette, palette_value, 1);
+    value_index = value_index_uint32(app->palette, palette_value, COUNT_OF(palette_value));
     variable_item_set_current_value_index(item, value_index);
     variable_item_set_current_value_text(item, palette_text[value_index]);
 

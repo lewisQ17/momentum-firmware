@@ -201,6 +201,15 @@ static int32_t usb_uart_worker(void* context) {
             }
         }
         if(events & WorkerEvtCfgChange) {
+            bool flow_changed = usb_uart->cfg.flow_pins != usb_uart->cfg_new.flow_pins;
+            /* Release the old flow pins before the UART re-init, they can be the pins the new
+             * UART (LPUART PC0/PC1) is about to claim and must not be reset to analog after it. */
+            if(flow_changed && usb_uart->cfg.flow_pins != 0) {
+                furi_hal_gpio_init_simple(
+                    flow_pins[usb_uart->cfg.flow_pins - 1][0], GpioModeAnalog);
+                furi_hal_gpio_init_simple(
+                    flow_pins[usb_uart->cfg.flow_pins - 1][1], GpioModeAnalog);
+            }
             if(usb_uart->cfg.vcp_ch != usb_uart->cfg_new.vcp_ch) {
                 furi_thread_flags_set(furi_thread_get_id(usb_uart->tx_thread), WorkerEvtTxStop);
                 furi_thread_join(usb_uart->tx_thread);
@@ -229,13 +238,7 @@ static int32_t usb_uart_worker(void* context) {
                 usb_uart_set_baudrate(usb_uart, usb_uart->cfg_new.baudrate);
                 usb_uart->cfg.baudrate = usb_uart->cfg_new.baudrate;
             }
-            if(usb_uart->cfg.flow_pins != usb_uart->cfg_new.flow_pins) {
-                if(usb_uart->cfg.flow_pins != 0) {
-                    furi_hal_gpio_init_simple(
-                        flow_pins[usb_uart->cfg.flow_pins - 1][0], GpioModeAnalog);
-                    furi_hal_gpio_init_simple(
-                        flow_pins[usb_uart->cfg.flow_pins - 1][1], GpioModeAnalog);
-                }
+            if(flow_changed) {
                 if(usb_uart->cfg_new.flow_pins != 0) {
                     furi_assert((size_t)(usb_uart->cfg_new.flow_pins - 1) < COUNT_OF(flow_pins));
                     furi_hal_gpio_init_simple(

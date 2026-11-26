@@ -293,6 +293,8 @@ bool ecInit(wiiEC_t* pec, const uint8_t* encKey) {
     rv = true; // yay :)
 
 bail:
+    // a failed init must not leave init set, or ecPoll never retries/announces the controller
+    if(!rv) pec->init = false;
 #if 0 //! i2c workaround
 	furi_hal_i2c_release(i2cBus);
 #endif

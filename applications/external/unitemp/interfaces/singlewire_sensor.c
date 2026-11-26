@@ -185,11 +185,12 @@ SensorStatus unitemp_singlewire_update(Sensor* sensor) {
     for(uint8_t a = 0; a < 5; a++) {
         for(uint8_t b = 7; b != 255; b--) {
             uint16_t hT = 0, lT = 0;
+            // Bounded like the handshake: a stuck line must not keep interrupts off for ~1 s
             // While the line is low, increment the lT variable
-            while(!furi_hal_gpio_read(instance->data_pin->pin) && lT != 65535)
+            while(!furi_hal_gpio_read(instance->data_pin->pin) && lT < POLLING_TIMEOUT_TICKS)
                 lT++;
             // While the line is high, increment the hT variable
-            while(furi_hal_gpio_read(instance->data_pin->pin) && hT != 65535)
+            while(furi_hal_gpio_read(instance->data_pin->pin) && hT < POLLING_TIMEOUT_TICKS)
                 hT++;
             // If hT is greater than lT, a one was received
             if(hT > lT) data[a] |= (1 << b);

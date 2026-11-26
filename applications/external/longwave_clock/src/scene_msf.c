@@ -362,7 +362,14 @@ static void msf_receive_unknown(void* context) {
 static void msf_receive_interrupt(void* context) {
     View* view = context;
 
-    with_view_model(view, LWCViewModel * model, { model->received_interrupt++; }, true);
+    with_view_model(
+        view,
+        LWCViewModel * model,
+        {
+            // saturate: a wrap to 0 would bring the 'waiting for first interrupt' overlay back
+            if(model->received_interrupt < UINT8_MAX) model->received_interrupt++;
+        },
+        true);
 }
 
 static void msf_receive_gpio(GPIOEvent event, void* context) {

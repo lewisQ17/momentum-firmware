@@ -414,6 +414,12 @@ static void set_GPIO_pin_via_user(int gp_idx) {
             gpc->pull = GpioPullNo;
             gpc->input = false;
             break;
+        case GPIO_MODE_UNSET:
+            // release the pin: analog / no pull (applied below)
+            gpc->mode = GpioModeAnalog;
+            gpc->pull = GpioPullNo;
+            gpc->input = false;
+            break;
         default:
             break;
         }
@@ -431,10 +437,12 @@ static void set_GPIO_pin_via_user(int gp_idx) {
             break;
         }
 
-        furi_hal_gpio_write(gpc->pin, gpc->value != (double)0.0 ? true : false);
+        if(gpc->user.mode != GPIO_MODE_UNSET) {
+            furi_hal_gpio_write(gpc->pin, gpc->value != (double)0.0 ? true : false);
+        }
         if(gpc->user.mode != gpc->user.prev_mode) {
             furi_hal_gpio_init(gpc->pin, gpc->mode, gpc->pull, gpc->speed);
-            gpc->unset = false;
+            gpc->unset = (gpc->user.mode == GPIO_MODE_UNSET);
         }
 
         gpc->user.changed = false;
@@ -564,6 +572,15 @@ int32_t gpio_controller_main(void* p) {
 
         update_gpio();
         view_port_update(view_port);
+    }
+
+    // release every pin this app configured (outputs stay driven / pull-ups stay on otherwise)
+    for(int i = 0; i < GPIO_PIN_COUNT; i++) {
+        GPIOPin* gpc = &gpio_pin_config[i];
+        if(gpc->pin != NULL && !gpc->unset) {
+            furi_hal_gpio_init(gpc->pin, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+            gpc->unset = true;
+        }
     }
 
     view_port_enabled_set(view_port, false);

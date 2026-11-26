@@ -1,4 +1,5 @@
 #include "infrared_signal_i.h"
+#include <furi_hal_infrared.h>
 
 struct InfraredSignal {
     Resources* resources;
@@ -110,16 +111,31 @@ bool infrared_signal_load_next(InfraredSignal* signal) {
                 FURI_LOG_E(TAG, "Missing frequency field");
                 break;
             }
+            // out-of-range values make furi_hal_infrared_async_tx_start() crash the device
+            if(signal->frequency < INFRARED_MIN_FREQUENCY ||
+               signal->frequency > INFRARED_MAX_FREQUENCY) {
+                FURI_LOG_E(TAG, "Frequency out of range");
+                break;
+            }
 
             if(!flipper_format_read_float(
                    signal->fff_data_file, "duty_cycle", &signal->duty_cycle, 1)) {
                 FURI_LOG_E(TAG, "Missing duty_cycle field");
                 break;
             }
+            if(!(signal->duty_cycle > 0.0f && signal->duty_cycle <= 1.0f)) {
+                FURI_LOG_E(TAG, "Duty cycle out of range");
+                break;
+            }
 
             if(!flipper_format_get_value_count(
                    signal->fff_data_file, "data", &signal->timings_count)) {
                 FURI_LOG_E(TAG, "Missing data field");
+                break;
+            }
+            // a huge (or zero) count would make malloc() crash the device
+            if(signal->timings_count == 0 || signal->timings_count > 1024) {
+                FURI_LOG_E(TAG, "Data count out of range");
                 break;
             }
             signal->timings = malloc(sizeof(uint32_t) * signal->timings_count);
@@ -204,6 +220,7 @@ void infrared_signal_free(InfraredSignal* signal) {
             signal->timings = NULL;
         }
         free(signal);
+        // only close the record that infrared_signal_load_file opened for a signal
+        furi_record_close(RECORD_STORAGE);
     }
-    furi_record_close(RECORD_STORAGE);
 }

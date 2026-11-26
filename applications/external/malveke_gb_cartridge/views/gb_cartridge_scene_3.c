@@ -53,9 +53,13 @@ void dump_ram_handle_rx_data_cb(uint8_t* buf, size_t len, void* context) {
     UNUSED(len);
     UNUSED(buf);
     GBCartridge* instance = context;
-    if(instance->is_writing_ram) {
+    // cart_ram only exists/is open after OK was pressed; the mutex keeps Back from freeing it mid-write
+    furi_mutex_acquire(instance->dump_mutex, FuriWaitForever);
+    if(instance->is_writing_ram && instance->cart_ram &&
+       storage_file_is_open(instance->cart_ram)) {
         storage_file_write(instance->cart_ram, buf, len);
     }
+    furi_mutex_release(instance->dump_mutex);
     with_view_model(
         instance->gb_cartridge_scene_3->view,
         GameBoyCartridgeRAMBackupModel * model,
@@ -261,10 +265,16 @@ bool gb_cartridge_scene_3_input(InputEvent* event, void* context) {
                     uart_set_handle_rx_data_cb(app->uart, NULL);
                     uart_set_handle_rx_data_cb(app->lp_uart, NULL);
 
+                    furi_mutex_acquire(app->dump_mutex, FuriWaitForever);
                     app->is_writing_ram = false;
-                    if(app->cart_ram && storage_file_is_open(app->cart_ram)) {
-                        storage_file_close(app->cart_ram);
+                    if(app->cart_ram) {
+                        if(storage_file_is_open(app->cart_ram)) {
+                            storage_file_close(app->cart_ram);
+                        }
+                        storage_file_free(app->cart_ram);
+                        app->cart_ram = NULL;
                     }
+                    furi_mutex_release(app->dump_mutex);
                     instance->callback(GBCartridgeCustomEventScene3Back, instance->context);
                 },
                 true);
@@ -283,13 +293,25 @@ bool gb_cartridge_scene_3_input(InputEvent* event, void* context) {
                     UNUSED(app);
                     model->start_time =
                         furi_hal_rtc_get_timestamp(); // Registra el tiempo de inicio
-                    app->cart_ram = storage_file_alloc(app->storage);
+                    // Reuse one File: a repeated OK restarts the dump instead of leaking
+                    furi_mutex_acquire(app->dump_mutex, FuriWaitForever);
+                    app->is_writing_ram = false;
+                    if(!app->cart_ram) {
+                        app->cart_ram = storage_file_alloc(app->storage);
+                    } else if(storage_file_is_open(app->cart_ram)) {
+                        storage_file_close(app->cart_ram);
+                    }
 
-                    if(storage_file_open(
-                           app->cart_ram,
-                           model->cart_dump_ram_filename_sequential,
-                           FSAM_WRITE,
-                           FSOM_CREATE_ALWAYS)) {
+                    bool dump_opened = storage_file_open(
+                        app->cart_ram,
+                        model->cart_dump_ram_filename_sequential,
+                        FSAM_WRITE,
+                        FSOM_CREATE_ALWAYS);
+                    // only start writing once the dump file is really open
+                    if(dump_opened) app->is_writing_ram = true;
+                    furi_mutex_release(app->dump_mutex);
+
+                    if(dump_opened) {
                         const char gbcartridge_command[] = "gbcartridge -d -a\n";
                         uart_tx(
                             app->uart, (uint8_t*)gbcartridge_command, strlen(gbcartridge_command));
@@ -334,7 +356,8 @@ void gb_cartridge_scene_3_enter(void* context) {
                 app->cart_dump_ram_filename,
                 app->cart_dump_ram_extension);
             model->cart_dump_ram_filename_sequential = filename;
-            app->is_writing_ram = true;
+            // set to true only once OK opened the dump file
+            app->is_writing_ram = false;
             // Register callbacks to receive data
             uart_set_handle_rx_data_cb(
                 app->uart,

@@ -3,6 +3,7 @@
 
 #include <gui/elements.h>
 #include <furi_hal_resources.h>
+#include <string.h>
 
 struct GpioReader {
     View* view;
@@ -140,6 +141,26 @@ void gpio_reader_free(GpioReader* gpio_reader) {
 View* gpio_reader_get_view(GpioReader* gpio_reader) {
     furi_assert(gpio_reader);
     return gpio_reader->view;
+}
+
+void gpio_reader_redraw(GpioReader* gpio_reader) {
+    furi_assert(gpio_reader);
+    // pin levels are read in the draw callback, committing the model forces a redraw
+    with_view_model(
+        gpio_reader->view, GpioReaderModel * model, { UNUSED(model); }, true);
+}
+
+void gpio_reader_reset(GpioReader* gpio_reader) {
+    furi_assert(gpio_reader);
+    // the pins are re-configured as pull-down on scene enter, keep the view in sync
+    with_view_model(
+        gpio_reader->view,
+        GpioReaderModel * model,
+        {
+            model->pin_idx = 0;
+            memset(model->pullUp, 0, sizeof(model->pullUp));
+        },
+        true);
 }
 
 void gpio_reader_set_ok_callback(

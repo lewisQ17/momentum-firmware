@@ -163,6 +163,7 @@ static void hid_deinit(usbd_device* dev) {
     free(usb_hid_ldtoypad.str_prod_descr);
 
     free(burtle);
+    burtle = NULL; // hid_init re-allocates it when the emulate view is entered again
 
     connected_status = ConnectedStatusDisconnected;
 }

@@ -193,6 +193,9 @@ int32_t avr_isp_app(void* p) {
 
     view_dispatcher_run(avr_isp_app->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(avr_isp_app->scene_manager);
+
     avr_isp_app_free(avr_isp_app);
 
     return 0;

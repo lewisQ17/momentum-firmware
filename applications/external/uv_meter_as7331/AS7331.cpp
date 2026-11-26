@@ -66,12 +66,14 @@ bool AS7331::init(const uint8_t& i2c_address_7bit) {
     furi_hal_i2c_release(&furi_hal_i2c_handle_external);
     if(!success) {
         FURI_LOG_E("AS7331", "Failed to set the device into configuration mode.");
+        setPowerDown(true); // do not leave the woken sensor running after a failed init
         return false;
     }
 
     // Populate local configuration variables from device registers
     if(!updateLocalConfig()) {
         FURI_LOG_E("AS7331", "Failed to read device configuration registers.");
+        setPowerDown(true);
         return false;
     }
 
@@ -79,6 +81,7 @@ bool AS7331::init(const uint8_t& i2c_address_7bit) {
     as7331_agen_reg_t deviceID;
     if(!getDeviceID(deviceID)) {
         FURI_LOG_E("AS7331", "Failed to read device ID.");
+        setPowerDown(true);
         return false;
     }
     // Compare with expected Device ID

@@ -661,6 +661,8 @@ static void
     }
 }
 
+#define WIFI_RX_LINE_MAX 512
+
 static int32_t uart_worker(void* context) {
     furi_assert(context);
 
@@ -690,13 +692,16 @@ static int32_t uart_worker(void* context) {
                 if(length > 0) {
                     WIFI_APP_LOG_I("Received Data - length: %i", length);
 
-                    for(uint16_t i = 0; i < length; i++) {
+                    // protocol lines are short: cap the line so a never-pausing module cannot eat the heap
+                    for(uint16_t i = 0; i < length &&
+                                        furi_string_size(receivedString) < WIFI_RX_LINE_MAX;
+                        i++) {
                         furi_string_push_back(receivedString, data[i]);
                     }
 
                     //notification_message(app->notification, &sequence_set_only_red_255);
                 }
-            } while(length > 0);
+            } while(length > 0 && furi_string_size(receivedString) < WIFI_RX_LINE_MAX);
             if(furi_string_size(receivedString) > 0) {
                 FuriString* chunk;
                 chunk = furi_string_alloc();

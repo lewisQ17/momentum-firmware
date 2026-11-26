@@ -4,7 +4,7 @@ App(
     apptype=FlipperAppType.EXTERNAL,
     entry_point="coleco_app",
     requires=["gui"],
-    stack_size=1 * 1024,
+    stack_size=2 * 1024,  # expansion service calls need more than 1 KB
     order=35,
     fap_icon="coleco_10px.png",
     fap_icon_assets="icons",

@@ -47,7 +47,8 @@ static void
     Uart* uart = (Uart*)context;
     UNUSED(handle);
 
-    if(event & (FuriHalSerialRxEventData | FuriHalSerialRxEventIdle)) {
+    // Data only: an Idle-only event has no new byte and would push the last one twice
+    if(event & FuriHalSerialRxEventData) {
         uint8_t data = furi_hal_serial_async_rx(handle);
         furi_stream_buffer_send(uart->rx_stream, &data, 1, 0);
         furi_thread_flags_set(furi_thread_get_id(uart->rx_thread), WorkerEvtRxDone);
@@ -159,7 +160,8 @@ Uart* _uart_init(void* app, FuriHalSerialId channel, const char* thread_name) {
     uart->rx_stream = furi_stream_buffer_alloc(RX_BUF_SIZE, 1);
     uart->rx_thread = furi_thread_alloc();
     furi_thread_set_name(uart->rx_thread, thread_name);
-    furi_thread_set_stack_size(uart->rx_thread, 1024);
+    // 4 KB: cJSON_Parse runs on this thread via the rx callback
+    furi_thread_set_stack_size(uart->rx_thread, 4096);
     furi_thread_set_context(uart->rx_thread, uart);
     furi_thread_set_callback(uart->rx_thread, uart_worker);
     furi_thread_start(uart->rx_thread);
@@ -189,12 +191,14 @@ Uart* lp_uart_init(void* app) {
 void uart_free(Uart* uart) {
     furi_assert(uart);
 
+    // stop the IRQ callback first: it uses rx_stream / rx_thread, which are freed below
+    furi_hal_serial_async_rx_stop(uart->serial_handle);
+    furi_hal_serial_deinit(uart->serial_handle);
+    furi_hal_serial_control_release(uart->serial_handle);
+
     furi_thread_flags_set(furi_thread_get_id(uart->rx_thread), WorkerEvtStop);
     furi_thread_join(uart->rx_thread);
     furi_thread_free(uart->rx_thread);
-
-    furi_hal_serial_deinit(uart->serial_handle);
-    furi_hal_serial_control_release(uart->serial_handle);
 
     free(uart);
 }

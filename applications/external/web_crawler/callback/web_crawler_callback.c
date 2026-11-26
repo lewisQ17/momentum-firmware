@@ -808,35 +808,47 @@ static char *web_crawler_parse(DataLoaderModel *model)
             if (html_furi_tag_exists("<title>", returned_data, 0))
             {
                 FuriString *title = html_furi_find_tag("<title>", returned_data, 0);
-                furi_string_trim(title);
-                furi_string_cat_str(response, "Title: ");
-                furi_string_cat(response, title);
-                furi_string_cat_str(response, "\n\n");
-                furi_string_free(title);
+                if (title) // NULL when the close tag is missing (page cut at 8 KB / opening tag only in a script)
+                {
+                    furi_string_trim(title);
+                    furi_string_cat_str(response, "Title: ");
+                    furi_string_cat(response, title);
+                    furi_string_cat_str(response, "\n\n");
+                    furi_string_free(title);
+                }
             }
             if (html_furi_tag_exists("<h1>", returned_data, 0))
             {
                 FuriString *h1 = html_furi_find_tag("<h1>", returned_data, 0);
-                furi_string_trim(h1);
-                furi_string_cat(response, h1);
-                furi_string_cat_str(response, "\n\n");
-                furi_string_free(h1);
+                if (h1)
+                {
+                    furi_string_trim(h1);
+                    furi_string_cat(response, h1);
+                    furi_string_cat_str(response, "\n\n");
+                    furi_string_free(h1);
+                }
             }
             if (html_furi_tag_exists("<h2>", returned_data, 0))
             {
                 FuriString *h2 = html_furi_find_tag("<h2>", returned_data, 0);
-                furi_string_trim(h2);
-                furi_string_cat(response, h2);
-                furi_string_cat_str(response, "\n");
-                furi_string_free(h2);
+                if (h2)
+                {
+                    furi_string_trim(h2);
+                    furi_string_cat(response, h2);
+                    furi_string_cat_str(response, "\n");
+                    furi_string_free(h2);
+                }
             }
             if (html_furi_tag_exists("<h3>", returned_data, 0))
             {
                 FuriString *h3 = html_furi_find_tag("<h3>", returned_data, 0);
-                furi_string_trim(h3);
-                furi_string_cat(response, h3);
-                furi_string_cat_str(response, "\n");
-                furi_string_free(h3);
+                if (h3)
+                {
+                    furi_string_trim(h3);
+                    furi_string_cat(response, h3);
+                    furi_string_cat_str(response, "\n");
+                    furi_string_free(h3);
+                }
             }
             if (html_furi_tag_exists("<p>", returned_data, 0))
             {

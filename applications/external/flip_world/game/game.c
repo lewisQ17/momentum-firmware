@@ -164,7 +164,10 @@ static void game_stop(void *ctx)
     furi_check(ctx);
     GameContext *game_context = ctx;
     const size_t heap_size = memmgr_heap_get_max_free_block();
-    imu_free(game_context->imu);
+    if (game_context->imu) // NULL when game_start ended early (low heap) before the IMU was created
+    {
+        imu_free(game_context->imu);
+    }
     game_context->imu = NULL;
 
     // clear current level early

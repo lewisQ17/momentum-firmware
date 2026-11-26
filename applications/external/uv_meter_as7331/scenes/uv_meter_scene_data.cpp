@@ -77,25 +77,27 @@ bool uv_meter_scene_data_on_event(void* context, SceneManagerEvent event) {
                 app->scene_manager, UVMeterSceneWiring);
         } else {
             // Getting the status will put sensor into measurement state
-            as7331_osr_status_reg_t status;
-            app->app_state->as7331.getStatus(status);
-            // Check if measurement is complete
-            if(status.new_data) {
-                process_measurement_results(app);
-                start_measurement(app->app_state);
-            }
-            // This happens when measurement was interrupted by changing settings
-            else if(status.osr.start_state != 1) {
-                start_measurement(app->app_state);
-            }
-            // Handle overflows
-            if(status.adc_overflow || status.result_overflow || status.out_conv_overflow) {
-                FURI_LOG_E(
-                    "UV Meter Data",
-                    "Overflow detected! ADCOF (%d) MRESOF (%d) OUTCONVOF (%d)",
-                    status.adc_overflow,
-                    status.result_overflow,
-                    status.out_conv_overflow);
+            as7331_osr_status_reg_t status = {};
+            // A failed status read leaves garbage flags: skip this tick instead of acting on them
+            if(app->app_state->as7331.getStatus(status)) {
+                // Check if measurement is complete
+                if(status.new_data) {
+                    process_measurement_results(app);
+                    start_measurement(app->app_state);
+                }
+                // This happens when measurement was interrupted by changing settings
+                else if(status.osr.start_state != 1) {
+                    start_measurement(app->app_state);
+                }
+                // Handle overflows
+                if(status.adc_overflow || status.result_overflow || status.out_conv_overflow) {
+                    FURI_LOG_E(
+                        "UV Meter Data",
+                        "Overflow detected! ADCOF (%d) MRESOF (%d) OUTCONVOF (%d)",
+                        status.adc_overflow,
+                        status.result_overflow,
+                        status.out_conv_overflow);
+                }
             }
         }
         consumed = true;

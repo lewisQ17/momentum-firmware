@@ -212,11 +212,14 @@ static void sensor_type_cb(VariableItem* item) {
     variable_item_set_current_value_text(item, sensor_type[index]);
 
     LightMeterConfig* config = app->config;
+    // power down the sensor we leave, then bring up the newly selected one
+    lightmeter_app_i2c_deinit_sensor(app);
     config->sensor_type = index;
 
     update_item_addr(app);
 
     lightmeter_app_set_config(app, config);
+    lightmeter_app_i2c_init_sensor(app);
 }
 
 static void ok_cb(void* context, uint32_t index) {

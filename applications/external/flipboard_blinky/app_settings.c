@@ -159,6 +159,7 @@ void app_settings_free(AppSettings* settings) {
     variable_item_list_free(settings->list);
     ViewDispatcher* vd = flipboard_get_view_dispatcher(settings->app);
     view_dispatcher_remove_view(vd, 5555);
+    text_input_free(settings->text_input);
     free(settings);
 }
 

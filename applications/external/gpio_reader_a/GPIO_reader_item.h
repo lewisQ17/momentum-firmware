@@ -38,5 +38,6 @@ const char* gpio_item_get_pin_name(uint8_t index);
 const char* gpio_item_get_pin_level(uint8_t index);
 void gpio_item_configure_pin(uint8_t index, uint8_t pullMode);
 const char* gpio_item_get_pull_mode(uint8_t pull_mode);
+void gpio_item_release_all_pins(void);
 
 #endif

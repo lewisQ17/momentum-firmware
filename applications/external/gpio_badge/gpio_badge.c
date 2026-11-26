@@ -1,5 +1,6 @@
 #include <furi.h>
 #include <gui/gui.h>
+#include <expansion/expansion.h>
 
 const GpioPin* const pin_leds[] = {
     &gpio_ext_pa7,
@@ -181,6 +182,10 @@ void do_effects() {
 int gpio_diag_lights_app(void* p) {
     UNUSED(p);
 
+    // free the USART pins from the expansion service (restored on exit)
+    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+    expansion_disable(expansion);
+
     Gui* gui = furi_record_open(RECORD_GUI);
     ViewPort* view_port = view_port_alloc();
     view_port_draw_callback_set(view_port, my_draw_callback, NULL);
@@ -198,6 +203,8 @@ int gpio_diag_lights_app(void* p) {
     for(size_t i = 0; i < COUNT_OF(pin_leds); i++) {
         furi_hal_gpio_init_simple(pin_leds[i], GpioModeAnalog);
     }
+    // idle level of the 1-Wire line is high: release it before switching to open drain
+    furi_hal_gpio_write(&gpio_ibutton, true);
     furi_hal_gpio_init_simple(&gpio_ibutton, GpioModeOutputOpenDrain);
 
     // Remove the directions from the screen.
@@ -205,5 +212,8 @@ int gpio_diag_lights_app(void* p) {
     // Leak fix: free the view port and close the GUI record
     view_port_free(view_port);
     furi_record_close(RECORD_GUI);
+
+    expansion_enable(expansion);
+    furi_record_close(RECORD_EXPANSION);
     return 0;
 }

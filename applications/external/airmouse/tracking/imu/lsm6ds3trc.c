@@ -30,7 +30,7 @@ bool lsm6ds3trc_begin() {
     lsm6ds3trc_ctx.mdelay = furi_delay_ms;
     lsm6ds3trc_ctx.handle = (void*)&furi_hal_i2c_handle_external;
 
-    uint8_t whoami;
+    uint8_t whoami = 0;
     lsm6ds3tr_c_device_id_get(&lsm6ds3trc_ctx, &whoami);
     if(whoami != LSM6DS3TR_C_ID) {
         FURI_LOG_I(LSM6DS3_TAG, "Unknown model: %x", (int)whoami);
@@ -39,8 +39,15 @@ bool lsm6ds3trc_begin() {
 
     lsm6ds3tr_c_reset_set(&lsm6ds3trc_ctx, PROPERTY_ENABLE);
     uint8_t rst = PROPERTY_ENABLE;
-    while(rst)
-        lsm6ds3tr_c_reset_get(&lsm6ds3trc_ctx, &rst);
+    // bounded wait: a dead/unplugged sensor must not hang the app with the I2C bus held
+    for(uint8_t tries = 0; rst && tries < 50; tries++) {
+        if(lsm6ds3tr_c_reset_get(&lsm6ds3trc_ctx, &rst) != 0) rst = PROPERTY_ENABLE;
+        if(rst) furi_delay_ms(2);
+    }
+    if(rst) {
+        FURI_LOG_E(LSM6DS3_TAG, "Reset timeout");
+        return false;
+    }
 
     lsm6ds3tr_c_block_data_update_set(&lsm6ds3trc_ctx, PROPERTY_ENABLE);
     lsm6ds3tr_c_fifo_mode_set(&lsm6ds3trc_ctx, LSM6DS3TR_C_BYPASS_MODE);

@@ -87,6 +87,9 @@ int32_t signal_gen_app(void* p) {
 
     view_dispatcher_run(signal_gen_app->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(signal_gen_app->scene_manager);
+
     signal_gen_app_free(signal_gen_app);
 
     return 0;

@@ -41,6 +41,11 @@ GPIOContext*
     result->context = callback_context;
     result->queue = furi_message_queue_alloc(32, sizeof(GPIOEvent));
 
+    // reset the edge timing, stale values from a previous session give a bogus first event
+    last_switch = 0;
+    last_time_up_tick = 0;
+    last_time_down_tick = 0;
+
     furi_hal_gpio_add_int_callback(result->pin, gpio_interrupt_callback, result);
     furi_hal_gpio_enable_int_callback(result->pin);
     furi_hal_gpio_init(result->pin, GpioModeInterruptRiseFall, GpioPullUp, GpioSpeedVeryHigh);

@@ -26,7 +26,10 @@ GBCartridge* gb_cartridge_app_app_alloc() {
     app->notification = furi_record_open(RECORD_NOTIFICATION);
     // The dump File is allocated on demand (OK press in scene 2); UART callbacks check these
     app->cart_rom = NULL;
+    app->cart_ram = NULL;
     app->is_writing_rom = false;
+    app->is_writing_ram = false;
+    app->dump_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
 
     //  Create MALVEKE dir
     if(storage_common_stat(app->storage, MALVEKE_APP_FOLDER, NULL) == FSE_NOT_EXIST) {
@@ -128,6 +131,7 @@ GBCartridge* gb_cartridge_app_app_alloc() {
     //End Scene Additions
 
     //  Enable 5v
+    app->otg_was_enabled = furi_hal_power_is_otg_enabled();
     furi_hal_power_enable_otg();
     furi_delay_ms(1);
     furi_hal_power_insomnia_enter();
@@ -178,7 +182,17 @@ void gb_cartridge_app_app_free(GBCartridge* app) {
         storage_file_free(app->cart_rom);
         app->cart_rom = NULL;
     }
+    if(app->cart_ram) {
+        if(storage_file_is_open(app->cart_ram)) {
+            storage_file_close(app->cart_ram);
+        }
+        storage_file_free(app->cart_ram);
+        app->cart_ram = NULL;
+    }
+    // UART workers are joined (uart_free above), nobody can hold the mutex anymore
+    furi_mutex_free(app->dump_mutex);
 
+    furi_record_close(RECORD_NOTIFICATION);
     furi_record_close(RECORD_DIALOGS);
     furi_record_close(RECORD_GUI);
     furi_record_close(RECORD_STORAGE);
@@ -226,9 +240,11 @@ int32_t gb_cartridge_app(void* p) {
     view_dispatcher_run(app->view_dispatcher);
 
     furi_hal_power_suppress_charge_exit();
+    bool otg_was_enabled = app->otg_was_enabled; // app is freed below
     gb_cartridge_app_app_free(app);
 
-    if(furi_hal_power_is_otg_enabled()) {
+    // keep a 5V rail the user already had on before this app started
+    if(!otg_was_enabled && furi_hal_power_is_otg_enabled()) {
         furi_hal_power_disable_otg();
     }
 

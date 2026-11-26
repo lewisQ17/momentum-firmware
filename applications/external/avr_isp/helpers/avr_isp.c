@@ -145,7 +145,11 @@ bool avr_isp_auto_set_spi_speed_start_pmode(AvrIsp* instance) {
                     if(i < (COUNT_OF(spi_speed) - 1)) {
                         avr_isp_end_pmode(instance);
                         i++;
-                        return avr_isp_start_pmode(instance, spi_speed[i]);
+                        if(avr_isp_start_pmode(instance, spi_speed[i])) return true;
+                        // failed: do not leave a half-open spi behind
+                        if(instance->spi) avr_isp_spi_sw_free(instance->spi);
+                        instance->spi = NULL;
+                        return false;
                     }
                 }
                 return true;

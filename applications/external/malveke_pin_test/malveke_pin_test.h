@@ -77,6 +77,9 @@ typedef struct {
     FuriHalSerialHandle* serial_handle;
     FuriThread* worker_thread;
     FuriStreamBuffer* rx_stream;
+    FuriTimer* sweep_timer; // steps the pin sweep without blocking the input thread
+    uint8_t sweep_pin; // next pin the sweep sends
+    bool sweeping;
 } UartEchoApp;
 
 struct UartDumpModel {

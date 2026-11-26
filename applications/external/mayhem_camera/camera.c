@@ -65,8 +65,9 @@ static void save_image(void* context) {
     // storage_file_alloc gives to us a File pointer using the Storage API.
     File* file = storage_file_alloc(storage);
 
-    if(storage_common_stat(storage, IMAGE_FILE_DIRECTORY_PATH, NULL) == FSE_NOT_EXIST) {
-        storage_simply_mkdir(storage, IMAGE_FILE_DIRECTORY_PATH);
+    // create the directory get_timefilename() actually writes to (the open below does not create parents)
+    if(storage_common_stat(storage, APP_DATA_PATH("DCIM"), NULL) == FSE_NOT_EXIST) {
+        storage_simply_mkdir(storage, APP_DATA_PATH("DCIM"));
     }
 
     // create file name
@@ -103,11 +104,14 @@ static void save_image(void* context) {
     storage_file_free(file);
 
     notification_message(notifications, result ? &sequence_success : &sequence_error);
+    furi_record_close(RECORD_STORAGE);
+    furi_record_close(RECORD_NOTIFICATION);
 }
 
 static bool camera_view_input_callback(InputEvent* event, void* context) {
     if(event->type == InputTypePress) {
-        uint8_t data[1];
+        uint8_t data[1] = {0};
+        bool send = true;
         if(event->key == InputKeyUp) {
             data[0] = 'C';
         } else if(event->key == InputKeyDown) {
@@ -116,11 +120,13 @@ static bool camera_view_input_callback(InputEvent* event, void* context) {
             data[0] = '>';
         } else if(event->key == InputKeyLeft) {
             data[0] = '<';
-        } else if(event->key == InputKeyOk) {
-            save_image(context);
+        } else {
+            // OK saves the image, Back/others have no ESP32 command: don't send an uninitialized byte
+            send = false;
+            if(event->key == InputKeyOk) save_image(context);
         }
         UartEchoApp* app = context;
-        furi_hal_serial_tx(app->serial_handle, data, 1);
+        if(send) furi_hal_serial_tx(app->serial_handle, data, 1);
     }
 
     return false;

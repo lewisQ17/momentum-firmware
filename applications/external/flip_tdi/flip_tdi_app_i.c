@@ -14,4 +14,5 @@ void flip_tdi_stop(FlipTDIApp* app) {
     furi_assert(app);
 
     ftdi_usb_stop(app->ftdi_usb);
+    app->ftdi_usb = NULL;
 }

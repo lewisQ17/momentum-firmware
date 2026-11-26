@@ -1,6 +1,7 @@
 #include <furi.h>
 #include <furi_hal_gpio.h>
 #include <furi_hal_power.h>
+#include <expansion/expansion.h>
 #include <gui/gui.h>
 #include "coleco_icons.h"
 
@@ -169,6 +170,31 @@ static void coleco_gpio_init() {
     coleco_write_code(CODE_N);
 }
 
+// raise every joystick/alt line and the keypad code to their idle (high / CODE_N) level
+static void coleco_release_lines() {
+    furi_hal_gpio_write(pin_up, true);
+    furi_hal_gpio_write(pin_down, true);
+    furi_hal_gpio_write(pin_right, true);
+    furi_hal_gpio_write(pin_left, true);
+    furi_hal_gpio_write(pin_fire, true);
+    furi_hal_gpio_write(pin_alt, true);
+    coleco_write_code(CODE_N);
+}
+
+// give all 10 pins back (no longer driven, e.g. USART TX / iButton)
+static void coleco_gpio_deinit() {
+    furi_hal_gpio_init(pin_up, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(pin_down, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(pin_right, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(pin_left, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(pin_code0, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(pin_code1, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(pin_code2, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(pin_code3, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(pin_fire, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    furi_hal_gpio_init(pin_alt, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+}
+
 static Coleco* coleco_alloc() {
     Coleco* coleco = malloc(sizeof(Coleco));
 
@@ -200,8 +226,13 @@ int32_t coleco_app(void* p) {
 
     Coleco* coleco = coleco_alloc();
     if(coleco == NULL) {
+        furi_message_queue_free(event_queue);
         return 255;
     }
+
+    // free USART TX from the expansion service (restored on exit)
+    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+    expansion_disable(expansion);
 
     // set system callbacks
     ViewPort* view_port = view_port_alloc();
@@ -213,6 +244,7 @@ int32_t coleco_app(void* p) {
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
 
     coleco_gpio_init();
+    const bool otg_was_enabled = furi_hal_power_is_otg_enabled();
     furi_hal_power_enable_otg();
 
     PluginEvent event;
@@ -340,6 +372,8 @@ int32_t coleco_app(void* p) {
                     if(event.input.type == InputTypePress) {
                         if(coleco->dpad) {
                             coleco->dpad = false;
+                            // a held direction/fire key would otherwise stay low (its release goes to the keypad branch)
+                            coleco_release_lines();
                         } else {
                             processing = false;
                         }
@@ -356,7 +390,16 @@ int32_t coleco_app(void* p) {
         furi_mutex_release(coleco->mutex);
     }
 
-    furi_hal_power_disable_otg();
+    coleco_release_lines();
+    coleco_gpio_deinit();
+
+    // only switch OTG off if this app switched it on
+    if(!otg_was_enabled) {
+        furi_hal_power_disable_otg();
+    }
+
+    expansion_enable(expansion);
+    furi_record_close(RECORD_EXPANSION);
 
     view_port_enabled_set(view_port, false);
     gui_remove_view_port(gui, view_port);

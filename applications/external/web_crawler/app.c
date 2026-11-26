@@ -21,6 +21,7 @@ int32_t web_crawler_app(void *p)
     if (!fhttp)
     {
         easy_flipper_dialog("FlipperHTTP Error", "The UART is likely busy.\nEnsure you have the correct\nflash for your board then\nrestart your Flipper Zero.");
+        web_crawler_app_free(app); // otherwise the dispatcher/view port stays on the GUI after exit
         return -1;
     }
 
@@ -28,6 +29,7 @@ int32_t web_crawler_app(void *p)
     {
         FURI_LOG_E(TAG, "Failed to ping the device");
         flipper_http_free(fhttp);
+        web_crawler_app_free(app);
         return -1;
     }
 

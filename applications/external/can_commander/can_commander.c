@@ -2,6 +2,7 @@
 #include "views/dashboard/dashboard.h"
 
 #include <furi_hal_power.h>
+#include <expansion/expansion.h>
 #include <flipper_format/flipper_format.h>
 #include <storage/storage.h>
 #include <stdio.h>
@@ -4993,6 +4994,10 @@ static void app_free(App* app) {
 int32_t cancommander_main(void* p) {
     UNUSED(p);
 
+    // Free the USART from the expansion service (restored on exit)
+    Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+    expansion_disable(expansion);
+
     // Auto-enable 5V OTG for CAN Commander power.
     const bool otg_was_enabled = furi_hal_power_is_otg_enabled();
     uint8_t otg_attempts = 0;
@@ -5006,6 +5011,8 @@ int32_t cancommander_main(void* p) {
         if(furi_hal_power_is_otg_enabled() && !otg_was_enabled) {
             furi_hal_power_disable_otg();
         }
+        expansion_enable(expansion);
+        furi_record_close(RECORD_EXPANSION);
         return 255;
     }
 
@@ -5031,6 +5038,9 @@ int32_t cancommander_main(void* p) {
     }
     view_dispatcher_run(app->view_dispatcher);
 
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(app->scene_manager);
+
     furi_record_close(RECORD_GUI);
 
     app_free(app);
@@ -5039,6 +5049,9 @@ int32_t cancommander_main(void* p) {
     if(furi_hal_power_is_otg_enabled() && !otg_was_enabled) {
         furi_hal_power_disable_otg();
     }
+
+    expansion_enable(expansion);
+    furi_record_close(RECORD_EXPANSION);
 
     return 0;
 }

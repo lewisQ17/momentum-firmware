@@ -184,6 +184,7 @@ static FlipperI32HexFileRet flipper_i32hex_file_parse_line(
             break;
         }
         data_len = 5 + data[0]; // +5 bytes per header and crc
+        ret.status = FlipperI32HexFileStatusOK;
         while(data_len > data_wrire_ind) {
             str1++;
             if(!hex_char_to_uint8(*str1, str1[1], data + data_wrire_ind)) {
@@ -196,7 +197,8 @@ static FlipperI32HexFileRet flipper_i32hex_file_parse_line(
                 break;
             }
         }
-        ret.status = FlipperI32HexFileStatusOK;
+        // do not overwrite an error found in the loop above
+        if(ret.status != FlipperI32HexFileStatusOK) break;
         ret.data_size = data_wrire_ind;
 
     } while(0);
@@ -281,6 +283,8 @@ bool flipper_i32hex_file_check(FlipperI32HexFile* instance) {
     uint32_t data_size = 280;
     uint8_t data[280] = {0};
     bool ret = true;
+    bool has_data = false;
+    bool has_eof = false;
 
     if(instance->file_open != FlipperI32HexFileStatusOpenFileRead) {
         FURI_LOG_E(TAG, "File is not open");
@@ -294,9 +298,15 @@ bool flipper_i32hex_file_check(FlipperI32HexFile* instance) {
 
             if(parse_ret.status < 0) {
                 ret = false;
+            } else if(parse_ret.status == FlipperI32HexFileStatusData) {
+                has_data = true;
+            } else if(parse_ret.status == FlipperI32HexFileStatusEofFile) {
+                has_eof = true;
             }
         }
         stream_rewind(instance->stream);
+        // an empty or truncated file must not pass: the chip is erased before writing
+        if(!has_data || !has_eof) ret = false;
     }
     return ret;
 }

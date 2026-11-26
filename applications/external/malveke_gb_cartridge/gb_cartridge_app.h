@@ -96,6 +96,10 @@ typedef struct {
     FuriThread* thread;
     bool is_writing_rom;
     bool is_writing_ram;
+    // guards cart_rom/cart_ram + is_writing_*: the LPUART worker writes while Back closes/frees
+    FuriMutex* dump_mutex;
+    // 5V rail was already on before this app enabled it
+    bool otg_was_enabled;
 
     int rom_banks;
     int ram_banks;

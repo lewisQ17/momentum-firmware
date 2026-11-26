@@ -34,7 +34,7 @@ void draw_bars_view(Canvas* canvas, void* ctx) {
             snprintf(
                 str,
                 32,
-                "%.1f/%.1f %s",
+                "%.1f/%.1f %.4s",
                 (double)(app->data.ram_max * 0.1f * app->data.ram_usage * 0.01f),
                 (double)(app->data.ram_max * 0.1f),
                 app->data.ram_unit);
@@ -72,7 +72,7 @@ void draw_bars_view(Canvas* canvas, void* ctx) {
             snprintf(
                 str,
                 32,
-                "%.1f/%.1f %s",
+                "%.1f/%.1f %.4s",
                 (double)(app->data.vram_max * 0.1f * app->data.vram_usage * 0.01f),
                 (double)(app->data.vram_max * 0.1f),
                 app->data.vram_unit);

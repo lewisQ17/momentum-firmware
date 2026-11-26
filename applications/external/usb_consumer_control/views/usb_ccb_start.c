@@ -561,13 +561,14 @@ static void usb_ccb_start_draw_callback(Canvas* canvas, void* context) {
     if(is_running) {
         uint16_t consumer_key = hidConsumerArray[i].value;
         // Sending the consumer control button
-        furi_delay_us(autofire_delay * 500);
+        // ms sleep instead of a DWT busy-wait (same duration, no 100% CPU); delay is capped at 60 s
+        furi_delay_ms(autofire_delay / 2);
         furi_hal_hid_consumer_key_press(consumer_key);
         furi_delay_us(2000); // Hold the key pressed for a short amount of time
 
         // Stop sending the consumer control button
         furi_hal_hid_consumer_key_release(consumer_key);
-        furi_delay_us(autofire_delay * 500);
+        furi_delay_ms(autofire_delay / 2);
 
         // Cycle onto next consumer control button
         i += 1;
@@ -611,7 +612,10 @@ static void usb_ccb_start_process(UsbCcbStart* usb_ccb_start, InputEvent* event)
                     }
                 } else if(event->key == InputKeyUp) {
                     model->up_pressed = true;
-                    autofire_delay += 100;
+                    // cap: furi_delay_us used to furi_check-crash for very large delays
+                    if(autofire_delay < 60000) {
+                        autofire_delay += 100;
+                    }
                 } else if(event->key == InputKeyOk) {
                     model->ok_pressed = true;
                     is_running = !is_running;

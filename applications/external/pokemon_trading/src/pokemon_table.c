@@ -44,7 +44,17 @@ int table_pokemon_pos_get(const PokemonTable* table, uint8_t index) {
     return 0;
 }
 
+/* Number of real entries, the table ends with an empty terminator row (name == NULL) */
+static int table_len(const PokemonTable* table) {
+    int i = 0;
+    while(table[i].name != NULL)
+        i++;
+    return i;
+}
+
 const char* table_stat_name_get(const PokemonTable* table, int num) {
+    /* num can come from link partner data, don't index past the table */
+    if(num < 0 || num >= table_len(table)) return "";
     return table[num].name;
 }
 
@@ -52,11 +62,14 @@ uint8_t
     table_stat_base_get(const PokemonTable* table, uint8_t num, DataStat stat, DataStatSub which) {
     furi_assert(table);
 
+    /* num can come from link partner data, don't index past the table */
+    if(num >= table_len(table)) return 0;
+
     switch(stat) {
     case STAT_BASE_INDEX:
         return table[num].index;
     case STAT_BASE_ATK:
-        return table[num].base_hp;
+        return table[num].base_atk;
     case STAT_BASE_DEF:
         return table[num].base_def;
     case STAT_BASE_SPD:

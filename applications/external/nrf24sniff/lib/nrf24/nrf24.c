@@ -221,6 +221,14 @@ uint8_t
             size = rx_pl_wid[1];
         }
 
+        if(size > 32) {
+            // bogus length (module fault / floating MISO): drop it instead of overflowing the buffers
+            nrf24_flush_rx(handle);
+            nrf24_write_reg(handle, REG_STATUS, 0x40); // clear bit.
+            *packetsize = 0;
+            return status;
+        }
+
         tx_cmd[0] = R_RX_PAYLOAD;
         nrf24_spi_trx(handle, tx_cmd, tmp_packet, size + 1, nrf24_TIMEOUT);
         nrf24_write_reg(handle, REG_STATUS, 0x40); // clear bit.
@@ -250,7 +258,9 @@ uint8_t nrf24_txpacket(const FuriHalSpiBusHandle* handle, uint8_t* payload, uint
     nrf24_spi_trx(handle, tx, rx, size + 1, nrf24_TIMEOUT);
     nrf24_set_tx_mode(handle);
 
-    while(!(status & (TX_DS | MAX_RT)))
+    // bounded wait: a lost module reads status 0 forever and would hang the app (and the GUI via the mutex)
+    uint32_t tx_start = furi_get_tick();
+    while(!(status & (TX_DS | MAX_RT)) && (furi_get_tick() - tx_start) < 50)
         status = nrf24_status(handle);
 
     if(status & MAX_RT) nrf24_flush_tx(handle);
@@ -540,7 +550,8 @@ uint8_t nrf24_find_channel(
 bool nrf24_check_connected(const FuriHalSpiBusHandle* handle) {
     uint8_t status = nrf24_status(handle);
 
-    if(status != 0x00) {
+    // 0xFF = floating/high MISO (module absent), not a real status (bit 7 is reserved 0)
+    if(status != 0x00 && status != 0xFF) {
         return true;
     } else {
         return false;

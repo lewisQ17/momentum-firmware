@@ -509,6 +509,7 @@ FuriString *flipper_http_load_from_file(char *file_path)
     {
         FURI_LOG_E(HTTP_TAG, "Error reading from file.");
         furi_string_free(str_result);
+        free(buffer);
         storage_file_close(file);
         storage_file_free(file);
         furi_record_close(RECORD_STORAGE);
@@ -1261,13 +1262,24 @@ static void flipper_http_rx_callback(const char *line, void *context)
                 }
 
                 // If there is data left in the buffer, append it to the file
-                if (fhttp->file_buffer_len > 0)
+                // (just_started_bytes: a short reply with no earlier flush replaces the old file, also when empty)
+                if (fhttp->file_buffer_len > 0 || fhttp->just_started_bytes)
                 {
-                    if (!flipper_http_append_to_file(fhttp->file_buffer, fhttp->file_buffer_len, false, fhttp->file_path))
+                    if (!flipper_http_append_to_file(fhttp->file_buffer, fhttp->file_buffer_len, fhttp->just_started_bytes, fhttp->file_path))
                     {
                         FURI_LOG_E(HTTP_TAG, "Failed to append data to file.");
                     }
                     fhttp->file_buffer_len = 0;
+                    fhttp->just_started_bytes = false;
+                }
+                // an HTTP error body (404, 5xx) must not stay behind as the downloaded file
+                if (fhttp->status_code >= 400)
+                {
+                    FURI_LOG_E(HTTP_TAG, "HTTP status %d, removing downloaded file", fhttp->status_code);
+                    Storage *storage = furi_record_open(RECORD_STORAGE);
+                    storage_simply_remove(storage, fhttp->file_path);
+                    furi_record_close(RECORD_STORAGE);
+                    fhttp->state = ISSUE;
                 }
             }
 
@@ -1333,13 +1345,24 @@ static void flipper_http_rx_callback(const char *line, void *context)
                 }
 
                 // If there is data left in the buffer, append it to the file
-                if (fhttp->file_buffer_len > 0)
+                // (just_started_bytes: a short reply with no earlier flush replaces the old file, also when empty)
+                if (fhttp->file_buffer_len > 0 || fhttp->just_started_bytes)
                 {
-                    if (!flipper_http_append_to_file(fhttp->file_buffer, fhttp->file_buffer_len, false, fhttp->file_path))
+                    if (!flipper_http_append_to_file(fhttp->file_buffer, fhttp->file_buffer_len, fhttp->just_started_bytes, fhttp->file_path))
                     {
                         FURI_LOG_E(HTTP_TAG, "Failed to append data to file.");
                     }
                     fhttp->file_buffer_len = 0;
+                    fhttp->just_started_bytes = false;
+                }
+                // an HTTP error body (404, 5xx) must not stay behind as the downloaded file
+                if (fhttp->status_code >= 400)
+                {
+                    FURI_LOG_E(HTTP_TAG, "HTTP status %d, removing downloaded file", fhttp->status_code);
+                    Storage *storage = furi_record_open(RECORD_STORAGE);
+                    storage_simply_remove(storage, fhttp->file_path);
+                    furi_record_close(RECORD_STORAGE);
+                    fhttp->state = ISSUE;
                 }
             }
 

@@ -271,8 +271,8 @@ void my_app_view_draw_callback(Canvas* canvas, void* model) {
             volume_display,
             sizeof(volume_display),
             "Status: %s %s",
-            info.muted ? "Playing" : "Muted",
-            info.stereo ? "(Mono)" : "(Stereo)");
+            info.muted ? "Muted" : "Playing",
+            info.stereo ? "(Stereo)" : "(Mono)");
         snprintf(
             signal_display,
             sizeof(signal_display),

@@ -563,7 +563,10 @@ pof_hid_control(usbd_device* dev, usbd_ctlreq* req, usbd_rqc_callback* callback)
             return usbd_ack;
         case 0x83:
             dev->status.data_ptr = (uint8_t*)(xsm3_challenge_response);
-            dev->status.data_count = req->wLength;
+            // clamp to the 48-byte buffer: host picks wLength, would leak RAM past it
+            dev->status.data_count = req->wLength < sizeof(xsm3_challenge_response) ?
+                                         req->wLength :
+                                         sizeof(xsm3_challenge_response);
             return usbd_ack;
         case 0x86:
             dev->status.data_ptr = (uint8_t*)&(state);

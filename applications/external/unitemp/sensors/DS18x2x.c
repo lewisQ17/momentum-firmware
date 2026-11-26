@@ -48,8 +48,9 @@ bool unitemp_ds18x2x_sensor_alloc(Sensor* sensor, char* args) {
     //Address clearing
     memset(instance->deviceID, 0, 8);
 
-    int gpio_pin, addr_0, addr_1, addr_2, addr_3, addr_4, addr_5, addr_6, addr_7;
-    sscanf(
+    int gpio_pin = -1, addr_0 = 0, addr_1 = 0, addr_2 = 0, addr_3 = 0, addr_4 = 0, addr_5 = 0,
+        addr_6 = 0, addr_7 = 0;
+    int scanned = sscanf(
         args,
         "%d %2X%2X%2X%2X%2X%2X%2X%2X",
         &gpio_pin,
@@ -72,18 +73,23 @@ bool unitemp_ds18x2x_sensor_alloc(Sensor* sensor, char* args) {
 
     instance->family_code = instance->deviceID[0];
 
-    instance->bus = unitemp_onewire_bus_alloc(unitemp_gpio_get_from_int(gpio_pin));
+    instance->bus = NULL;
+    // short/corrupt config line or unknown pin: refuse the sensor instead of keeping a NULL bus
+    if(scanned == 9) {
+        instance->bus = unitemp_onewire_bus_alloc(unitemp_gpio_get_from_int(gpio_pin));
+    }
 
-    if(instance != NULL) {
+    if(instance->bus != NULL) {
         return true;
     }
     FURI_LOG_E(APP_NAME, "Sensor %s bus allocation error", sensor->name);
     free(instance);
+    sensor->instance = NULL;
     return false;
 }
 
 bool unitemp_ds18x2x_sensor_free(Sensor* sensor) {
-    unitemp_onewire_bus_free(((OneWireSensor*)sensor->instance)->bus);
+    unitemp_onewire_bus_free(((OneWireSensor*)sensor->instance)->bus, sensor->instance);
     free(sensor->instance);
 
     return true;

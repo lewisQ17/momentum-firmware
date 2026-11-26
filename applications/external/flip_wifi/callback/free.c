@@ -59,9 +59,10 @@ void free_submenus(void *context)
     furi_check(app);
     if (app->submenu_wifi)
     {
-        free(app->submenu_wifi);
-        app->submenu_wifi = NULL;
+        // remove the view first, then the real *_free (plain free() leaked the inner View + model)
         view_dispatcher_remove_view(app->view_dispatcher, FlipWiFiViewSubmenu);
+        submenu_free(app->submenu_wifi);
+        app->submenu_wifi = NULL;
     }
 }
 
@@ -91,9 +92,9 @@ void free_text_inputs(void *context)
     furi_check(app);
     if (app->uart_text_input)
     {
-        free(app->uart_text_input);
-        app->uart_text_input = NULL;
         view_dispatcher_remove_view(app->view_dispatcher, FlipWiFiViewTextInput);
+        text_input_free(app->uart_text_input);
+        app->uart_text_input = NULL;
     }
     if (app->uart_text_input_buffer)
     {
@@ -113,9 +114,9 @@ void free_widgets(void *context)
     furi_check(app);
     if (app->widget_info)
     {
-        free(app->widget_info);
-        app->widget_info = NULL;
         view_dispatcher_remove_view(app->view_dispatcher, FlipWiFiViewAbout);
+        widget_free(app->widget_info);
+        app->widget_info = NULL;
     }
 };
 
@@ -125,8 +126,8 @@ void free_views(void *context)
     furi_check(app);
     if (app->view_wifi)
     {
-        free(app->view_wifi);
-        app->view_wifi = NULL;
         view_dispatcher_remove_view(app->view_dispatcher, FlipWiFiViewGeneric);
+        view_free(app->view_wifi);
+        app->view_wifi = NULL;
     }
 }

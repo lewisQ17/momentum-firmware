@@ -36,6 +36,7 @@ UnitempOneWireBus* unitemp_onewire_bus_alloc(const SensorGpioPin* gpio_pin) {
     //Checking for bus presence on this port
     for(uint8_t i = 0; i < unitemp_sensors_get_count(); i++) {
         if(unitemp_sensors_get(i)->model->interface == &unitemp_1w &&
+           ((OneWireSensor*)unitemp_sensors_get(i)->instance)->bus != NULL &&
            ((OneWireSensor*)unitemp_sensors_get(i)->instance)->bus->bus_pin == gpio_pin) {
             //If there is already a bus on this port, then return a pointer to the bus
             return ((OneWireSensor*)unitemp_sensors_get(i)->instance)->bus;
@@ -51,8 +52,16 @@ UnitempOneWireBus* unitemp_onewire_bus_alloc(const SensorGpioPin* gpio_pin) {
     return bus;
 }
 
-void unitemp_onewire_bus_free(UnitempOneWireBus* unitemp_one_wire_bus) {
+void unitemp_onewire_bus_free(UnitempOneWireBus* unitemp_one_wire_bus, const void* owner) {
     if(unitemp_one_wire_bus != NULL) {
+        // The bus is shared by every listed sensor on the same pin: do not free it under another one
+        for(uint8_t i = 0; i < unitemp_sensors_get_count(); i++) {
+            const Sensor* other = unitemp_sensors_get(i);
+            if(other->model->interface == &unitemp_1w && other->instance != owner &&
+               ((OneWireSensor*)other->instance)->bus == unitemp_one_wire_bus) {
+                return;
+            }
+        }
         if(unitemp_one_wire_bus->devices_count == 0) {
             if(unitemp_one_wire_bus->host != NULL) onewire_host_free(unitemp_one_wire_bus->host);
             free(unitemp_one_wire_bus);

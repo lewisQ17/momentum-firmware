@@ -165,89 +165,122 @@ static void
     furi_string_cat_printf(output, "Lon: %.6f\n", longitude);
 }
 
+// Streaming rewrite state: output is flushed to the temp file in small pieces
+typedef struct {
+    File* out;
+    FuriString* output;
+    bool is_sub_file;
+    bool inserted_coordinates;
+    bool io_ok;
+    double latitude;
+    double longitude;
+} NearbyFilesRewrite;
+
+static void nearby_files_rewrite_flush(NearbyFilesRewrite* rw) {
+    const size_t size = furi_string_size(rw->output);
+    if(size == 0) return;
+    if(rw->io_ok &&
+       storage_file_write(rw->out, (const uint8_t*)furi_string_get_cstr(rw->output), size) !=
+           size) {
+        rw->io_ok = false;
+    }
+    furi_string_reset(rw->output);
+}
+
+static void nearby_files_rewrite_line(NearbyFilesRewrite* rw, const char* line, size_t line_len) {
+    const bool is_coordinate_line = (line_len > 0) &&
+                                    nearby_files_line_is_coordinate(line, line_len);
+
+    if(rw->is_sub_file && !rw->inserted_coordinates &&
+       nearby_files_line_has_prefix(line, line_len, "Protocol: ")) {
+        nearby_files_append_coordinates(rw->output, rw->latitude, rw->longitude);
+        rw->inserted_coordinates = true;
+    }
+
+    if(line_len > 0 && !is_coordinate_line) {
+        furi_string_cat_printf(rw->output, "%.*s\n", (int)line_len, line);
+    }
+
+    if(furi_string_size(rw->output) >= 512) nearby_files_rewrite_flush(rw);
+}
+
+// Lines longer than this are not expected in .sub/.nfc/.rfid/.ibtn files: refuse instead of growing
+#define NEARBY_FILES_MAX_LINE 8192
+
 static bool nearby_files_update_coordinates_in_file(
     Storage* storage,
     const char* file_path,
     double latitude,
     double longitude) {
     bool success = false;
-    const bool is_sub_file = nearby_files_path_has_extension(file_path, ".sub");
+    // Stream line by line into "<path>.tmp" and rename over the original on success:
+    // no whole-file copy in RAM, and a failed write never truncates the original
+    FuriString* tmp_path = furi_string_alloc_printf("%s.tmp", file_path);
     File* file = storage_file_alloc(storage);
-    if(!file) return false;
+    File* out = storage_file_alloc(storage);
+    FuriString* line = furi_string_alloc();
+    NearbyFilesRewrite rw = {
+        .out = out,
+        .output = furi_string_alloc(),
+        .is_sub_file = nearby_files_path_has_extension(file_path, ".sub"),
+        .inserted_coordinates = false,
+        .io_ok = true,
+        .latitude = latitude,
+        .longitude = longitude,
+    };
 
-    if(!storage_file_open(file, file_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
-        storage_file_free(file);
-        return false;
-    }
+    if(storage_file_open(file, file_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
+        if(storage_file_open(
+               out, furi_string_get_cstr(tmp_path), FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+            bool line_too_long = false;
+            uint8_t chunk[128];
+            size_t chunk_len;
 
-    const size_t file_size = storage_file_size(file);
-    char* input_data = malloc(file_size + 1);
-    if(!input_data) {
-        storage_file_close(file);
-        storage_file_free(file);
-        return false;
-    }
-
-    size_t input_size = 0;
-    while(input_size < file_size) {
-        const size_t bytes_read =
-            storage_file_read(file, &input_data[input_size], file_size - input_size);
-        if(bytes_read == 0) break;
-        input_size += bytes_read;
-    }
-    input_data[input_size] = '\0';
-
-    storage_file_close(file);
-
-    FuriString* output = furi_string_alloc();
-    size_t line_start = 0;
-    bool inserted_coordinates = false;
-
-    for(size_t i = 0; i <= input_size; i++) {
-        const bool at_end = (i == input_size);
-        if(at_end || input_data[i] == '\n' || input_data[i] == '\r') {
-            const size_t line_len = i - line_start;
-            const char* line = &input_data[line_start];
-            const bool is_coordinate_line = (line_len > 0) &&
-                                            nearby_files_line_is_coordinate(line, line_len);
-
-            if(is_sub_file && !inserted_coordinates &&
-               nearby_files_line_has_prefix(line, line_len, "Protocol: ")) {
-                nearby_files_append_coordinates(output, latitude, longitude);
-                inserted_coordinates = true;
+            while(rw.io_ok && !line_too_long &&
+                  (chunk_len = storage_file_read(file, chunk, sizeof(chunk))) > 0) {
+                for(size_t i = 0; i < chunk_len; i++) {
+                    const char ch = (char)chunk[i];
+                    if(ch == '\n' || ch == '\r') {
+                        nearby_files_rewrite_line(
+                            &rw, furi_string_get_cstr(line), furi_string_size(line));
+                        furi_string_reset(line);
+                    } else if(furi_string_size(line) < NEARBY_FILES_MAX_LINE) {
+                        furi_string_push_back(line, ch);
+                    } else {
+                        line_too_long = true;
+                        break;
+                    }
+                }
             }
+            const bool read_complete = storage_file_eof(file);
 
-            if(line_len > 0 && !is_coordinate_line) {
-                furi_string_cat_printf(output, "%.*s\n", (int)line_len, line);
+            if(furi_string_size(line) > 0) {
+                nearby_files_rewrite_line(&rw, furi_string_get_cstr(line), furi_string_size(line));
             }
+            if(!rw.inserted_coordinates || !rw.is_sub_file) {
+                nearby_files_append_coordinates(rw.output, latitude, longitude);
+            }
+            nearby_files_rewrite_flush(&rw);
 
-            if(!at_end && input_data[i] == '\r' && (i + 1 < input_size) &&
-               input_data[i + 1] == '\n') {
-                i++;
+            storage_file_close(out);
+            storage_file_close(file);
+
+            if(rw.io_ok && read_complete && !line_too_long) {
+                success = storage_common_rename(
+                              storage, furi_string_get_cstr(tmp_path), file_path) == FSE_OK;
             }
-            line_start = i + 1;
+            if(!success) {
+                storage_common_remove(storage, furi_string_get_cstr(tmp_path));
+            }
+        } else {
+            storage_file_close(file);
         }
     }
 
-    if(!inserted_coordinates || !is_sub_file) {
-        nearby_files_append_coordinates(output, latitude, longitude);
-    }
-
-    if(!storage_file_open(file, file_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        furi_string_free(output);
-        free(input_data);
-        storage_file_free(file);
-        return false;
-    }
-
-    const size_t output_size = furi_string_size(output);
-    const size_t bytes_written =
-        storage_file_write(file, (const uint8_t*)furi_string_get_cstr(output), output_size);
-    success = bytes_written == output_size;
-
-    storage_file_close(file);
-    furi_string_free(output);
-    free(input_data);
+    furi_string_free(rw.output);
+    furi_string_free(line);
+    furi_string_free(tmp_path);
+    storage_file_free(out);
     storage_file_free(file);
     return success;
 }
@@ -411,16 +444,16 @@ void nearby_files_app_free(NearbyFilesApp* app) {
     FURI_LOG_I(TAG, "Clearing file list");
     nearby_files_clear_files(app);
 
-    // Free GPS reader
-    FURI_LOG_I(TAG, "Freeing GPS reader");
-    gps_reader_free(app->gps_reader);
-    app->gps_reader = NULL;
-
-    // Stop and free GPS timer
+    // Stop and free GPS timer first: its callback reads the GPS reader
     FURI_LOG_I(TAG, "Stopping and freeing GPS timer");
     furi_timer_stop(app->gps_timer);
     furi_timer_free(app->gps_timer);
     app->gps_timer = NULL;
+
+    // Free GPS reader
+    FURI_LOG_I(TAG, "Freeing GPS reader");
+    gps_reader_free(app->gps_reader);
+    app->gps_reader = NULL;
 
     // Free views
     view_dispatcher_remove_view(app->view_dispatcher, NearbyFilesViewVariableItemList);
@@ -501,8 +534,15 @@ void nearby_files_clear_files(NearbyFilesApp* app) {
     app->file_capacity = 0;
 }
 
+// Upper bound for the in-RAM file list (about 150 bytes per entry)
+#define NEARBY_FILES_MAX_ITEMS 500
+
 bool nearby_files_scan_directories(NearbyFilesApp* app) {
     bool success = true;
+
+    // With a valid fix, keep only files that carry coordinates (parsed while scanning), so a big
+    // SD library is never held in RAM before being filtered
+    const bool filter_while_scanning = gps_reader_get_coordinates(app->gps_reader).valid;
 
     // Clear existing files
     nearby_files_clear_files(app);
@@ -535,7 +575,24 @@ bool nearby_files_scan_directories(NearbyFilesApp* app) {
                     const char* filename = strrchr(full_path, '/');
                     if(filename) {
                         filename++; // Skip the '/'
-                        nearby_files_add_file(app, full_path, filename, app_name);
+                        if(!filter_while_scanning) {
+                            nearby_files_add_file(app, full_path, filename, app_name);
+                        } else if(app->file_count >= NEARBY_FILES_MAX_ITEMS) {
+                            FURI_LOG_W(TAG, "File list full, skipping %s", full_path);
+                        } else {
+                            double file_lat = 0.0, file_lon = 0.0;
+                            if(nearby_files_parse_coordinates(full_path, &file_lat, &file_lon) &&
+                               (float)file_lat != 0.0f && (float)file_lon != 0.0f) {
+                                const size_t count_before = app->file_count;
+                                nearby_files_add_file(app, full_path, filename, app_name);
+                                if(app->file_count > count_before) {
+                                    NearbyFileItem* added = &app->files[count_before];
+                                    added->latitude = file_lat;
+                                    added->longitude = file_lon;
+                                    added->has_coordinates = true;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -733,10 +790,11 @@ void nearby_files_process_gps_coordinates(NearbyFilesApp* app) {
     // Process each file to extract GPS coordinates
     for(size_t i = 0; i < app->file_count; i++) {
         NearbyFileItem* item = &app->files[i];
-        double latitude, longitude;
+        double latitude = item->latitude, longitude = item->longitude;
 
-        // Parse GPS coordinates from file
-        if(nearby_files_parse_coordinates(
+        // Parse GPS coordinates from file (already done while scanning when has_coordinates is set)
+        if(item->has_coordinates ||
+           nearby_files_parse_coordinates(
                furi_string_get_cstr(item->path), &latitude, &longitude)) {
             // Check if coordinates are valid (not zero)
             if((float)latitude != 0.0f && (float)longitude != 0.0f) {

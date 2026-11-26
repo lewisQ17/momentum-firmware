@@ -27,6 +27,7 @@ typedef struct {
     FuriMutex* mutex;
     NotificationApp* notification;
     bool have_5v;
+    bool otg_enabled_by_app; // we switched the 5V rail on, so we switch it off again
     bool measurement_made;
     uint32_t echo; // us
     float distance; // meters
@@ -128,10 +129,12 @@ static void hc_sr04_state_init(PluginState* const plugin_state) {
     furi_hal_power_suppress_charge_enter();
 
     plugin_state->have_5v = false;
+    plugin_state->otg_enabled_by_app = false;
     if(furi_hal_power_is_otg_enabled() || furi_hal_power_is_charging()) {
         plugin_state->have_5v = true;
     } else {
         furi_hal_power_enable_otg();
+        plugin_state->otg_enabled_by_app = true;
         plugin_state->have_5v = true;
     }
 }
@@ -145,22 +148,26 @@ float hc_sr04_us_to_m(uint32_t us) {
     return total_dist / 2.0f;
 }
 
+// Called WITHOUT plugin_state->mutex held: the busy-wait below must not block the draw callback
 static void hc_sr04_measure(PluginState* const plugin_state) {
     //plugin_state->echo = 1;
     //return;
 
+    furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
     if(!plugin_state->have_5v) {
         if(furi_hal_power_is_otg_enabled() || furi_hal_power_is_charging()) {
             plugin_state->have_5v = true;
-        } else {
-            return;
         }
     }
+    const bool have_5v = plugin_state->have_5v;
+    furi_mutex_release(plugin_state->mutex);
+    if(!have_5v) return;
 
     //furi_hal_light_set(LightRed, 0xFF);
     notification_message(plugin_state->notification, &sequence_blink_start_yellow);
 
-    const uint32_t timeout_ms = 2000;
+    // HC-SR04 echo is at most ~40 ms long; 60 ms keeps a missing sensor from stalling the app
+    const uint32_t timeout_ms = 60;
     // Pin 13 / TX -> Trig
     furi_hal_gpio_write(&gpio_usart_tx, false);
     furi_hal_gpio_init(&gpio_usart_tx, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
@@ -195,15 +202,20 @@ static void hc_sr04_measure(PluginState* const plugin_state) {
 
     if(!got_rising || !got_falling) {
         // No (complete) echo: do not report a bogus 0.00 reading
+        furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
         plugin_state->measurement_made = false;
+        furi_mutex_release(plugin_state->mutex);
         notification_message(plugin_state->notification, &sequence_blink_stop);
         return;
     }
 
-    plugin_state->echo =
+    const uint32_t echo_us =
         (pulse_end - pulse_start) / furi_hal_cortex_instructions_per_microsecond();
-    plugin_state->distance = hc_sr04_us_to_m(plugin_state->echo);
+    furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
+    plugin_state->echo = echo_us;
+    plugin_state->distance = hc_sr04_us_to_m(echo_us);
     plugin_state->measurement_made = true;
+    furi_mutex_release(plugin_state->mutex);
 
     //furi_hal_light_set(LightRed, 0x00);
     notification_message(plugin_state->notification, &sequence_blink_stop);
@@ -224,11 +236,24 @@ int32_t hc_sr04_app() {
     plugin_state->mode = 1; // meters as default
 
     FuriHalSerialHandle* serial_handle = furi_hal_serial_control_acquire(FuriHalSerialIdUsart);
+    if(!serial_handle) {
+        // USART held by another user (e.g. debug console): release(NULL) would furi_check
+        FURI_LOG_E("hc_sr04", "cannot acquire USART\r\n");
+        if(plugin_state->otg_enabled_by_app && furi_hal_power_is_otg_enabled()) {
+            furi_hal_power_disable_otg();
+        }
+        furi_hal_power_suppress_charge_exit();
+        furi_message_queue_free(event_queue);
+        free(plugin_state);
+        expansion_enable(expansion);
+        furi_record_close(RECORD_EXPANSION);
+        return 255;
+    }
 
     plugin_state->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     if(!plugin_state->mutex) {
         FURI_LOG_E("hc_sr04", "cannot create mutex\r\n");
-        if(furi_hal_power_is_otg_enabled()) {
+        if(plugin_state->otg_enabled_by_app && furi_hal_power_is_otg_enabled()) {
             furi_hal_power_disable_otg();
         }
         furi_hal_serial_control_release(serial_handle);
@@ -275,7 +300,10 @@ int32_t hc_sr04_app() {
                         if(plugin_state->mode < 1) plugin_state->mode = 4;
                         break;
                     case InputKeyOk:
+                        // measure outside the lock (busy-wait), commit results inside
+                        furi_mutex_release(plugin_state->mutex);
                         hc_sr04_measure(plugin_state);
+                        furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
                         break;
                     case InputKeyBack:
                         processing = false;
@@ -291,7 +319,7 @@ int32_t hc_sr04_app() {
         view_port_update(view_port);
     }
 
-    if(furi_hal_power_is_otg_enabled()) {
+    if(plugin_state->otg_enabled_by_app && furi_hal_power_is_otg_enabled()) {
         furi_hal_power_disable_otg();
     }
     furi_hal_power_suppress_charge_exit();

@@ -134,6 +134,8 @@ static int32_t ftdi_bitbang_worker(void* context) {
         uint32_t events =
             furi_thread_flags_wait(WORKER_EVENTS_MASK, FuriFlagWaitAny, FuriWaitForever);
         furi_check((events & FuriFlagError) == 0);
+        // stop first: a pending timer tick must not swallow the stop event
+        if(events & WorkerEventStop) break;
         if(events & WorkerEventTimerUpdate) {
             if(ftdi_bitbang->mode == FtdiBitbangModeMpsse) {
                 ftdi_mpsse_state_machine(ftdi_bitbang->ftdi_mpsse);
@@ -153,8 +155,6 @@ static int32_t ftdi_bitbang_worker(void* context) {
             }
             continue;
         }
-
-        if(events & WorkerEventStop) break;
     }
     ftdi_bitbang_tim_deinit(ftdi_bitbang);
 
@@ -185,10 +185,11 @@ void ftdi_bitbang_free(FtdiBitbang* ftdi_bitbang) {
     if(!ftdi_bitbang) return;
 
     ftdi_bitbang->mode = FtdiBitbangModeOff;
-    ftdi_mpsse_free(ftdi_bitbang->ftdi_mpsse);
     furi_thread_flags_set(ftdi_bitbang->worker_thread, WorkerEventStop);
     furi_thread_join(ftdi_bitbang->worker_thread);
     furi_thread_free(ftdi_bitbang->worker_thread);
+    // free the mpsse only after the worker is gone: it may still be inside the state machine
+    ftdi_mpsse_free(ftdi_bitbang->ftdi_mpsse);
 
     ftdi_gpio_deinit();
 

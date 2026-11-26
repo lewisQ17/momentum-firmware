@@ -28,12 +28,14 @@ typedef struct {
 } Flasher;
 
 static Flasher flasher;
+static bool flasher_attached = false;
 
 bool flasher_init(void) {
     FURI_LOG_D(TAG, "Attaching the target");
 
     board_init();
     swd_init();
+    flasher_attached = true;
 
     if(!target_attach(RP2040_CORE0_ADDR)) {
         FURI_LOG_E(TAG, "Failed to attach target");
@@ -45,6 +47,10 @@ bool flasher_init(void) {
 }
 
 void flasher_deinit(void) {
+    // idempotent: scene on_exit and app exit may both call this
+    if(!flasher_attached) return;
+    flasher_attached = false;
+
     FURI_LOG_D(TAG, "Detaching target and restoring pins");
 
     target_detach();

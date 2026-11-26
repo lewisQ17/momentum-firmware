@@ -328,6 +328,7 @@ bool FlipTelegramApp::loadFileChunk(const char *filePath, char *buffer, size_t s
         FURI_LOG_E(TAG, "Invalid parameters for loadFileChunk");
         return false;
     }
+    buffer[0] = '\0'; // never leave the caller's buffer uninitialised on a failed/EOF read
 
     Storage *storage = static_cast<Storage *>(furi_record_open(RECORD_STORAGE));
     if (!storage)
@@ -366,6 +367,10 @@ bool FlipTelegramApp::loadFileChunk(const char *filePath, char *buffer, size_t s
     // Check whether the current access position is at the end of the file.
     if (storage_file_eof(file))
     {
+        // close + free here too, otherwise the File and the storage record leak on every EOF
+        storage_file_close(file);
+        storage_file_free(file);
+        furi_record_close(RECORD_STORAGE);
         FURI_LOG_E(TAG, "End of file reached: %s", filePath);
         return false;
     }
@@ -381,14 +386,10 @@ bool FlipTelegramApp::loadFileChunk(const char *filePath, char *buffer, size_t s
         return false;
     }
 
-    // ensure we don't go out of bounds
-    if (read_count > 0 && read_count < sizeOfChunk)
+    // ensure we don't go out of bounds (the caller's buffer holds sizeOfChunk + 1 bytes)
+    if (read_count > 0 && read_count <= sizeOfChunk)
     {
-        buffer[read_count] = '\0'; // Null-terminate after the last read character
-    }
-    else if (read_count >= sizeOfChunk && sizeOfChunk > 0)
-    {
-        buffer[sizeOfChunk - 1] = '\0'; // Use last byte for null terminator
+        buffer[read_count] = '\0'; // Null-terminate after the last read character (no byte dropped)
     }
     else
     {
@@ -404,6 +405,12 @@ bool FlipTelegramApp::loadFileChunk(const char *filePath, char *buffer, size_t s
 
 void FlipTelegramApp::runDispatcher()
 {
+    if (!viewDispatcher || !flipperHttp)
+    {
+        // constructor bailed out (e.g. UART busy): no view is shown and Back could not exit, so tell the user and return
+        easy_flipper_dialog("FlipperHTTP Error", "The UART is busy or could\nnot be allocated.\nClose other apps using it\nand try again.");
+        return;
+    }
     view_dispatcher_run(viewDispatcher);
 }
 

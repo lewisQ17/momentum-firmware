@@ -498,6 +498,12 @@ FreeRoamApp::~FreeRoamApp()
 
 void FreeRoamApp::run()
 {
+    if (!viewDispatcher || !flipperHttp)
+    {
+        // constructor bailed out (e.g. UART busy): no view is shown and Back could not exit, so tell the user and return
+        easy_flipper_dialog("FlipperHTTP Error", "The UART is busy or could\nnot be allocated.\nClose other apps using it\nand try again.");
+        return;
+    }
     view_dispatcher_run(viewDispatcher);
 }
 

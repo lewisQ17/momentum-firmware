@@ -120,7 +120,8 @@ static int32_t button_monitor_worker(void* context) {
                 }
             }
         }
-        furi_delay_ms(1);
+        // 5 ms poll (debounce handles bounce): 1 ms kept the MCU from idling
+        furi_delay_ms(5);
     }
 
     return 0;

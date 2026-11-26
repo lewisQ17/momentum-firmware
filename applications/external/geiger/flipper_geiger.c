@@ -265,8 +265,6 @@ int32_t flipper_geiger_app() {
                     furi_mutex_release(mutexVal.mutex);
                 } else if(event.input.key == InputKeyUp && event.input.type == InputTypeLong) {
                     if(recordData == 0) {
-                        notification_message(notification, &sequence_set_only_red_255);
-
                         DateTime datetime;
                         furi_hal_rtc_get_datetime(&datetime);
 
@@ -282,12 +280,18 @@ int32_t flipper_geiger_app() {
                             datetime.minute,
                             datetime.second);
 
-                        buffered_file_stream_open(
-                            file_stream, path, FSAM_WRITE, FSOM_CREATE_ALWAYS);
-                        furi_string_printf(dataString, "epoch,cps\n");
-                        stream_write_string(file_stream, dataString);
-                        epoch = 0;
-                        recordData = 1;
+                        // only start recording (and the red LED) when the CSV really opened
+                        if(buffered_file_stream_open(
+                               file_stream, path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+                            notification_message(notification, &sequence_set_only_red_255);
+                            furi_string_printf(dataString, "epoch,cps\n");
+                            stream_write_string(file_stream, dataString);
+                            epoch = 0;
+                            recordData = 1;
+                        } else {
+                            // no SD / full card: tell the user, do not pretend to record
+                            notification_message(notification, &sequence_error);
+                        }
                     } else {
                         buffered_file_stream_close(file_stream);
                         notification_message(notification, &sequence_reset_red);
@@ -343,6 +347,8 @@ int32_t flipper_geiger_app() {
                 if(recordData == 1) {
                     furi_string_printf(dataString, "%lu,%lu\n", epoch++, counter);
                     stream_write_string(file_stream, dataString);
+                    // flush every 30 s so a crash / battery pull loses little of the recording
+                    if(epoch % 30 == 0) buffered_file_stream_sync(file_stream);
                 }
 
                 furi_mutex_acquire(mutexVal.mutex, FuriWaitForever);

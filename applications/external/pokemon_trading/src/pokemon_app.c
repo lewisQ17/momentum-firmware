@@ -5,6 +5,7 @@
 #include <src/include/pokemon_app.h>
 #include <src/include/pokemon_data.h>
 #include <src/views/trade.h>
+#include <src/views/select_pokemon.h>
 #include <src/include/pokemon_char_encode.h>
 
 #include <src/scenes/include/pokemon_scene.h>
@@ -75,6 +76,22 @@ PokemonFap* pokemon_alloc() {
 void free_app(PokemonFap* pokemon_fap) {
     furi_assert(pokemon_fap);
 
+    // Trade views/data are normally freed by the exit confirm scene, but are still alive when
+    // closed via loader/RPC; the trade view's exit callback stops gblink, so free it first
+    if(pokemon_fap->trade) {
+        trade_free(pokemon_fap->view_dispatcher, AppViewTrade, pokemon_fap->trade);
+        pokemon_fap->trade = NULL;
+    }
+    if(pokemon_fap->select) {
+        select_pokemon_free(
+            pokemon_fap->view_dispatcher, AppViewSelectPokemon, pokemon_fap->select);
+        pokemon_fap->select = NULL;
+    }
+    if(pokemon_fap->pdata) {
+        pokemon_data_free(pokemon_fap->pdata);
+        pokemon_fap->pdata = NULL;
+    }
+
     // gblink
     gblink_free(pokemon_fap->gblink_handle);
 
@@ -121,6 +138,9 @@ int32_t pokemon_app(void* p) {
 
     //switch view and run dispatcher
     view_dispatcher_run(pokemon_fap->view_dispatcher);
+
+    // run the active scene's on_exit also when closed via loader/RPC
+    scene_manager_stop(pokemon_fap->scene_manager);
 
     // Free resources
     free_app(pokemon_fap);

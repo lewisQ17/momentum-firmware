@@ -398,8 +398,12 @@ static void flip_trader_widget_set_text(char *message, Widget **widget)
         }
     }
 
+    // Null-terminate the formatted_message
+    formatted_message[formatted_index] = '\0';
+
     // Add the formatted message to the widget
     widget_add_text_scroll_element(*widget, 0, 0, 128, 64, formatted_message);
+    free(formatted_message); // the widget copies the text, so the buffer would leak otherwise
 }
 
 void flip_trader_loader_draw_callback(Canvas *canvas, void *model)

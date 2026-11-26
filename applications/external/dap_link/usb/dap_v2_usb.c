@@ -492,10 +492,21 @@ void furi_console_log_printf(const char* format, ...) {
 #define furi_console_log_printf(...)
 #endif
 
+// a lost TX-complete (cable pulled, bus reset) must not block the DAP thread forever
+#define DAP_USB_TX_TIMEOUT_MS 1000
+
+// give the TX token back if it is missing; release on a full semaphore fails harmlessly
+static void dap_usb_tx_semaphores_reset(void) {
+    if(dap_state.semaphore_v1) furi_semaphore_release(dap_state.semaphore_v1);
+    if(dap_state.semaphore_v2) furi_semaphore_release(dap_state.semaphore_v2);
+    if(dap_state.semaphore_cdc) furi_semaphore_release(dap_state.semaphore_cdc);
+}
+
 int32_t dap_v1_usb_tx(uint8_t* buffer, uint8_t size) {
     if((dap_state.semaphore_v1 == NULL) || (dap_state.connected == false)) return 0;
 
-    furi_check(furi_semaphore_acquire(dap_state.semaphore_v1, FuriWaitForever) == FuriStatusOk);
+    if(furi_semaphore_acquire(dap_state.semaphore_v1, DAP_USB_TX_TIMEOUT_MS) != FuriStatusOk)
+        return 0;
 
     if(dap_state.connected) {
         int32_t len = usbd_ep_write(dap_state.usb_dev, DAP_HID_EP_IN, buffer, size);
@@ -509,7 +520,8 @@ int32_t dap_v1_usb_tx(uint8_t* buffer, uint8_t size) {
 int32_t dap_v2_usb_tx(uint8_t* buffer, uint8_t size) {
     if((dap_state.semaphore_v2 == NULL) || (dap_state.connected == false)) return 0;
 
-    furi_check(furi_semaphore_acquire(dap_state.semaphore_v2, FuriWaitForever) == FuriStatusOk);
+    if(furi_semaphore_acquire(dap_state.semaphore_v2, DAP_USB_TX_TIMEOUT_MS) != FuriStatusOk)
+        return 0;
 
     if(dap_state.connected) {
         int32_t len = usbd_ep_write(dap_state.usb_dev, DAP_HID_EP_BULK_IN, buffer, size);
@@ -639,6 +651,8 @@ static void hid_deinit(usbd_device* dev) {
     dap_state.semaphore_v2 = NULL;
     dap_state.semaphore_cdc = NULL;
 
+    dap_state.connected = false;
+
     usbd_reg_config(dev, NULL);
     usbd_reg_control(dev, NULL);
 }
@@ -657,6 +671,8 @@ static void hid_on_suspend(usbd_device* dev) {
     UNUSED(dev);
     if(dap_state.connected) {
         dap_state.connected = false;
+        // wake a TX waiting for a completion that will never come
+        dap_usb_tx_semaphores_reset();
         if(dap_state.state_callback != NULL) {
             dap_state.state_callback(dap_state.connected, dap_state.context);
         }
@@ -774,6 +790,8 @@ static usbd_respond hid_ep_config(usbd_device* dev, uint8_t cfg) {
         usbd_reg_endpoint(dev, HID_EP_OUT | DAP_CDC_EP_RECV, 0);
         return usbd_ack;
     case EP_CFG_CONFIGURE:
+        // new bus configuration: any TX that was in flight is gone
+        dap_usb_tx_semaphores_reset();
         usbd_ep_config(dev, DAP_HID_EP_IN, USB_EPTYPE_INTERRUPT, DAP_HID_EP_SIZE);
         usbd_ep_config(dev, DAP_HID_EP_OUT, USB_EPTYPE_INTERRUPT, DAP_HID_EP_SIZE);
         usbd_ep_config(dev, DAP_HID_EP_BULK_OUT, USB_EPTYPE_BULK, DAP_HID_EP_SIZE);

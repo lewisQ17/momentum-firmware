@@ -25,3 +25,10 @@ void gpio_item_configure_pin(uint8_t index, uint8_t pull_mode) {
     furi_hal_gpio_init(
         gpio_item[index].pin, GpioModeInput, gpio_pull_mode[pull_mode].pull, GpioSpeedVeryHigh);
 }
+
+// every visited pin keeps its pull resistor, return all of them to analog
+void gpio_item_release_all_pins(void) {
+    for(uint8_t i = 0; i < GPIO_ITEM_COUNT; i++) {
+        furi_hal_gpio_init(gpio_item[i].pin, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
+    }
+}

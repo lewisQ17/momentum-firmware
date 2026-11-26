@@ -99,10 +99,10 @@ static const char* parse_open_haystack(FindMy* app, const char* path) {
         furi_string_trim(line);
 
         error = "Base64 failed";
-        size_t decoded_len;
+        size_t decoded_len = 0; // base64_decode leaves it unwritten when it returns NULL
         uint8_t* public_key = base64_decode(
             (uint8_t*)furi_string_get_cstr(line), furi_string_size(line), &decoded_len);
-        if(decoded_len != 28) {
+        if(public_key == NULL || decoded_len != 28) {
             free(public_key);
             break;
         }

@@ -125,6 +125,7 @@ FuriString *flipper_http_load_from_file(char *file_path)
     {
         FURI_LOG_E(HTTP_TAG, "Error reading from file.");
         furi_string_free(str_result);
+        free(buffer);
         storage_file_close(file);
         storage_file_free(file);
         furi_record_close(RECORD_STORAGE);

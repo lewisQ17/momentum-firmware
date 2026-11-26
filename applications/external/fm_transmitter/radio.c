@@ -152,6 +152,15 @@ static bool kt0803_power_on(void) {
     return kt0803_write_reg(KT0803_REG_MISC, 0x00);
 }
 
+// snap a frequency to the nearest valid channel of the region: min + n*step, clamped
+static float fmtx_snap_frequency(const RegionConfig* region, float freq) {
+    int n = (int)(((freq - region->min_freq) / region->step) + 0.5f);
+    const int n_max = (int)(((region->max_freq - region->min_freq) / region->step) + 0.5f);
+    if(n < 0) n = 0;
+    if(n > n_max) n = n_max;
+    return region->min_freq + (float)n * region->step;
+}
+
 static void fmtx_draw_callback(Canvas* canvas, void* ctx) {
     FMTXApp* app = (FMTXApp*)ctx;
 
@@ -277,6 +286,7 @@ int32_t fmtx_i2c_init_app(void* p) {
 
     InputEvent event;
     bool running = true;
+    bool powered = false; // KT0803 was woken up and must be put back in standby on exit
 
     while(running) {
         FuriStatus status = furi_message_queue_get(app->event_queue, &event, FuriWaitForever);
@@ -322,6 +332,7 @@ int32_t fmtx_i2c_init_app(void* p) {
                     const RegionConfig* r = &regions[app->state.region_index];
                     if(app->state.frequency < r->min_freq) app->state.frequency = r->min_freq;
                     if(app->state.frequency > r->max_freq) app->state.frequency = r->max_freq;
+                    app->state.frequency = fmtx_snap_frequency(r, app->state.frequency);
                     app->state.current_screen = SCREEN_FREQUENCY;
                 }
                 break;
@@ -332,15 +343,13 @@ int32_t fmtx_i2c_init_app(void* p) {
                     app->state.frequency += region->step;
                     if(app->state.frequency > region->max_freq)
                         app->state.frequency = region->max_freq;
-                    // round to avoid float drift
-                    app->state.frequency =
-                        ((float)(int)((app->state.frequency / region->step) + 0.5f)) * region->step;
+                    // snap to a real channel (min + n*step) to avoid float drift
+                    app->state.frequency = fmtx_snap_frequency(region, app->state.frequency);
                 } else if(event.key == InputKeyDown) {
                     app->state.frequency -= region->step;
                     if(app->state.frequency < region->min_freq)
                         app->state.frequency = region->min_freq;
-                    app->state.frequency =
-                        ((float)(int)((app->state.frequency / region->step) + 0.5f)) * region->step;
+                    app->state.frequency = fmtx_snap_frequency(region, app->state.frequency);
                 } else if(event.key == InputKeyLeft && event.type == InputTypeShort) {
                     app->state.current_screen = SCREEN_REGION;
                 } else if(event.key == InputKeyOk && event.type == InputTypeShort) {
@@ -377,6 +386,7 @@ int32_t fmtx_i2c_init_app(void* p) {
                         notification_message(app->notifications, &sequence_error);
                     } else {
                         bool ok = kt0803_power_on();
+                        if(ok) powered = true;
                         if(ok) {
                             furi_delay_ms(5);  // let it settle after wakeup
                             ok = kt0803_set_frequency(freq, regions[reg_idx].phtcnst);
@@ -412,6 +422,11 @@ int32_t fmtx_i2c_init_app(void* p) {
 
         furi_mutex_release(app->state_mutex);
         view_port_update(app->view_port);
+    }
+
+    // stop transmitting: back to standby with PA down (ignore I2C errors)
+    if(powered) {
+        kt0803_write_reg(KT0803_REG_MISC, KT0803_STANDBY_BIT | KT0803_PDPA_BIT);
     }
 
     furi_record_close(RECORD_NOTIFICATION);
