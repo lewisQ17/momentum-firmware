@@ -278,11 +278,12 @@ void seos_native_peripheral_process_message_cred(
             bit_buffer_append_bytes(tmp, apdu, apdu_len);
 
             seos_log_bitbuffer(TAG, "received(wrapped)", tmp);
-            secure_messaging_unwrap_apdu(seos_native_peripheral->secure_messaging, tmp);
+            bool unwrapped =
+                secure_messaging_unwrap_apdu(seos_native_peripheral->secure_messaging, tmp);
             seos_log_bitbuffer(TAG, "received(clear)", tmp);
 
             const uint8_t* message = bit_buffer_get_data(tmp);
-            if(memcmp(message, request_sio, sizeof(request_sio)) == 0) {
+            if(unwrapped && memcmp(message, request_sio, sizeof(request_sio)) == 0) {
                 view_dispatcher_send_custom_event(
                     seos_native_peripheral->seos->view_dispatcher, SeosCustomEventSIORequested);
 
@@ -449,13 +450,32 @@ void seos_native_peripheral_process_message_reader(
         BitBuffer* rx_buffer = bit_buffer_alloc(rx_len - 1);
         bit_buffer_append_bytes(rx_buffer, rx_data, rx_len - 1);
         seos_log_bitbuffer(TAG, "BLE response(wrapped)", rx_buffer);
-        secure_messaging_unwrap_rapdu(secure_messaging, rx_buffer);
+        if(!secure_messaging_unwrap_rapdu(secure_messaging, rx_buffer)) {
+            FURI_LOG_W(TAG, "Malformed secure messaging response");
+            bit_buffer_free(rx_buffer);
+            bit_buffer_free(response);
+            return;
+        }
         seos_log_bitbuffer(TAG, "BLE response(clear)", rx_buffer);
 
-        // Skip fileId
+        // Skip fileId; need fileId(2) + length byte before reading it
+        if(bit_buffer_get_size_bytes(rx_buffer) < 3) {
+            FURI_LOG_W(TAG, "SIO response too short");
+            bit_buffer_free(rx_buffer);
+            bit_buffer_free(response);
+            return;
+        }
         credential->sio_len = bit_buffer_get_byte(rx_buffer, 2);
         if(credential->sio_len > sizeof(credential->sio)) {
             FURI_LOG_W(TAG, "SIO too long to save");
+            bit_buffer_free(rx_buffer);
+            bit_buffer_free(response);
+            return;
+        }
+        // sio_len is peer-supplied, must lie inside the received frame
+        if(3 + (size_t)credential->sio_len > bit_buffer_get_size_bytes(rx_buffer)) {
+            FURI_LOG_W(TAG, "SIO length exceeds response");
+            bit_buffer_free(rx_buffer);
             bit_buffer_free(response);
             return;
         }

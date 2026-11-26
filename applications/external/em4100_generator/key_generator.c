@@ -70,9 +70,11 @@ int32_t key_generator_main(void* p) {
         FlipperFormat* format = flipper_format_file_alloc(storage);
 
         // Parsing file
-        flipper_format_file_open_existing(format, furi_string_get_cstr(file_path));
-        flipper_format_read_string(format, "Data", key);
+        bool parsed = flipper_format_file_open_existing(format, furi_string_get_cstr(file_path)) &&
+                      flipper_format_read_string(format, "Data", key);
         furi_string_replace_str(key, " ", "", 0);
+        // The writes below read the first 4 chars of key: refuse a missing/short Data field
+        if(!parsed || furi_string_size(key) < 4) running = false;
 
         flipper_format_file_close(format);
         flipper_format_free(format);
@@ -80,7 +82,8 @@ int32_t key_generator_main(void* p) {
         if(!storage_dir_exists(storage, DIR_PATH)) storage_simply_mkdir(storage, DIR_PATH);
 
         File* file = storage_file_alloc(storage);
-        bool ok = storage_file_open(file, FILE_PATH, FSAM_WRITE, FSOM_OPEN_ALWAYS);
+        bool ok = running && storage_file_open(file, FILE_PATH, FSAM_WRITE, FSOM_OPEN_ALWAYS);
+        if(!ok) running = false; // nothing saved: don't show "Saved as" or beep
         if(ok) {
             storage_file_write(file, (uint8_t*)furi_string_get_cstr(key), 2);
             storage_file_write(file, (uint8_t*)"11111111\r\n", 10);
@@ -165,7 +168,7 @@ int32_t key_generator_main(void* p) {
 
         furi_record_close(RECORD_STORAGE);
 
-        beep();
+        if(ok) beep();
     }
 
     InputEvent event;
@@ -183,6 +186,9 @@ int32_t key_generator_main(void* p) {
     furi_message_queue_free(event_queue);
 
     furi_record_close(RECORD_GUI);
+
+    furi_string_free(file_path);
+    furi_string_free(key);
 
     return 0;
 }

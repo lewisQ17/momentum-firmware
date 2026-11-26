@@ -190,16 +190,18 @@ void secure_messaging_wrap_apdu(
     bit_buffer_append_bytes(tx_buffer, Le, sizeof(Le));
 }
 
-void secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer) {
+bool secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer) {
     secure_messaging_increment_context(secure_messaging);
     // 8540 <encrypted> 99029000 8e08 <cmac>
 
     size_t encrypted_len = bit_buffer_get_byte(rx_buffer, 1);
     // encrypted_len is a card-supplied byte; it must fit clear[] and the actual
     // received frame, or the decrypt below overruns the buffer / reads past rx.
-    if(encrypted_len > SECURE_MESSAGING_MAX_SIZE ||
+    // encrypted_len == 0 would underflow the padding strip below.
+    if(encrypted_len == 0 || encrypted_len > SECURE_MESSAGING_MAX_SIZE ||
        encrypted_len + 2 > bit_buffer_get_size_bytes(rx_buffer)) {
-        return;
+        bit_buffer_reset(rx_buffer);
+        return false;
     }
     const uint8_t* encrypted = bit_buffer_get_data(rx_buffer) + 2;
     // const uint8_t *cmac = bit_buffer_get_data(rx_buffer) + 2 + encrypted_len + 6;
@@ -216,11 +218,13 @@ void secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer*
         FURI_LOG_W(TAG, "Cipher not matched");
     }
 
+    // Strip zero padding plus the 0x80 marker (same result as before, but no underflow)
     size_t clear_len = encrypted_len;
-    do {
-    } while(clear[--clear_len] == 0 && clear_len > 0);
+    while(clear_len > 0 && clear[clear_len - 1] == 0) clear_len--;
+    if(clear_len > 0) clear_len--;
     bit_buffer_reset(rx_buffer);
     bit_buffer_append_bytes(rx_buffer, clear, clear_len);
+    return true;
 }
 
 // Assumes it is an iso14443a-4 and doesn't have framing bytes
@@ -234,16 +238,26 @@ void secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer*
     85345f0f5c44b980
 00
 */
-void secure_messaging_unwrap_apdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer) {
+bool secure_messaging_unwrap_apdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer) {
     secure_messaging_increment_context(secure_messaging);
+
+    // Peer-controlled frame: header + length byte must exist and the ciphertext must fit in it.
+    size_t rx_size = bit_buffer_get_size_bytes(rx_buffer);
+    if(rx_size < 7) {
+        FURI_LOG_W(TAG, "wrapped apdu too short (%d)", rx_size);
+        bit_buffer_reset(rx_buffer);
+        return false;
+    }
 
     // TODO: check cmac
     const uint8_t* encrypted = bit_buffer_get_data(rx_buffer) + 7;
     size_t encrypted_len = bit_buffer_get_byte(rx_buffer, 6);
 
-    if(encrypted_len > SECURE_MESSAGING_MAX_SIZE) {
-        FURI_LOG_W(TAG, "message too large (%d) to unwrap", encrypted_len);
-        return;
+    if(encrypted_len == 0 || encrypted_len > SECURE_MESSAGING_MAX_SIZE ||
+       7 + encrypted_len > rx_size) {
+        FURI_LOG_W(TAG, "bad wrapped length (%d) to unwrap", encrypted_len);
+        bit_buffer_reset(rx_buffer);
+        return false;
     }
 
     uint8_t clear[SECURE_MESSAGING_MAX_SIZE];
@@ -256,10 +270,12 @@ void secure_messaging_unwrap_apdu(SecureMessaging* secure_messaging, BitBuffer* 
         FURI_LOG_W(TAG, "Cipher not matched");
     }
 
-    do {
-    } while(clear[--encrypted_len] == 0 && encrypted_len > 0);
+    // Strip zero padding plus the 0x80 marker (same result as before, but no underflow)
+    while(encrypted_len > 0 && clear[encrypted_len - 1] == 0) encrypted_len--;
+    if(encrypted_len > 0) encrypted_len--;
     bit_buffer_reset(rx_buffer);
     bit_buffer_append_bytes(rx_buffer, clear, encrypted_len);
+    return true;
 }
 
 void secure_messaging_wrap_rapdu(

@@ -182,6 +182,7 @@ static NfcCommand
 
         if(!result) break;
 
+        ctx->duplicate_c2_cnt = 0;
         ctx->poller_state = EinkGoodisplayPollerStateDuplicateC2Cmd;
     } while(false);
 
@@ -194,11 +195,11 @@ static NfcCommand eink_goodisplay_duplicate_C2(Iso14443_4aPoller* poller, NfcEin
     NfcEinkScreenSpecificGoodisplayContext* ctx = screen->device->screen_context;
     ctx->poller_state = EinkGoodisplayPollerStateDuplicateC2Cmd;
 
-    static uint8_t cnt = 0;
-    cnt++;
-    if(cnt == 2) {
+    // Counter lives in the context (a function-static survived aborted attempts)
+    ctx->duplicate_c2_cnt++;
+    if(ctx->duplicate_c2_cnt == 2) {
         ctx->poller_state = EinkGoodisplayPollerStateSendConfigCmd;
-        cnt = 0;
+        ctx->duplicate_c2_cnt = 0;
     }
 
     return cmd;
@@ -345,7 +346,8 @@ static NfcCommand
             ctx->poller_state = EinkGoodisplayPollerStateError;
             break;
         }
-        furi_delay_us(EINK_GOODISPLAY_SCREEN_UPDATE_COMMAND_DELAY_US);
+        // ms sleep, not a us busy-wait: this thread runs at highest priority and would starve the UI
+        furi_delay_ms(EINK_GOODISPLAY_SCREEN_UPDATE_COMMAND_DELAY_US / 1000);
         cnt++;
     } while(cnt < update_cmd_cnt);
     return NfcCommandContinue;

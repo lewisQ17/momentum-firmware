@@ -45,7 +45,7 @@ static const XRemoteButton g_buttons[XREMOTE_BUTTON_COUNT + 1] = {
     {-1, NULL}};
 
 const char* xremote_button_get_name(int index) {
-    if(index > XREMOTE_BUTTON_COUNT) return NULL;
+    if(index < 0 || index > XREMOTE_BUTTON_COUNT) return NULL;
     return g_buttons[index].name;
 }
 
@@ -62,10 +62,13 @@ struct XRemoteView {
     XRemoteAppContext* app_ctx;
     View* view;
     void* context;
+    bool view_external; // view is freed by the context's on_clear (e.g. variable item list)
 };
 
 XRemoteView* xremote_view_alloc_empty() {
     XRemoteView* remote_view = malloc(sizeof(XRemoteView));
+    // Zero-init: context/on_clear/view are read before they are set
+    memset(remote_view, 0, sizeof(XRemoteView));
     return remote_view;
 }
 
@@ -106,6 +109,11 @@ void xremote_view_set_view(XRemoteView* rview, View* view) {
     rview->view = view;
 }
 
+void xremote_view_set_external_view(XRemoteView* rview, View* view) {
+    xremote_view_set_view(rview, view);
+    rview->view_external = true;
+}
+
 void* xremote_view_get_context(XRemoteView* rview) {
     furi_assert(rview);
     return rview->context;
@@ -124,7 +132,7 @@ void* xremote_view_get_app_context(XRemoteView* rview) {
 void xremote_view_free(XRemoteView* rview) {
     furi_assert(rview);
     xremote_view_clear_context(rview);
-    view_free(rview->view);
+    if(!rview->view_external) view_free(rview->view);
     free(rview);
 }
 
@@ -145,6 +153,7 @@ static InfraredRemoteButton*
     char key[XREMOTE_NAME_MAX] = {0};
     bool key_found = false;
     uint32_t version = 0;
+    FuriString* value = furi_string_alloc();
 
     do {
         /* Open file and read the header */
@@ -152,7 +161,6 @@ static InfraredRemoteButton*
         if(!flipper_format_read_header(ff, header, &version)) break;
         if(!furi_string_equal(header, "XRemote Alt-Names") || (version != 1)) break;
 
-        FuriString* value = furi_string_alloc();
         key_found = flipper_format_read_string(ff, name, value);
 
         if(!key_found) {
@@ -190,7 +198,7 @@ static InfraredRemoteButton*
             }
 
             if(posit == FURI_STRING_FAILURE && button == NULL) {
-                size_t str_len = furi_string_utf8_length(value);
+                size_t str_len = furi_string_size(value); // byte count for set_n
                 furi_string_set_n(alt_name, value, start, str_len - start);
                 const char* alt_name_cstr = furi_string_get_cstr(alt_name);
                 button = infrared_remote_get_button_by_name(remote, alt_name_cstr);
@@ -202,6 +210,7 @@ static InfraredRemoteButton*
     } while(false);
 
     furi_record_close(RECORD_STORAGE);
+    furi_string_free(value);
     furi_string_free(header);
     flipper_format_free(ff);
 

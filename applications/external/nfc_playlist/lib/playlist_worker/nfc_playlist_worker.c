@@ -81,6 +81,7 @@ static int32_t nfc_playlist_worker_task(void* context) {
    Stream* stream = file_stream_alloc(storage);
 
    int playlist_position = 0;
+   bool emulated_in_pass = false; // lets us detect a loop pass with nothing playable
 
    if(file_stream_open(
          stream,
@@ -124,6 +125,11 @@ static int32_t nfc_playlist_worker_task(void* context) {
          // Handle loop setting
          if(!stream_read_line(stream, line)) {
             if(worker->settings->loop) {
+               // Nothing playable this pass (all skipped/empty): throttle instead of busy-looping
+               if(!emulated_in_pass) {
+                  furi_delay_ms(250);
+               }
+               emulated_in_pass = false;
                stream_rewind(stream);
                playlist_position = 0;
                nfc_playlist_worker_delay(worker, playlist_position);
@@ -184,6 +190,7 @@ static int32_t nfc_playlist_worker_task(void* context) {
 
             nfc_listener_stop(worker->nfc_listener);
             nfc_listener_free(worker->nfc_listener);
+            emulated_in_pass = true;
 
             nfc_playlist_worker_delay(worker, playlist_position);
          } else {

@@ -34,6 +34,9 @@ bool nfc_eink_scene_start_on_event(void* context, SceneManagerEvent event) {
     if(event.type == SceneManagerEventTypeCustom) {
         const uint32_t submenu_index = event.event;
         if(submenu_index == SubmenuIndexEmulate) {
+            // A previously opened saved file must not turn "Save" into a rename that deletes it
+            furi_string_reset(instance->file_name);
+            furi_string_reset(instance->file_path);
             scene_manager_next_scene(scene_manager, NfcEinkAppSceneChooseManufacturer);
             consumed = true;
         } else if(submenu_index == SubmenuIndexSaved) {

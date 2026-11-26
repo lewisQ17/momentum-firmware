@@ -161,7 +161,8 @@ PicopassListenerCommand
 
     do {
         uint8_t block_num = bit_buffer_get_byte(buf, 1);
-        if(block_num > PICOPASS_MAX_APP_LIMIT) break;
+        // card_data[] has exactly MAX_APP_LIMIT entries
+        if(block_num >= PICOPASS_MAX_APP_LIMIT) break;
 
         bool secured = (instance->data->card_data[PICOPASS_CONFIG_BLOCK_INDEX].data[7] &
                         PICOPASS_FUSE_CRYPT10) != PICOPASS_FUSE_CRYPT0;
@@ -453,6 +454,8 @@ PicopassListenerCommand
 
         const uint8_t* rx_data = bit_buffer_get_data(buf);
         uint8_t block_num = rx_data[1];
+        // reader-controlled index, avoid OOB write
+        if(block_num >= PICOPASS_MAX_APP_LIMIT) break;
         if(block_num == PICOPASS_CSN_BLOCK_INDEX) break; // CSN is always read only
         if(!pers_mode && PICOPASS_LISTENER_HAS_MASK(config_block.data[3], 0x80))
             break; // Chip is in RO mode, no updated possible (even ePurse)

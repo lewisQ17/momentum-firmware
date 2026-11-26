@@ -4,6 +4,11 @@
 #include "../subghz/xremote_sg_remote.h"
 #include "../../xremote_i.h"
 
+#define XREMOTE_ITEM_IR_TIME_MAX    9999
+#define XREMOTE_ITEM_PAUSE_TIME_MAX 9
+// Set by item_read when an item of a known type was malformed (loader drops it)
+#define XREMOTE_ITEM_TYPE_INVALID   (-1)
+
 bool xremote_cross_remote_item_read(CrossRemoteItem* item, FlipperFormat* ff);
 
 CrossRemoteItem* xremote_cross_remote_item_alloc();

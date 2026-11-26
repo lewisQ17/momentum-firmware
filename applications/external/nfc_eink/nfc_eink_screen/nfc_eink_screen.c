@@ -313,8 +313,10 @@ bool nfc_eink_screen_load_data(
         NfcEinkScreenData* data = destination->data;
 
         uint16_t dest_offset = 0;
-        uint8_t dest_bytes_per_row = nfc_eink_screen_get_bytes_per_row(data->base.height);
-        dest_bytes_per_row = MIN(dest_bytes_per_row, source_bytes_per_row);
+        const uint8_t dest_stride = nfc_eink_screen_get_bytes_per_row(data->base.height);
+        const uint8_t dest_bytes_per_row = MIN(dest_stride, source_bytes_per_row);
+        // Rows of a taller/shorter target keep the target's stride; unused row parts stay blank
+        memset(data->image_data, 0, data->image_size);
 
         const uint16_t row_cnt = MIN(data->base.width, source_info->width);
         uint8_t* block_buf = malloc(source_bytes_per_row);
@@ -323,7 +325,7 @@ bool nfc_eink_screen_load_data(
             if(!loaded) break;
 
             memcpy(&data->image_data[dest_offset], block_buf, dest_bytes_per_row);
-            dest_offset += dest_bytes_per_row;
+            dest_offset += dest_stride;
         }
         free(block_buf);
     } while(false);

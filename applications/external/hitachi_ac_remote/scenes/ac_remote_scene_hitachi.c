@@ -239,6 +239,7 @@ static bool timer_update_from_timestamp_diff(
             diff_mins++;
         }
     }
+    if(diff_mins > 0xfff) diff_mins = 0xfff; // fits uint16_t, same cap as the timer UI
     if(timer->minutes_only != diff_mins) {
         timer_set_minute_nocheck(timer, diff_mins);
         return true;
@@ -259,6 +260,7 @@ static void timer_set_from_timestamp_diff(
             diff_mins++;
         }
     }
+    if(diff_mins > 0xfff) diff_mins = 0xfff; // fits uint16_t, same cap as the timer UI
     timer_set_minute_nocheck(timer, diff_mins);
 }
 
@@ -318,6 +320,10 @@ static void ac_remote_timer_tick(AC_RemoteApp* ac_remote, bool init) {
     uint32_t ts = furi_hal_rtc_get_timestamp();
 
     bool timer_on_changed, timer_off_changed;
+    // Saved pause value > 0 means the timer was really pending; an unused (0 min) timer must
+    // not count as "just expired" on init, or it flips the power state of the other timer
+    bool on_was_pending = ac_remote->app_state.timer_pause.on != 0;
+    bool off_was_pending = ac_remote->app_state.timer_pause.off != 0;
 
     if(!init) {
         timer_on_changed = timer_update_from_timestamp_diff(
@@ -335,9 +341,11 @@ static void ac_remote_timer_tick(AC_RemoteApp* ac_remote, bool init) {
 
     bool refresh = timer_on_changed || timer_off_changed;
     bool timer_on_just_expired = timer_on_changed &&
-                                 ac_remote->transient_state.timer_on.minutes_only == 0;
+                                 ac_remote->transient_state.timer_on.minutes_only == 0 &&
+                                 (!init || on_was_pending);
     bool timer_off_just_expired = timer_off_changed &&
-                                  ac_remote->transient_state.timer_off.minutes_only == 0;
+                                  ac_remote->transient_state.timer_off.minutes_only == 0 &&
+                                  (!init || off_was_pending);
     if(refresh) {
         ac_remote->app_state.timer_pause.on = ac_remote->transient_state.timer_on.minutes_only;
         ac_remote->app_state.timer_pause.off = ac_remote->transient_state.timer_off.minutes_only;

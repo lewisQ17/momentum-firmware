@@ -21,6 +21,7 @@ typedef struct {
     uint32_t seed;
     uint32_t history[HISTORY_SIZE];
     uint8_t history_index;
+    uint8_t history_count; // generated values so far (max HISTORY_SIZE)
     bool new_value;
     FuriMutex* mutex;
     uint32_t message_timestamp;
@@ -53,6 +54,7 @@ static uint32_t generate_rng_from_ir(InfraredWorkerSignal* signal) {
 static void update_history(FlameRngState* state, uint32_t value) {
     state->history[state->history_index] = value;
     state->history_index = (state->history_index + 1) % HISTORY_SIZE;
+    if(state->history_count < HISTORY_SIZE) state->history_count++;
 }
 
 static void ir_callback(void* ctx, InfraredWorkerSignal* signal) {
@@ -85,7 +87,8 @@ static void ir_callback(void* ctx, InfraredWorkerSignal* signal) {
     FURI_LOG_I(TAG, "Generated RNG: %lu (seed: %lu)", state->rng_value, state->seed);
 }
 
-static bool save_random_numbers(FlameRngState* state) {
+// values: oldest first, count > 0; caller passes a copy so no lock is needed during SD I/O
+static bool save_random_numbers(const uint32_t* values, uint8_t count) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     Stream* file = NULL;
     bool success = false;
@@ -110,9 +113,8 @@ static bool save_random_numbers(FlameRngState* state) {
     }
 
     // Write all history numbers
-    for(uint8_t i = 0; i < HISTORY_SIZE; i++) {
-        uint8_t idx = (state->history_index + i) % HISTORY_SIZE;
-        if(stream_write_format(file, "%lu\n", state->history[idx]) == 0) {
+    for(uint8_t i = 0; i < count; i++) {
+        if(stream_write_format(file, "%lu\n", values[i]) == 0) {
             FURI_LOG_E(TAG, "Failed to write to file");
             goto cleanup;
         }
@@ -177,6 +179,7 @@ int32_t flame_rng(void* p) {
     state->rng_value = 0;
     state->seed = 0;
     state->history_index = 0;
+    state->history_count = 0;
     state->new_value = false;
     memset(state->history, 0, sizeof(state->history));
     state->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
@@ -208,9 +211,18 @@ int32_t flame_rng(void* p) {
                 if(event.key == InputKeyBack) {
                     running = false;
                 } else if(event.key == InputKeyOk) {
+                    // Snapshot under the lock, write to SD outside it (GUI/IR must not block)
+                    uint32_t values[HISTORY_SIZE];
                     furi_mutex_acquire(state->mutex, FuriWaitForever);
-                    bool saved = save_random_numbers(state);
+                    uint8_t count = state->history_count;
+                    uint8_t start = (state->history_index + HISTORY_SIZE - count) % HISTORY_SIZE;
+                    for(uint8_t i = 0; i < count; i++) {
+                        values[i] = state->history[(start + i) % HISTORY_SIZE];
+                    }
                     furi_mutex_release(state->mutex);
+
+                    // Nothing generated yet: don't write zeros as if they were random numbers
+                    bool saved = (count > 0) && save_random_numbers(values, count);
 
                     if(saved) {
                         // Show save confirmation

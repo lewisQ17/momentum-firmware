@@ -68,6 +68,8 @@ void xremote_scene_transmit_send_ir_signal(XRemote* app, CrossRemoteItem* item) 
     if(item->time > 0) {
         time = item->time;
     }
+    // Bound the blocking wait (UI thread) even if the item bypassed the loader clamp
+    if(time > XREMOTE_ITEM_IR_TIME_MAX) time = XREMOTE_ITEM_IR_TIME_MAX;
     furi_thread_flags_wait(0, FuriFlagWaitAny, time);
     xremote_scene_transmit_stop_ir_signal(app);
 }
@@ -75,7 +77,9 @@ void xremote_scene_transmit_send_ir_signal(XRemote* app, CrossRemoteItem* item) 
 void xremote_scene_transmit_send_pause(XRemote* app, CrossRemoteItem* item) {
     app->transmitting = true;
     xremote_scene_ir_notification_message(app, PauseNotificationMessageBlinkStartSend);
-    furi_thread_flags_wait(0, FuriFlagWaitAny, item->time * 1000);
+    uint32_t pause_s = item->time;
+    if(pause_s > XREMOTE_ITEM_PAUSE_TIME_MAX) pause_s = XREMOTE_ITEM_PAUSE_TIME_MAX;
+    furi_thread_flags_wait(0, FuriFlagWaitAny, pause_s * 1000);
     app->transmitting = false;
     xremote_scene_ir_notification_message(app, PauseNotificationMessageBlinkStop);
 }
@@ -162,6 +166,8 @@ void xremote_scene_transmit_on_enter(void* context) {
     furi_assert(context);
     XRemote* app = context;
     app->transmit_item = 0;
+    // A previous aborted run may have left the state at Start
+    xremote_cross_remote_set_transmitting(app->cross_remote, XRemoteTransmittingIdle);
     xremote_transmit_set_callback(app->xremote_transmit, xremote_scene_transmit_callback, app);
 
     view_dispatcher_switch_to_view(app->view_dispatcher, XRemoteViewIdTransmit);
@@ -182,6 +188,12 @@ bool xremote_scene_transmit_on_event(void* context, SceneManagerEvent event) {
         }
     } else if(event.type == SceneManagerEventTypeTick) {
         FURI_LOG_D(TAG, "Tick Event");
+        // Honour a stop request before starting the next item
+        if(app->stop_transmit == true) {
+            app->stop_transmit = false;
+            xremote_scene_transmit_end_scene(app);
+            return consumed;
+        }
         xremote_scene_transmit_run_next_transmission(app);
         with_view_model(
             xremote_transmit_get_view(app->xremote_transmit),
@@ -202,6 +214,9 @@ bool xremote_scene_transmit_on_event(void* context, SceneManagerEvent event) {
 
 void xremote_scene_transmit_on_exit(void* context) {
     XRemote* app = context;
+    // Stop an async Sub-GHz TX (RAW .sub) so the radio goes idle and its worker/callback is gone
+    subghz_txrx_stop(app->subghz->txrx);
     app->transmitting = false;
     app->state_notifications = SubGhzNotificationStateIDLE;
+    xremote_cross_remote_set_transmitting(app->cross_remote, XRemoteTransmittingIdle);
 }

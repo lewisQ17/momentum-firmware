@@ -293,10 +293,13 @@ static NfcCommand
 
     ctx->poller_state = eink_waveshare_poller_state_generic_handler(
         poller, screen, EINK_WAVESHARE_COMMAND_REFRESH, EinkWavesharePollerStateWaitReady);
+    ctx->wait_ready_cnt = 0;
     furi_delay_ms(500);
 
     return NfcCommandContinue;
 }
+
+#define EINK_WAVESHARE_WAIT_READY_MAX_CNT (600)
 
 static NfcCommand
     eink_waveshare_poller_state_wait_ready(Iso14443_3aPoller* poller, NfcEinkScreen* screen) {
@@ -316,6 +319,10 @@ static NfcCommand
     } else if(status == EinkWaveshareSendStatusFail) {
         ctx->poller_state = EinkWavesharePollerStateWaitReady;
         furi_delay_ms(100);
+        // ~100 ms + command time per attempt: give up after roughly a minute and a half so the RF field goes off
+        if(++ctx->wait_ready_cnt >= EINK_WAVESHARE_WAIT_READY_MAX_CNT) {
+            ctx->poller_state = EinkWavesharePollerStateError;
+        }
     } else if(status == EinkWaveshareSendStatusTransportError) {
         ctx->poller_state = EinkWavesharePollerStateError;
     }

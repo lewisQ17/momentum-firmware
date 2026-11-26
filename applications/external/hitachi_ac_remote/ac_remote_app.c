@@ -33,6 +33,7 @@ static bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
         if(!flipper_format_read_header(ff, header, &version)) break;
         if(!furi_string_equal(header, "AC Remote") || (version != 1)) break;
         if(!flipper_format_read_uint32(ff, "Power", &app_state->power, 1)) break;
+        if(app_state->power >= POWER_STATE_MAX) break;
         if(!flipper_format_read_uint32(ff, "Mode", &app_state->mode, 1)) break;
         if(app_state->mode >= MODE_BUTTON_STATE_MAX) break;
         if(!flipper_format_read_uint32(ff, "Temperature", &app_state->temperature, 1)) break;
@@ -42,7 +43,7 @@ static bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
         if(!flipper_format_read_uint32(ff, "Fan", &app_state->fan, 1)) break;
         if(app_state->fan >= FAN_SPEED_BUTTON_STATE_MAX) break;
         if(!flipper_format_read_uint32(ff, "Vane", &app_state->vane, 1)) break;
-        if(app_state->vane > VANE_BUTTON_STATE_MAX) break;
+        if(app_state->vane >= VANE_BUTTON_STATE_MAX) break;
         if(!flipper_format_read_uint32(ff, "TimerState", &app_state->timer_state, 1)) break;
         if(app_state->timer_state >= TIMER_STATE_COUNT) break;
         if(!flipper_format_read_uint32(ff, "TimerPresetOn", &app_state->timer_preset.on, 1)) break;
@@ -60,9 +61,9 @@ static bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
                ff, "TimerOffExpiresAt", &app_state->timer_off_expires_at, 1))
             break;
         if(!flipper_format_read_uint32(ff, "Side", &app_state->side, 1)) break;
-        if(app_state->side > SETTINGS_SIDE_COUNT) break;
+        if(app_state->side >= SETTINGS_SIDE_COUNT) break;
         if(!flipper_format_read_uint32(ff, "TimerStep", &app_state->timer_step, 1)) break;
-        if(app_state->side > SETTINGS_TIMER_STEP_COUNT) break;
+        if(app_state->timer_step >= SETTINGS_TIMER_STEP_COUNT) break;
         if(!flipper_format_read_bool(ff, "AllowAuto", &app_state->allow_auto, 1)) break;
         success = true;
     } while(false);

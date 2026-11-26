@@ -99,30 +99,32 @@ static void media_controller_view_draw_callback(Canvas* canvas, void* context) {
 
 static void
     media_controller_view_process(MediaControllerView* media_controller_view, InputEvent* event) {
+    // The blocking IR send must run outside the (locking) view model, or draw stalls for its duration
+    uint32_t ir_command = 0;
+    bool ir_repeat = event->type == InputTypeRepeat;
     with_view_model(
         media_controller_view->view,
         MediaControllerViewModel * model,
         {
             if(event->type == InputTypePress || event->type == InputTypeRepeat) {
-                bool repeat = event->type == InputTypeRepeat;
                 if(event->key == InputKeyUp) {
                     model->up_pressed = true;
-                    send_xbox_ir(0xEF10, media_controller_view->notifications, repeat);
+                    ir_command = 0xEF10;
                 } else if(event->key == InputKeyDown) {
                     model->down_pressed = true;
-                    send_xbox_ir(0xEE11, media_controller_view->notifications, repeat);
+                    ir_command = 0xEE11;
                 } else if(event->key == InputKeyLeft) {
                     model->left_pressed = true;
-                    send_xbox_ir(0xE41B, media_controller_view->notifications, repeat);
+                    ir_command = 0xE41B;
                 } else if(event->key == InputKeyRight) {
                     model->right_pressed = true;
-                    send_xbox_ir(0xE51A, media_controller_view->notifications, repeat);
+                    ir_command = 0xE51A;
                 } else if(event->key == InputKeyOk) {
                     model->ok_pressed = true;
-                    send_xbox_ir(0x8F70, media_controller_view->notifications, repeat);
+                    ir_command = 0x8F70;
                 } else if(event->key == InputKeyBack) {
                     model->back_pressed = true;
-                    send_xbox_ir(0xF10E, media_controller_view->notifications, repeat);
+                    ir_command = 0xF10E;
                 }
             } else if(event->type == InputTypeRelease) {
                 if(event->key == InputKeyUp) {
@@ -141,6 +143,7 @@ static void
             }
         },
         true);
+    if(ir_command) send_xbox_ir(ir_command, media_controller_view->notifications, ir_repeat);
 }
 
 static bool media_controller_view_input_callback(InputEvent* event, void* context) {

@@ -173,6 +173,8 @@ static void scheduler_ui_run_state_free() {
 void scheduler_scene_run_on_enter(void* context) {
     SchedulerApp* app = context;
     furi_hal_power_suppress_charge_enter();
+    app->exiting = false;
+    app->stop_tx = false;
     scheduler_reset(app->scheduler);
     scheduler_ui_run_state_alloc(app);
     view_dispatcher_switch_to_view(app->view_dispatcher, SchedulerSceneRunSchedule);
@@ -180,8 +182,17 @@ void scheduler_scene_run_on_enter(void* context) {
 
 void scheduler_scene_run_on_exit(void* context) {
     SchedulerApp* app = context;
-    if(app->thread != NULL) {
-        furi_thread_join(app->thread);
+    // Abort a running TX and own the thread teardown (see state callback)
+    furi_mutex_acquire(app->thread_mutex, FuriWaitForever);
+    app->exiting = true;
+    app->stop_tx = true;
+    FuriThread* tx_thread = app->thread;
+    furi_mutex_release(app->thread_mutex);
+    if(tx_thread != NULL) {
+        furi_thread_join(tx_thread);
+        furi_thread_free(tx_thread);
+        app->thread = NULL;
+        app->is_transmitting = false;
     }
     scheduler_reset(app->scheduler);
     scheduler_ui_run_state_free();

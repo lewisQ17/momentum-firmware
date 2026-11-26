@@ -100,8 +100,8 @@ static void build_message(RawSamplesBuffer* samples, ProtoViewFieldSet* fieldset
     memcpy(data, fieldset->fields[0]->bytes, 4); // Encrypted part.
     memcpy(data + 4, fieldset->fields[1]->bytes, 4); // ID.
     data[7] = data[7] >> 4 | fieldset->fields[2]->uvalue << 4; // s[2,1,0,3]
-    int low_battery = fieldset->fields[3] != 0;
-    int always_one = fieldset->fields[4] != 0;
+    int low_battery = fieldset->fields[3]->uvalue != 0;
+    int always_one = fieldset->fields[4]->uvalue != 0;
     low_battery = !low_battery; // Bit real meaning is good battery level.
     data[8] |= low_battery;
     data[8] |= (always_one << 1);

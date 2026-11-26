@@ -87,8 +87,39 @@ static bool parse_card_line(const char* line, NfcCard* card) {
     return false;
 }
 
+// True if at least one line parses as a card (the passcode cipher has no integrity check of its own)
+static bool plaintext_has_card(const char* plaintext, size_t len) {
+    NfcCard card;
+    size_t pos = 0;
+    while(pos < len) {
+        const char* nl = memchr(plaintext + pos, '\n', len - pos);
+        size_t line_len = nl ? (size_t)(nl - (plaintext + pos)) : len - pos;
+        if(line_len > 0 && line_len < 128) {
+            char line[128];
+            memcpy(line, plaintext + pos, line_len);
+            line[line_len] = '\0';
+            if(parse_card_line(line, &card)) return true;
+        }
+        pos += line_len + 1;
+    }
+    return false;
+}
+
 void app_ensure_data_dir(Storage* storage) {
     storage_common_mkdir(storage, APP_DATA_DIR);
+}
+
+void app_recover_cards_file(void) {
+    // Interrupted save: old store already removed but the complete temp file is still there
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    if(!storage) return;
+    if(storage_common_exists(storage, NFC_CARDS_FILE_ENC_TMP) &&
+       !storage_common_exists(storage, NFC_CARDS_FILE_ENC)) {
+        if(storage_common_rename(storage, NFC_CARDS_FILE_ENC_TMP, NFC_CARDS_FILE_ENC) != FSE_OK) {
+            FURI_LOG_E(TAG, "app_recover_cards_file: Failed to restore temp file");
+        }
+    }
+    furi_record_close(RECORD_STORAGE);
 }
 
 bool app_save_cards(App* app) {
@@ -255,7 +286,8 @@ bool app_save_cards(App* app) {
         return false;
     }
     
-    bool file_opened = storage_file_open(file, NFC_CARDS_FILE_ENC, FSAM_WRITE, FSOM_CREATE_ALWAYS);
+    // Write to a temp file first so a failed or interrupted save never destroys the old store
+    bool file_opened = storage_file_open(file, NFC_CARDS_FILE_ENC_TMP, FSAM_WRITE, FSOM_CREATE_ALWAYS);
     if(!file_opened) {
         FURI_LOG_E(TAG, "app_save_cards: Failed to open file for writing");
         storage_file_free(file);
@@ -271,24 +303,24 @@ bool app_save_cards(App* app) {
     }
     
     if(encryption_success && encrypted_len > 0) {
+        bool header_ok = false;
         if(passcode_header) {
-            storage_file_write(file, passcode_header, passcode_header_len);
+            header_ok = storage_file_write(file, passcode_header, passcode_header_len) == passcode_header_len;
         }
         
-        size_t written = storage_file_write(file, encrypted, encrypted_len);
-        if(written == encrypted_len) {
+        size_t written = header_ok ? storage_file_write(file, encrypted, encrypted_len) : 0;
+        if(header_ok && written == encrypted_len) {
             success = true;
         } else {
-            FURI_LOG_E(TAG, "app_save_cards: Write failed: %zu/%zu bytes", written, encrypted_len);
+            FURI_LOG_E(TAG, "app_save_cards: Write failed: header_ok=%d, %zu/%zu bytes", header_ok, written, encrypted_len);
         }
     } else if(app->card_count == 0) {
         if(passcode_header) {
-            storage_file_write(file, passcode_header, passcode_header_len);
+            success = storage_file_write(file, passcode_header, passcode_header_len) == passcode_header_len;
         } else {
             uint8_t header[3] = {0, 0, 0};
-            storage_file_write(file, header, 3);
+            success = storage_file_write(file, header, 3) == 3;
         }
-        success = true;
     }
     
     if(passcode_header) {
@@ -297,6 +329,17 @@ bool app_save_cards(App* app) {
     
     storage_file_close(file);
     storage_file_free(file);
+    
+    if(success) {
+        // Replace the old store; if power drops between remove and rename, app_recover_cards_file() restores the temp file
+        storage_common_remove(storage, NFC_CARDS_FILE_ENC);
+        if(storage_common_rename(storage, NFC_CARDS_FILE_ENC_TMP, NFC_CARDS_FILE_ENC) != FSE_OK) {
+            FURI_LOG_E(TAG, "app_save_cards: Failed to move temp file into place");
+            success = false;
+        }
+    } else {
+        storage_common_remove(storage, NFC_CARDS_FILE_ENC_TMP);
+    }
     furi_record_close(RECORD_STORAGE);
     
     if(encrypted) {
@@ -309,6 +352,7 @@ bool app_save_cards(App* app) {
 
 void app_load_cards(App* app) {
     app->card_count = 0;
+    app_recover_cards_file();
     
     Storage* storage = furi_record_open(RECORD_STORAGE);
     if(!storage) {
@@ -449,6 +493,10 @@ void app_load_cards(App* app) {
                 );
                 memset(passcode_sequence, 0, sizeof(passcode_sequence));
                 
+                if(decrypt_success && !plaintext_has_card(plaintext, plaintext_len)) {
+                    // Store was written with the hardware key (e.g. passcode set later): garbage here
+                    decrypt_success = false;
+                }
                 if(!decrypt_success) {
                     FURI_LOG_W(TAG, "app_load_cards: Passcode decryption failed, trying hardware decryption");
                 }

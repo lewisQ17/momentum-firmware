@@ -24,6 +24,16 @@ static void generate_iv_from_device_uid(uint8_t* iv) {
     }
 }
 
+// Strict PKCS7 unpad; anything else is an unpadded legacy block (old saves skipped padding on exact multiples of 16)
+static size_t unpadded_length(const uint8_t* data, size_t len) {
+    uint8_t pad_value = data[len - 1];
+    if(pad_value == 0 || pad_value > AES_BLOCK_SIZE || pad_value > len) return len;
+    for(size_t i = len - pad_value; i < len; i++) {
+        if(data[i] != pad_value) return len;
+    }
+    return len - pad_value;
+}
+
 bool ensure_crypto_key(void) {
     if(furi_hal_crypto_enclave_ensure_key(CRYPTO_KEY_SLOT)) {
         return true;
@@ -46,7 +56,8 @@ bool encrypt_data(const uint8_t* input, size_t input_len, uint8_t* output, size_
     uint8_t iv[AES_BLOCK_SIZE];
     generate_iv_from_device_uid(iv);
 
-    size_t padded_len = ((input_len + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE) * AES_BLOCK_SIZE;
+    // Always pad (1..16 bytes) so decrypt can tell padding from data on exact multiples of 16
+    size_t padded_len = (input_len / AES_BLOCK_SIZE + 1) * AES_BLOCK_SIZE;
     if(padded_len > MAX_ENCRYPTED_SIZE) {
         FURI_LOG_E(TAG, "encrypt_data: Padded length too large: %zu", padded_len);
         return false;
@@ -107,12 +118,7 @@ bool decrypt_data(const uint8_t* input, size_t input_len, uint8_t* output, size_
         furi_hal_crypto_enclave_unload_key(CRYPTO_KEY_SLOT);
 
         if(success) {
-            uint8_t pad_value = output[input_len - 1];
-            if(pad_value > 0 && pad_value <= AES_BLOCK_SIZE && pad_value <= input_len) {
-                *output_len = input_len - pad_value;
-            } else {
-                *output_len = input_len;
-            }
+            *output_len = unpadded_length(output, input_len);
         } else {
             FURI_LOG_E(TAG, "decrypt_data: Decryption failed");
         }
@@ -152,7 +158,8 @@ bool encrypt_data_with_passcode_sequence(const uint8_t* input, size_t input_len,
     generate_iv_from_device_uid(iv);
 
     // Pad input to block size
-    size_t padded_len = ((input_len + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE) * AES_BLOCK_SIZE;
+    // Always pad (1..16 bytes) so decrypt can tell padding from data on exact multiples of 16
+    size_t padded_len = (input_len / AES_BLOCK_SIZE + 1) * AES_BLOCK_SIZE;
     if(padded_len > MAX_ENCRYPTED_SIZE) {
         FURI_LOG_E(TAG, "encrypt_data_with_passcode: Padded length too large: %zu", padded_len);
         memset(key, 0, AES_KEY_SIZE);
@@ -274,12 +281,7 @@ bool decrypt_data_with_passcode_sequence(const uint8_t* input, size_t input_len,
     memset(key, 0, AES_KEY_SIZE);
 
     // Remove padding
-    uint8_t pad_value = output[input_len - 1];
-    if(pad_value > 0 && pad_value <= AES_BLOCK_SIZE && pad_value <= input_len) {
-        *output_len = input_len - pad_value;
-    } else {
-        *output_len = input_len;
-    }
+    *output_len = unpadded_length(output, input_len);
 
     return true;
 }

@@ -143,8 +143,6 @@ TPMSHistoryStateAddKey
     furi_assert(instance);
     furi_assert(context);
 
-    if(instance->last_index_write >= TPMS_HISTORY_MAX) return TPMSHistoryStateAddKeyOverflow;
-
     SubGhzProtocolDecoderBase* decoder_base = context;
     if((instance->code_last_hash_data ==
         subghz_protocol_decoder_base_get_hash_data(decoder_base)) &&
@@ -184,6 +182,9 @@ TPMSHistoryStateAddKey
             return TPMSHistoryStateAddKeyUpdateData;
         }
     }
+
+    // History full: known sensors are still updated above, only new ones are refused
+    if(instance->last_index_write >= TPMS_HISTORY_MAX) return TPMSHistoryStateAddKeyOverflow;
 
     // or add new record
     if(!sensor_found) { //-V547

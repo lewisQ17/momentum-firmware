@@ -102,13 +102,13 @@ int32_t cyborg_detector_app(void* p) {
 
     InputEvent event;
     while(app->running) {
-        if(furi_message_queue_get(app->event_queue, &event, 100) == FuriStatusOk) {
+        // Static screen: sleep until input instead of redrawing 10x per second
+        if(furi_message_queue_get(app->event_queue, &event, FuriWaitForever) == FuriStatusOk) {
             if(event.type == InputTypeShort && event.key == InputKeyBack) {
                 app->running = false;
             }
+            view_port_update(app->view_port);
         }
-
-        view_port_update(app->view_port);
     }
 
     cyborg_detector_deactivate_nfc_field(app);

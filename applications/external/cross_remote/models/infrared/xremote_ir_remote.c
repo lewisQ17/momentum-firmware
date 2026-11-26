@@ -64,11 +64,22 @@ bool xremote_ir_remote_load(InfraredRemote* remote, FuriString* path) {
         path_extract_filename(path, buf, true);
         xremote_ir_remote_clear_buttons(remote);
 
+        // Load caps so a huge raw-heavy .ir cannot exhaust the heap (malloc failure crashes)
+        size_t raw_timings_used = 0;
         for(bool can_read = true; can_read;) {
+            if(InfraredButtonArray_size(remote->buttons) >= 512U) break;
             InfraredRemoteButton* button = xremote_ir_remote_button_alloc();
             can_read =
                 xremote_ir_signal_read(xremote_ir_remote_button_get_signal(button), ff, buf);
             if(can_read) {
+                InfraredSignal* signal = xremote_ir_remote_button_get_signal(button);
+                if(xremote_ir_signal_is_raw(signal)) {
+                    raw_timings_used += xremote_ir_signal_get_raw_signal(signal)->timings_size;
+                    if(raw_timings_used > 16384U) {
+                        xremote_ir_remote_button_free(button);
+                        break;
+                    }
+                }
                 xremote_ir_remote_button_set_name(button, furi_string_get_cstr(buf));
                 InfraredButtonArray_push_back(remote->buttons, button);
             } else {

@@ -18,6 +18,7 @@ typedef struct {
     uint32_t* timings;
     uint32_t timings_sum;
     FuriMutex* mutex;
+    ViewPort* view_port; // redraw only when the data/settings actually changed
 } IRScopeState;
 
 static void state_set_autoscale(IRScopeState* state) {
@@ -110,6 +111,9 @@ static void ir_received_callback(void* ctx, InfraredWorkerSignal* signal) {
     state_set_autoscale(state);
 
     furi_mutex_release(state->mutex);
+
+    // New signal: redraw now (the main loop no longer redraws on a timer)
+    if(state->view_port) view_port_update(state->view_port);
 }
 
 int32_t ir_scope_app(void* p) {
@@ -125,7 +129,7 @@ int32_t ir_scope_app(void* p) {
     }
 
     IRScopeState state = {
-        .autoscale = false, .us_per_sample = 200, .timings = NULL, .timings_cnt = 0, .mutex = NULL};
+        .autoscale = false, .us_per_sample = 200, .timings = NULL, .timings_cnt = 0, .mutex = NULL, .view_port = NULL};
     state.mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     if(!state.mutex) {
         FURI_LOG_E(TAG, "Cannot create mutex.");
@@ -136,6 +140,7 @@ int32_t ir_scope_app(void* p) {
     ViewPort* view_port = view_port_alloc();
     view_port_draw_callback_set(view_port, render_callback, &state);
     view_port_input_callback_set(view_port, input_callback, event_queue);
+    state.view_port = view_port;
 
     Gui* gui = furi_record_open("gui");
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
@@ -149,7 +154,8 @@ int32_t ir_scope_app(void* p) {
     InputEvent event;
     bool processing = true;
     while(processing) {
-        if(furi_message_queue_get(event_queue, &event, 100) == FuriStatusOk) {
+        // Block until input: signals trigger their own redraw from ir_received_callback
+        if(furi_message_queue_get(event_queue, &event, FuriWaitForever) == FuriStatusOk) {
             if(event.type == InputTypeRelease) {
                 furi_mutex_acquire(state.mutex, FuriWaitForever);
 
@@ -171,8 +177,8 @@ int32_t ir_scope_app(void* p) {
 
                 furi_mutex_release(state.mutex);
             }
+            view_port_update(view_port);
         }
-        view_port_update(view_port);
     }
 
     // Clean up.

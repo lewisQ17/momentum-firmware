@@ -43,7 +43,7 @@ void xremote_save_settings(void* context) {
     }
 
     if(!flipper_format_file_open_new(fff_file, XREMOTE_SETTINGS_SAVE_PATH)) {
-        //totp_close_config_file(fff_file);
+        xremote_close_config_file(fff_file); // was leaked on this path
         FURI_LOG_E(TAG, "Error creating new file %s", XREMOTE_SETTINGS_SAVE_PATH);
         xremote_close_storage();
         return;
@@ -92,6 +92,7 @@ void xremote_read_settings(void* context) {
 
     if(!flipper_format_file_open_existing(fff_file, XREMOTE_SETTINGS_SAVE_PATH)) {
         FURI_LOG_E(TAG, "Cannot open file %s", XREMOTE_SETTINGS_SAVE_PATH);
+        furi_string_free(temp_str);
         xremote_close_config_file(fff_file);
         xremote_close_storage();
         return;
@@ -99,6 +100,7 @@ void xremote_read_settings(void* context) {
 
     if(!flipper_format_read_header(fff_file, temp_str, &file_version)) {
         FURI_LOG_E(TAG, "Missing Header Data");
+        furi_string_free(temp_str);
         xremote_close_config_file(fff_file);
         xremote_close_storage();
         return;
@@ -106,6 +108,7 @@ void xremote_read_settings(void* context) {
 
     if(file_version < XREMOTE_SETTINGS_FILE_VERSION) {
         FURI_LOG_I(TAG, "old config version, will be removed.");
+        furi_string_free(temp_str);
         xremote_close_config_file(fff_file);
         xremote_close_storage();
         return;
@@ -120,6 +123,10 @@ void xremote_read_settings(void* context) {
     flipper_format_read_uint32(fff_file, XREMOTE_SETTINGS_KEY_SG_TIMING, &app->sg_timing, 1);
     flipper_format_read_uint32(
         fff_file, XREMOTE_SETTINGS_KEY_LOOP_TRANSMIT, &app->loop_transmit, 1);
+
+    // Clamp to the settings UI range (0-2900 ms): the send blocks the UI thread this long
+    if(app->ir_timing > 2900) app->ir_timing = 2900;
+    if(app->sg_timing > 2900) app->sg_timing = 2900;
 
     // IR GPIO Settings
     flipper_format_read_uint32(fff_file, XREMOTE_SETTINGS_KEY_IR_TX_PIN, &app->ir_tx_pin, 1);

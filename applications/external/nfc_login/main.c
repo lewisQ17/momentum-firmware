@@ -25,6 +25,7 @@ int32_t nfc_login(void* p) {
         app_start_ble_advertising();
     }
     
+    app_recover_cards_file();
     ensure_crypto_key();
     
     app->passcode_prompt_active = false;

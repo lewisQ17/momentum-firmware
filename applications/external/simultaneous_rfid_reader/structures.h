@@ -18,6 +18,21 @@
 #include <storage/storage.h>
 #include <flipper_format/flipper_format.h>
 #include <toolbox/path.h>
+
+// Pi-module result tables are char* arrays of 50*stride bytes, filled at idx*stride (idx 1..12).
+// Reads go through UHF_TABLE_AT so a device-reported count can never index past the table.
+#define UHF_TABLE_MAX_ENTRIES 12
+#define UHF_TABLE_AT(table, stride, bytes, idx) \
+    (((size_t)(idx) * (stride) < (bytes) / sizeof(char*)) ? (table)[(size_t)(idx) * (stride)] : NULL)
+#define UHF_EPC_AT(App, idx) UHF_TABLE_AT((App)->EpcValues, 26, 50 * 26, idx)
+#define UHF_TID_AT(App, idx) UHF_TABLE_AT((App)->TidValues, 41, 50 * 41, idx)
+#define UHF_RES_AT(App, idx) UHF_TABLE_AT((App)->ResValues, 17, 50 * 17, idx)
+#define UHF_MEM_AT(App, idx) UHF_TABLE_AT((App)->MemValues, 33, 50 * 33, idx)
+
+// furi_string_set_str() crashes on NULL (empty table slot): keep the old text instead
+static inline void uhf_set_str_nonnull(FuriString* str, const char* value) {
+    if(value != NULL) furi_string_set_str(str, value);
+}
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

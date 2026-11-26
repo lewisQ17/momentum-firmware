@@ -22,16 +22,16 @@ static bool decode(uint8_t* bits, uint32_t numbytes, uint32_t numbits, ProtoView
     info->start_off = off;
     off += 32; /* Skip preamble. */
 
-    uint8_t buffer[8], raw[8] = {0};
+    uint8_t buffer[8] = {0}, raw[8] = {0}; /* Zeroed: decode fills only decoded bits. */
     uint32_t decoded =
         convert_from_line_code(buffer, sizeof(buffer), bits, numbytes, off, "1001", "0110");
     FURI_LOG_E(TAG, "Oregon2 decoded bits: %lu", decoded);
 
-    if(decoded < 11 * 4) return false; /* Minimum len to extract some data. */
+    if(decoded < 14 * 4) return false; /* Humidity lives in nibbles 12-13. */
     info->pulses_count = (off + 11 * 4 * 4) - info->start_off;
 
     char temp[3] = {0}, hum[2] = {0};
-    uint8_t deviceid[2];
+    uint8_t deviceid[2] = {0};
     for(int j = 0; j < 64; j += 4) {
         uint8_t nib[1];
         nib[0] =
@@ -53,20 +53,20 @@ static bool decode(uint8_t* bits, uint32_t numbytes, uint32_t numbits, ProtoView
             deviceid[1] |= nib[0] << 4;
             break;
         case 10:
-            temp[0] = nib[0];
+            temp[0] = nib[0] + '0'; /* Digit as ASCII, decoded below with '-0'. */
             break;
         /* Fixme: take the temperature sign from nibble 11. */
         case 9:
-            temp[1] = nib[0];
+            temp[1] = nib[0] + '0';
             break;
         case 8:
-            temp[2] = nib[0];
+            temp[2] = nib[0] + '0';
             break;
         case 13:
-            hum[0] = nib[0];
+            hum[0] = nib[0] + '0';
             break;
         case 12:
-            hum[1] = nib[0];
+            hum[1] = nib[0] + '0';
             break;
         }
     }

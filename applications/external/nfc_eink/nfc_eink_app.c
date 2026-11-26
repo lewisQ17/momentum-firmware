@@ -38,12 +38,6 @@ static bool nfc_eink_app_back_event_callback(void* context) {
     return scene_manager_handle_back_event(app->scene_manager);
 }
 
-static void nfc_eink_app_tick_event_callback(void* context) {
-    furi_assert(context);
-    NfcEinkApp* app = context;
-    scene_manager_handle_tick_event(app->scene_manager);
-}
-
 static NfcEinkApp* nfc_eink_app_alloc() {
     NfcEinkApp* instance = malloc(sizeof(NfcEinkApp));
 
@@ -62,8 +56,7 @@ static NfcEinkApp* nfc_eink_app_alloc() {
         instance->view_dispatcher, nfc_eink_app_custom_event_callback);
     view_dispatcher_set_navigation_event_callback(
         instance->view_dispatcher, nfc_eink_app_back_event_callback);
-    view_dispatcher_set_tick_event_callback(
-        instance->view_dispatcher, nfc_eink_app_tick_event_callback, 100);
+    // No scene uses tick events: no tick callback (it woke the app 10x/s for nothing)
 
     view_dispatcher_attach_to_gui(
         instance->view_dispatcher, instance->gui, ViewDispatcherTypeFullscreen);
@@ -228,6 +221,7 @@ NfcEinkLoadResult nfc_eink_load_from_file_select(NfcEinkApp* instance) {
 
     FuriString* tmp = furi_string_alloc();
     furi_string_reset(instance->file_path);
+    furi_string_reset(instance->file_name);
 
     NfcEinkLoadResult result = NfcEinkLoadResultFailed;
     do {

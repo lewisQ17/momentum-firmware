@@ -76,9 +76,12 @@ bool nfc_eink_scene_screen_menu_on_event(void* context, SceneManagerEvent event)
 
     if(event.type == SceneManagerEventTypeCustom) {
         const uint32_t submenu_index = event.event;
-        NfcEinkAppScene scene = nfc_eink_scene_get_next_by_submenu_index(submenu_index);
-        scene_manager_next_scene(scene_manager, scene);
-        consumed = true;
+        // Late worker events (>= 100) from a finished emulation/write must not be treated as menu items
+        if(submenu_index <= SubmenuIndexInfo) {
+            NfcEinkAppScene scene = nfc_eink_scene_get_next_by_submenu_index(submenu_index);
+            scene_manager_next_scene(scene_manager, scene);
+            consumed = true;
+        }
     } else if(event.type == SceneManagerEventTypeBack) {
         if(scene_manager_has_previous_scene(instance->scene_manager, NfcEinkAppSceneEmulate))
             scene_manager_next_scene(instance->scene_manager, NfcEinkAppSceneExitConfirm);

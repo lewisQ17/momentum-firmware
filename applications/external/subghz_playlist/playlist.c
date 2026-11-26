@@ -105,16 +105,36 @@ static void playlist_subghz_need_save_callback(void* context) {
     Stream* ff_stream = flipper_format_get_raw_stream(ff);
     flipper_format_delete_key(ff, "Repeat");
 
+    FuriString* tmp_path = furi_string_alloc_printf("%s.tmp", savectx->file_path);
     do {
-        // no remove first: FSOM_CREATE_ALWAYS truncates, and a failed open keeps the old file
+        // write to a temp file first, so the original capture survives a failed save
         stream_seek(ff_stream, 0, StreamOffsetFromStart);
-        stream_save_to_file(
-            ff_stream, savectx->worker->storage, savectx->file_path, FSOM_CREATE_ALWAYS);
+        if(stream_save_to_file(
+               ff_stream,
+               savectx->worker->storage,
+               furi_string_get_cstr(tmp_path),
+               FSOM_CREATE_ALWAYS) == 0) {
+            FURI_LOG_E(TAG, "Failed to write temporary subghz file");
+            storage_simply_remove(savectx->worker->storage, furi_string_get_cstr(tmp_path));
+            break;
+        }
+        if(!storage_simply_remove(savectx->worker->storage, savectx->file_path)) {
+            FURI_LOG_E(TAG, "Failed to delete subghz file before re-save");
+            storage_simply_remove(savectx->worker->storage, furi_string_get_cstr(tmp_path));
+            break;
+        }
+        if(storage_common_rename(
+               savectx->worker->storage, furi_string_get_cstr(tmp_path), savectx->file_path) !=
+           FSE_OK) {
+            FURI_LOG_E(TAG, "Failed to move re-saved subghz file into place");
+            break;
+        }
         if(storage_common_stat(savectx->worker->storage, savectx->file_path, NULL) != FSE_OK) {
             FURI_LOG_E(TAG, "Error verifying new subghz file after re-save");
             break;
         }
     } while(0);
+    furi_string_free(tmp_path);
 }
 
 void playlist_subghz_raw_end_callback(void* context) {
@@ -390,7 +410,28 @@ static int playlist_worker_process(PlaylistWorker* worker, const char* file_name
                 FURI_LOG_D(TAG, "    (TX) Requested to prev. Cancelling and resending...");
                 status = 3;
             }
-            furi_delay_ms(1600);
+            // Post-TX wait in short steps, so exit/pause/skip/prev are honoured promptly
+            for(uint32_t waited = 0; waited < 1600; waited += 20) {
+                if(worker->ctl_request_exit) {
+                    status = 2;
+                    break;
+                }
+                if(worker->ctl_pause) {
+                    status = 1;
+                    break;
+                }
+                if(worker->ctl_request_skip) {
+                    worker->ctl_request_skip = false;
+                    status = 0;
+                    break;
+                }
+                if(worker->ctl_request_prev) {
+                    worker->ctl_request_prev = false;
+                    status = 3;
+                    break;
+                }
+                furi_delay_ms(20);
+            }
             subghz_txrx_stop(worker->txrx);
         } else {
             furi_delay_ms(20);

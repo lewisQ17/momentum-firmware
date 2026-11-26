@@ -167,14 +167,17 @@ uint8_t ss_subghz_init() {
     furi_assert(subghz_chat->subghz_txrx);
 
     // FURI_LOG_I(TAG, "ss_subghz_init: subghz_tx_rx_worker_start");
-    if(subghz_tx_rx_worker_start(subghz_chat->subghz_txrx, device, frequency)) {
+    bool worker_started = subghz_tx_rx_worker_start(subghz_chat->subghz_txrx, device, frequency);
+    if(worker_started) {
         furi_message_queue_reset(subghz_chat->event_queue);
         subghz_tx_rx_worker_set_callback_have_read(
             subghz_chat->subghz_txrx, ss_subghz_rx_callback, subghz_chat);
+    } else {
+        FURI_LOG_E(TAG, "ss_subghz_init: worker start failed (TX not allowed on this frequency?)");
     }
     
-    furi_hal_power_suppress_charge_enter();
+    furi_hal_power_suppress_charge_enter(); // balanced by suppress_charge_exit in ss_subghz_deinit
     
     FURI_LOG_I(TAG, "ss_subghz_init: SubGhz init done");
-    return 0;
+    return worker_started ? 0 : 3; // resources stay allocated: ss_subghz_deinit() frees them
 }

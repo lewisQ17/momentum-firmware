@@ -61,13 +61,25 @@ bool seos_reader_request_sio(SeosReader* seos_reader) {
     bit_buffer_reset(tx_buffer);
 
     seos_log_bitbuffer(TAG, "NFC response(wrapped)", rx_buffer);
-    secure_messaging_unwrap_rapdu(secure_messaging, rx_buffer);
+    if(!secure_messaging_unwrap_rapdu(secure_messaging, rx_buffer)) {
+        FURI_LOG_W(TAG, "Malformed secure messaging response");
+        return false;
+    }
     seos_log_bitbuffer(TAG, "NFC response(clear)", rx_buffer);
 
-    // Skip fileId
+    // Skip fileId; need fileId(2) + length byte before reading it
+    if(bit_buffer_get_size_bytes(rx_buffer) < 3) {
+        FURI_LOG_W(TAG, "SIO response too short");
+        return false;
+    }
     seos_reader->credential->sio_len = bit_buffer_get_byte(rx_buffer, 2);
     if(seos_reader->credential->sio_len > sizeof(seos_reader->credential->sio)) {
         FURI_LOG_W(TAG, "SIO too long to save");
+        return false;
+    }
+    // sio_len is card-supplied, must lie inside the received frame
+    if(3 + (size_t)seos_reader->credential->sio_len > bit_buffer_get_size_bytes(rx_buffer)) {
+        FURI_LOG_W(TAG, "SIO length exceeds response");
         return false;
     }
     memcpy(
@@ -374,6 +386,11 @@ bool seos_reader_select_adf_response(
         return false;
     }
     size_t oidLen = clear[1];
+    // oidLen is card-controlled; OID + 0xCF + length byte must lie inside the decrypted bytes
+    if(2 + oidLen + 2 > bufLen) {
+        FURI_LOG_W(TAG, "OID length exceeds ADF response");
+        return false;
+    }
     if(clear[2 + oidLen] != 0xCF) {
         FURI_LOG_W(TAG, "Missing expected 0xCF after OID");
         return false;
@@ -381,6 +398,10 @@ bool seos_reader_select_adf_response(
     credential->diversifier_len = clear[2 + oidLen + 1];
     if(credential->diversifier_len > sizeof(credential->diversifier)) {
         FURI_LOG_W(TAG, "diversifier too large");
+        return false;
+    }
+    if(2 + oidLen + 2 + credential->diversifier_len > bufLen) {
+        FURI_LOG_W(TAG, "diversifier exceeds ADF response");
         return false;
     }
 

@@ -111,10 +111,11 @@ void view_enter_direct_sampling(ProtoViewApp* app) {
 /* Exit view. Restore the subghz thread. */
 void view_exit_direct_sampling(ProtoViewApp* app) {
     DirectSamplingViewPrivData* privdata = app->view_privdata;
-    if(privdata->captured) free(privdata->captured);
+    /* Stop the ISR first: it writes into 'captured' while the flag is set. */
     app->direct_sampling_enabled = false;
-
     direct_sampling_timer_stop(app);
+    if(privdata->captured) free(privdata->captured);
+    privdata->captured = NULL;
 
     /* Restart normal data feeding. */
     if(app->txrx->txrx_state == TxRxStateRx && !app->txrx->debug_timer_sampling) {

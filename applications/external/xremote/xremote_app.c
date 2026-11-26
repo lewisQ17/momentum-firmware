@@ -321,10 +321,13 @@ bool xremote_app_settings_load(XRemoteAppSettings* settings) {
         settings->exit_behavior = xremote_app_get_exit_behavior(value);
 
         if(!flipper_format_read_uint32(ff, "repeat", &value, 1)) break;
+        // Clamp to the UI range: a huge value would transmit IR for hours
+        if(value < 1) value = 1;
+        if(value > 128) value = 128;
         settings->repeat_count = value;
 
         if(!flipper_format_read_uint32(ff, "altNames", &value, 1)) break;
-        settings->alt_names = value;
+        settings->alt_names = (value != 0);
 
         success = true;
     } while(false);

@@ -69,6 +69,7 @@
 #define TAG "nfc_login"
 #define APP_DATA_DIR "/ext/apps_data/nfc_login"
 #define NFC_CARDS_FILE_ENC APP_DATA_DIR "/cards.enc"
+#define NFC_CARDS_FILE_ENC_TMP APP_DATA_DIR "/cards.enc.tmp"
 #define NFC_SETTINGS_FILE APP_DATA_DIR "/settings.txt"
 #define BADUSB_LAYOUTS_DIR "/ext/badusb/assets/layouts"
 #define MAX_CARDS 50

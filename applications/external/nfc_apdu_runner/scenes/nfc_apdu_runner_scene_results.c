@@ -25,8 +25,11 @@ void nfc_apdu_runner_scene_results_on_enter(void* context) {
     NfcApduRunner* app = context;
     Widget* widget = app->widget;
 
+    // Clear the "went to SaveFile" marker, otherwise on_exit never frees the responses again
+    scene_manager_set_scene_state(app->scene_manager, NfcApduRunnerSceneResults, 0);
+
     widget_reset(widget);
-    widget_add_string_element(widget, 64, 5, AlignCenter, AlignTop, FontPrimary, "执行结果");
+    widget_add_string_element(widget, 64, 5, AlignCenter, AlignTop, FontPrimary, "Results");
 
     FuriString* text = furi_string_alloc();
 

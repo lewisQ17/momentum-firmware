@@ -306,6 +306,10 @@ static uint32_t
     return value;
 }
 
+#define FMF2SUB_MAX_NOTES_LEN     4096
+#define FMF2SUB_MAX_SETTINGS_LEN  128
+#define FMF2SUB_MAX_TOTAL_PULSES  300000UL // total pulse pairs written (~2.5 MB)
+
 static void fmf2sub_load_txt_file(Fmf2SubApp* app, Fmf2SubConvertModel* model) {
     UNUSED(app);
     UNUSED(model);
@@ -334,7 +338,10 @@ static void fmf2sub_load_txt_file(Fmf2SubApp* app, Fmf2SubConvertModel* model) {
                 if(ch == ':') {
                     break;
                 }
-                furi_string_push_back(song_settings, ch);
+                // bound untrusted input: a settings block is a few chars long
+                if(furi_string_size(song_settings) < FMF2SUB_MAX_SETTINGS_LEN) {
+                    furi_string_push_back(song_settings, ch);
+                }
             }
             model->data.duration = fmf2sub_extract_param(song_settings, 'd', 4);
             model->data.octave = fmf2sub_extract_param(song_settings, 'o', 5);
@@ -347,7 +354,13 @@ static void fmf2sub_load_txt_file(Fmf2SubApp* app, Fmf2SubConvertModel* model) {
                 break;
             }
             model->data.notes = furi_string_alloc();
-            while(storage_file_read(file, &ch, 1) && !storage_file_eof(file)) {
+            // read to the real end of file (the last note char used to be dropped)
+            while(storage_file_read(file, &ch, 1) == 1) {
+                if(furi_string_size(model->data.notes) >= FMF2SUB_MAX_NOTES_LEN) {
+                    FURI_LOG_E(TAG, "Notes too long, rejecting file.");
+                    error = true;
+                    break;
+                }
                 furi_string_push_back(model->data.notes, ch);
             }
         } else {
@@ -409,6 +422,9 @@ static void fmf2sub_load_fmf_file(Fmf2SubApp* app, Fmf2SubConvertModel* model) {
             furi_string_free(model->data.notes);
             model->data.notes = NULL;
             error = true;
+        } else if(furi_string_size(model->data.notes) > FMF2SUB_MAX_NOTES_LEN) {
+            // bound untrusted input: keep the first part only
+            furi_string_left(model->data.notes, FMF2SUB_MAX_NOTES_LEN);
         }
     } while(false);
 
@@ -459,6 +475,9 @@ void fmf2sub_save_sub_file(Fmf2SubApp* app, Fmf2SubConvertModel* model) {
         int16_t duration = -1;
         int16_t octave = -1;
         bool dot = false;
+        uint32_t total_pulses = 0;
+        bool too_big = false;
+        FuriString* batch = furi_string_alloc();
 
         for(size_t i = 0; i < furi_string_size(notes); i++) {
             char ch = furi_string_get_char(notes, i);
@@ -486,7 +505,7 @@ void fmf2sub_save_sub_file(Fmf2SubApp* app, Fmf2SubConvertModel* model) {
             }
 
             // it should be note.
-            if(ch < 'A' && ch > 'G' && ch < 'a' && ch > 'g' && ch != 'P' && ch != 'p') {
+            if(!((ch >= 'A' && ch <= 'G') || (ch >= 'a' && ch <= 'g') || ch == 'P' || ch == 'p')) {
                 FURI_LOG_D(TAG, "Invalid note: %c", ch);
                 // invalid note: do not leak pending duration/octave/dot into the next note
                 duration = -1;
@@ -625,30 +644,52 @@ void fmf2sub_save_sub_file(Fmf2SubApp* app, Fmf2SubConvertModel* model) {
                 (double)duration_rem,
                 rem_counter);
 
+            // cap the generated output so a crafted file can't fill the SD card
+            total_pulses += (uint32_t)count + rem_counter;
+            if(total_pulses > FMF2SUB_MAX_TOTAL_PULSES) {
+                FURI_LOG_E(TAG, "Output too large, aborting.");
+                too_big = true;
+                break;
+            }
+
+            // writes are batched: one storage write per ~512 bytes instead of per pulse
             fmf2sub_file_write(file, "\nRAW_Data:");
             furi_string_printf(tmp_string, " %ld %ld", pulse, -pulse);
             for(uint32_t i = 0; i < (uint32_t)count; i++) {
                 if(i % 256 == 255) {
-                    fmf2sub_file_write(file, "\nRAW_Data:");
+                    furi_string_cat_str(batch, "\nRAW_Data:");
                 }
-                fmf2sub_file_write(file, furi_string_get_cstr(tmp_string));
+                furi_string_cat(batch, tmp_string);
+                if(furi_string_size(batch) >= 512) {
+                    fmf2sub_file_write(file, furi_string_get_cstr(batch));
+                    furi_string_reset(batch);
+                }
             }
+            fmf2sub_file_write(file, furi_string_get_cstr(batch));
+            furi_string_reset(batch);
 
             fmf2sub_file_write(file, "\nRAW_Data:");
             furi_string_printf(
                 tmp_string, " %ld -%ld", (uint32_t)duration_rem, (uint32_t)duration_rem);
             for(uint32_t i = 0; i < rem_counter; i++) {
-                fmf2sub_file_write(file, furi_string_get_cstr(tmp_string));
+                furi_string_cat(batch, tmp_string);
+                if(furi_string_size(batch) >= 512) {
+                    fmf2sub_file_write(file, furi_string_get_cstr(batch));
+                    furi_string_reset(batch);
+                }
             }
+            fmf2sub_file_write(file, furi_string_get_cstr(batch));
+            furi_string_reset(batch);
 
             octave = -1;
             duration = -1;
             dot = false;
         }
         furi_string_free(tmp_string);
+        furi_string_free(batch);
 
         // write file
-        model->state = Fmf2SubStateConverted;
+        model->state = too_big ? Fmf2SubStateError : Fmf2SubStateConverted;
     } else {
         FURI_LOG_D(TAG, "Failed to create file: %s", furi_string_get_cstr(file_path));
         model->state = Fmf2SubStateError;

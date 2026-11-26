@@ -177,15 +177,15 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
             }
             
             // Analyze RAW timings
-            const char* raw_str = furi_string_get_cstr(raw_data);
             int positive_count = 0;
             int negative_count = 0;
             int64_t total_duration = 0;
             int32_t shortest_positive = INT32_MAX;
             int32_t shortest_negative = INT32_MAX;
             
-            // Parse timings
-            const char* p = raw_str;
+            // Parse timings: a capture has many RAW_Data lines, accumulate them all
+            do {
+            const char* p = furi_string_get_cstr(raw_data);
             while(*p) {
                 while(*p == ' ' || *p == ',') p++;
                 if(!*p) break;
@@ -222,6 +222,7 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
                     total_duration += value;
                 }
             }
+            } while(flipper_format_read_string(format, "RAW_Data", raw_data));
             
             furi_string_cat_printf(app->text_buffer, "\nSignal Analysis:\n");
             furi_string_cat_printf(app->text_buffer, "Total pulses: %d\n", 
@@ -249,7 +250,9 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
             }
             
         } else {
-            // Protocol file - read protocol name
+            // Protocol file - read protocol name. The failed RAW_Data lookup left the
+            // stream at EOF (seek only goes forward): rewind before every read.
+            flipper_format_rewind(format);
             if(flipper_format_read_string(format, "Protocol", protocol_name)) {
                 furi_string_cat_printf(app->text_buffer, "=== Protocol: %s ===\n", 
                                       furi_string_get_cstr(protocol_name));
@@ -266,12 +269,19 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
                 }
                 
                 // Read all protocol fields
+                flipper_format_rewind(format);
                 flipper_format_read_uint32(format, "Bit", &bits, 1);
+                flipper_format_rewind(format);
                 flipper_format_read_string(format, "Key", key_data);
+                flipper_format_rewind(format);
                 flipper_format_read_uint32(format, "Te", &te, 1);
+                flipper_format_rewind(format);
                 flipper_format_read_uint32(format, "Baud", &baud, 1);
+                flipper_format_rewind(format);
                 flipper_format_read_uint32(format, "Guard_time", &guard_time, 1);
+                flipper_format_rewind(format);
                 flipper_format_read_uint32(format, "Repeat", &repeat, 1);
+                flipper_format_rewind(format);
                 flipper_format_read_uint32(format, "Delay", &delay, 1);
                 
                 // Display extracted data
@@ -363,6 +373,7 @@ static void sub_analyzer_analyze_file(SubAnalyzerApp* app, const char* path) {
                 bool found_extra = false;
                 for(size_t i = 0; i < COUNT_OF(extra_fields); i++) {
                     uint32_t value;
+                    flipper_format_rewind(format); // a missing key leaves the stream at EOF
                     if(flipper_format_read_uint32(format, extra_fields[i], &value, 1)) {
                         if(!found_extra) {
                             furi_string_cat_printf(app->text_buffer, "\nProtocol Fields:\n");

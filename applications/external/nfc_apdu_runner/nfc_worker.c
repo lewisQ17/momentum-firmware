@@ -241,6 +241,17 @@ static int32_t nfc_worker_apdu_thread(void* context) {
     apdu_ctx.is_last = false;
     apdu_ctx.thread_id = furi_thread_get_current_id();
 
+    // Drop responses left over from a failed/cancelled earlier run (they were never handed to the UI)
+    if(worker->responses) {
+        for(uint32_t k = 0; k < worker->response_count; k++) {
+            free(worker->responses[k].command);
+            free(worker->responses[k].response);
+        }
+        free(worker->responses);
+        worker->responses = NULL;
+        worker->response_count = 0;
+    }
+
     // 分配响应内存
     worker->responses = malloc(sizeof(NfcApduResponse) * worker->script->command_count);
     if(!worker->responses) {
@@ -599,8 +610,8 @@ static int32_t nfc_worker_detect_thread(void* context) {
             }
             return -1;
         } else {
+            // Success was already sent by the APDU thread; a second one reopened/closed Results
             FURI_LOG_I(TAG, "执行成功");
-            worker->callback(NfcWorkerEventSuccess, worker->context);
             return 0;
         }
     }

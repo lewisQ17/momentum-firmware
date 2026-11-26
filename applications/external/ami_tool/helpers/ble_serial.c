@@ -32,6 +32,7 @@ static void ble_profile_serial_stop(FuriHalBleProfileBase* profile) {
 
     BleProfileSerial* serial_profile = (BleProfileSerial*)profile;
     ble_svc_serial_stop(serial_profile->serial_svc);
+    free(serial_profile); // malloc'd in start(); the stock profiles free theirs here too
 }
 
 #define CONNECTION_INTERVAL_MIN (0x06)

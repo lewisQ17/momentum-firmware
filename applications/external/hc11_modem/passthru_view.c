@@ -366,8 +366,8 @@ static int32_t vcp_rx_tx_thread(void *ctx) {
         /* Special usbd_ep_write oddity: if the last block of bytes sent was
            the maximum size allowed (64 bytes), the actual transfer is held up
            and we need to send 0 bytes to trigger the actual data transfer */
-        if(passthru_model->vcp_last_sent >
-				sizeof(passthru_model->vcp_tx_buf_len)) {
+        if(passthru_model->vcp_last_sent ==
+				sizeof(passthru_model->vcp_tx_buf)) {
 
           /* If the passthrough is enabled and the virtual COM port connected,
              try to acquire the semaphore so we block at the next round until
@@ -553,6 +553,10 @@ void passthru_view_exit_callback(void *ctx) {
 
   /* Unset the callback to receive raw data */
   set_raw_data_handler(app->hc11_radio_comm_app, NULL, app);
+
+  /* Stop the radio: otherwise the CC1101 stays in RX with charging
+     suppressed until the app exits */
+  stop_radio(app->hc11_radio_comm_app);
 
   /* Unset the virtual COM port callbacks */
   furi_hal_cdc_set_callbacks(app->config.passthru_chan, NULL, NULL);

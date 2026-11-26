@@ -122,7 +122,8 @@ void subghz_protocol_decoder_pocsag_reset(void* context) {
 
 static void pocsag_decode_address_word(SubGhzProtocolDecoderPocsag* instance, uint32_t data) {
     instance->ric = (data >> 13);
-    instance->ric = (instance->ric << 3) | (instance->codeword_idx >> 1);
+    // codeword_idx can exceed 15 after a missed frame sync: keep only the frame-slot bits
+    instance->ric = (instance->ric << 3) | ((instance->codeword_idx & 15) >> 1);
     instance->func = (data >> 11) & 0b11;
 }
 
@@ -352,6 +353,10 @@ uint8_t subghz_protocol_decoder_pocsag_get_hash_data(void* context) {
     uint8_t hash = 0;
     for(size_t i = 0; i < furi_string_size(instance->done_msg); i++)
         hash ^= furi_string_get_char(instance->done_msg, i);
+    // Mix in the RIC and the length: same text to another RIC is a different page
+    hash ^= (uint8_t)(instance->ric ^ (instance->ric >> 8) ^ (instance->ric >> 16) ^
+                      (instance->ric >> 24));
+    hash ^= (uint8_t)furi_string_size(instance->done_msg);
     return hash;
 }
 

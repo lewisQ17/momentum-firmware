@@ -41,6 +41,7 @@ void raw_samples_center(RawSamplesBuffer* s, uint32_t offset) {
 
 /* Add the specified sample in the circular buffer. */
 void raw_samples_add(RawSamplesBuffer* s, bool level, uint32_t dur) {
+    if(dur > 0x7FFF) dur = 0x7FFF; /* dur is a 15 bit field: avoid wrapping. */
     furi_mutex_acquire(s->mutex, FuriWaitForever);
     s->samples[s->idx].level = level;
     s->samples[s->idx].dur = dur;
@@ -57,11 +58,13 @@ void raw_samples_add(RawSamplesBuffer* s, bool level, uint32_t dur) {
  * This function is a bit slower so the internal data sampling should
  * be performed with raw_samples_add(). */
 void raw_samples_add_or_update(RawSamplesBuffer* s, bool level, uint32_t dur) {
+    if(dur > 0x7FFF) dur = 0x7FFF; /* dur is a 15 bit field: avoid wrapping. */
     furi_mutex_acquire(s->mutex, FuriWaitForever);
     uint32_t previdx = (s->idx - 1) % RAW_SAMPLES_NUM;
     if(s->samples[previdx].level == level && s->samples[previdx].dur != 0) {
         /* Update the last sample: it has the same level. */
-        s->samples[previdx].dur += dur;
+        uint32_t newdur = (uint32_t)s->samples[previdx].dur + dur;
+        s->samples[previdx].dur = newdur > 0x7FFF ? 0x7FFF : newdur;
     } else {
         /* Add a new sample. */
         s->samples[s->idx].level = level;

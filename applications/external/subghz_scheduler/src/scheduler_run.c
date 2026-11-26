@@ -91,6 +91,15 @@ static void scheduler_subghz_raw_end_callback(void* context) {
     tx_run->raw_file_is_tx = false;
 }
 
+// Delay that returns early once the app asked the TX thread to stop
+static void scheduler_delay_interruptible(SchedulerApp* app, uint32_t ms) {
+    while(ms > 0 && !app->stop_tx) {
+        uint32_t step = ms > 20 ? 20 : ms;
+        furi_delay_ms(step);
+        ms -= step;
+    }
+}
+
 static int32_t scheduler_tx(void* context) {
     SchedulerApp* app = context;
     ScheduleTxRun* tx_run = tx_run_alloc();
@@ -296,7 +305,7 @@ static int32_t scheduler_tx(void* context) {
         flipper_format_file_close(fff_data_file);
         flipper_format_free(fff_data_file);
         uint8_t repeats = scheduler_get_tx_repeats(app->scheduler);
-        for(uint16_t i = 0; i <= repeats; ++i) {
+        for(uint16_t i = 0; i <= repeats && !app->stop_tx; ++i) {
             notification_message(app->notifications, &sequence_blink_stop);
             notification_message(app->notifications, &sequence_blink_start_cyan);
 
@@ -317,23 +326,23 @@ static int32_t scheduler_tx(void* context) {
             }
             do {
                 furi_delay_ms(1);
-            } while(tx_run->raw_file_is_tx);
+            } while(tx_run->raw_file_is_tx && !app->stop_tx);
 
             notification_message(app->notifications, &sequence_blink_stop);
 
             if(!tx_run->raw_file_is_tx && !skip_extra_stop) {
-                furi_delay_ms(120);
-                furi_delay_ms(tx_run->tx_delay);
+                scheduler_delay_interruptible(app, 120);
+                scheduler_delay_interruptible(app, tx_run->tx_delay);
                 subghz_txrx_stop(txrx);
             } else {
-                furi_delay_ms(50);
-                furi_delay_ms(tx_run->tx_delay);
+                scheduler_delay_interruptible(app, 50);
+                scheduler_delay_interruptible(app, tx_run->tx_delay);
                 subghz_txrx_stop(txrx);
             }
             skip_extra_stop = false;
         }
 
-    } while(tx_run->filetype == SchedulerFileTypePlaylist &&
+    } while(tx_run->filetype == SchedulerFileTypePlaylist && !app->stop_tx &&
             flipper_format_read_string(tx_run->fff_head, "sub", tx_run->data));
 
     subghz_custom_btns_reset();
@@ -350,14 +359,19 @@ static int32_t scheduler_tx(void* context) {
 static void
     scheduler_thread_state_callback(FuriThread* thread, FuriThreadState state, void* context) {
     SchedulerApp* app = context;
-    furi_assert(app->thread == thread);
 
     if(state == FuriThreadStateStopped) {
         FURI_LOG_I(TAG, "Thread stopped");
-        furi_thread_free(thread);
-        app->thread = NULL;
+        // When the scene is exiting it joins and frees the thread itself
+        furi_mutex_acquire(app->thread_mutex, FuriWaitForever);
+        bool exiting = app->exiting;
+        if(!exiting) {
+            furi_thread_free(thread);
+            app->thread = NULL;
+        }
+        furi_mutex_release(app->thread_mutex);
         app->is_transmitting = false;
-        if(scheduler_get_mode(app->scheduler) == SchedulerTxModeOneShot) {
+        if(!exiting && scheduler_get_mode(app->scheduler) == SchedulerTxModeOneShot) {
             // this callback runs on the thread-scrub thread: hand the scene switch
             // to the GUI thread instead of switching (and freeing UI state) from here
             view_dispatcher_send_custom_event(app->view_dispatcher, SchedulerCustomEventRunDone);
@@ -369,6 +383,7 @@ static void
 }
 
 void scheduler_start_tx(SchedulerApp* app) {
+    app->stop_tx = false;
     app->thread = furi_thread_alloc_ex("SchedulerTxThread", 4096, scheduler_tx, app);
     furi_thread_set_state_callback(app->thread, scheduler_thread_state_callback);
     furi_thread_set_state_context(app->thread, app);

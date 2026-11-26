@@ -50,9 +50,9 @@ bool ibutton_converter_scene_save_name_on_event(void* context, SceneManagerEvent
             if(ibutton_converter_save_key(ibutton_converter)) {
                 scene_manager_next_scene(
                     ibutton_converter->scene_manager, iButtonConverterSceneSaveSuccess);
-            } else {
-                furi_crash("Error while converted file saving");
             }
+            // On failure the storage error dialog was already shown by save_key; stay on the
+            // name page so the user can retry or go back (SD removed/full must not crash)
         }
     }
 

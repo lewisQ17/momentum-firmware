@@ -158,7 +158,9 @@ static void radio_scanner_process_scanning(RadioScannerApp* app) {
 #ifdef FURI_DEBUG
     FURI_LOG_D(TAG, "RSSI after update: %f", (double)app->rssi);
 #endif
-    bool signal_detected = (app->rssi > app->sensitivity);
+    // After a manual resume, skip the lock test for a few hops so a persistent carrier can be left
+    bool signal_detected = (app->rssi > app->sensitivity) && app->resume_holdoff == 0;
+    if(app->resume_holdoff > 0) app->resume_holdoff--;
 #ifdef FURI_DEBUG
     FURI_LOG_D(TAG, "Signal detected: %d", signal_detected);
 #endif
@@ -398,6 +400,7 @@ int32_t radio_scanner_app(void* p) {
             if(event.type == InputTypeShort) {
                 if(event.key == InputKeyOk) {
                     app->scanning = !app->scanning;
+                    if(app->scanning) app->resume_holdoff = 5;
                     FURI_LOG_I(TAG, "Toggled scanning: %d", app->scanning);
                 } else if(event.key == InputKeyUp) {
                     app->sensitivity += 1.0f;

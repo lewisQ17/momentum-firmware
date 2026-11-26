@@ -81,6 +81,9 @@ SubGhzTxRx* subghz_txrx_alloc(void) {
 void subghz_txrx_free(SubGhzTxRx* instance) {
     furi_assert(instance);
 
+    // Never free the radio while an async TX is still running
+    subghz_txrx_stop(instance);
+
     if(instance->radio_device_type != SubGhzRadioDeviceTypeInternal) {
         subghz_txrx_radio_device_power_off(instance);
         subghz_devices_end(instance->radio_device);
@@ -295,7 +298,10 @@ SubGhzTxRxStartTxState subghz_txrx_tx_start(SubGhzTxRx* instance, FlipperFormat*
         }
         if(ret != SubGhzTxRxStartTxStateOk) {
             FURI_LOG_D(TAG, "state not ok");
-            subghz_transmitter_free(instance->transmitter); // Crashes here
+            if(instance->transmitter) {
+                subghz_transmitter_free(instance->transmitter); // Crashes here
+                instance->transmitter = NULL; // no dangling pointer for later callers
+            }
             if(instance->txrx_state != SubGhzTxRxStateIDLE) {
                 subghz_txrx_idle(instance);
             }
@@ -331,6 +337,7 @@ static void subghz_txrx_tx_stop(SubGhzTxRx* instance) {
     subghz_devices_stop_async_tx(instance->radio_device);
     subghz_transmitter_stop(instance->transmitter);
     subghz_transmitter_free(instance->transmitter);
+    instance->transmitter = NULL;
 
     //if protocol dynamic then we save the last upload
     if(instance->decoder_result->protocol->type == SubGhzProtocolTypeDynamic) {
@@ -547,6 +554,7 @@ void subghz_txrx_set_raw_file_encoder_worker_callback_end(
     SubGhzTxRx* instance,
     SubGhzProtocolEncoderRAWCallbackEnd callback,
     void* context) {
+    if(!instance->transmitter) return;
     subghz_protocol_raw_file_encoder_worker_set_callback_end(
         (SubGhzProtocolEncoderRAW*)subghz_transmitter_get_protocol_instance(instance->transmitter),
         callback,

@@ -55,10 +55,13 @@ bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
         if(!flipper_format_read_uint32(ff, "Mode", &app_state->mode, 1)) break;
         if(app_state->mode > HvacMideaModeAuto) break;
         if(!flipper_format_read_uint32(ff, "Temperature", &app_state->temperature, 1)) break;
-        if(app_state->temperature > HVAC_MIDEA_TEMPERATURE_MAX) break;
+        if(app_state->temperature < HVAC_MIDEA_TEMPERATURE_MIN ||
+           app_state->temperature > HVAC_MIDEA_TEMPERATURE_MAX)
+            break;
         if(!flipper_format_read_uint32(ff, "Fan", &app_state->fan, 1)) break;
         if(app_state->fan > HvacMideaFanPowerAuto) break;
         if(!flipper_format_read_uint32(ff, "Power", &app_state->power, 1)) break;
+        if(app_state->power > 1) break; // power[2][2] is indexed by this value
         success = true;
     } while(false);
     furi_record_close(RECORD_STORAGE);
@@ -336,6 +339,7 @@ bool ac_remote_scene_midea_on_event(void* context, SceneManagerEvent event) {
         notification_message(notifications, &sequence_blink_white_100);
         ac_remote_send_settings(&ac_remote->app_state);
         notification_message(notifications, &sequence_blink_stop);
+        furi_record_close(RECORD_NOTIFICATION); // balance the open above
         return true;
     }
 
@@ -344,6 +348,7 @@ bool ac_remote_scene_midea_on_event(void* context, SceneManagerEvent event) {
         notification_message(notifications, &sequence_blink_white_100);
         ac_remote_send_command(&ac_remote->app_state, event_value);
         notification_message(notifications, &sequence_blink_stop);
+        furi_record_close(RECORD_NOTIFICATION); // balance the open above
         return true;
     }
 

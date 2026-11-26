@@ -47,7 +47,9 @@ bool ac_remote_load_settings(ACRemoteAppSettings* app_state) {
         if(!flipper_format_read_uint32(ff, "Mode", &app_state->mode, 1)) break;
         if(app_state->mode > HvacMitsubishiModeAuto) break;
         if(!flipper_format_read_uint32(ff, "Temperature", &app_state->temperature, 1)) break;
-        if(app_state->temperature > HVAC_MITSUBISHI_TEMPERATURE_MAX) break;
+        if(app_state->temperature < HVAC_MITSUBISHI_TEMPERATURE_MIN ||
+           app_state->temperature > HVAC_MITSUBISHI_TEMPERATURE_MAX)
+            break;
         if(!flipper_format_read_uint32(ff, "Fan", &app_state->fan, 1)) break;
         if(app_state->fan > HvacMitsubishiFanSpeedSilent) break;
         if(!flipper_format_read_uint32(ff, "Vane", &app_state->vane, 1)) break;
@@ -203,6 +205,7 @@ bool ac_remote_scene_mitsubishi_on_event(void* context, SceneManagerEvent event)
             notification_message(notifications, &sequence_blink_white_100);
             hvac_mitsubishi_send(ac_remote->hvac_mitsubishi_data);
             notification_message(notifications, &sequence_blink_stop);
+            furi_record_close(RECORD_NOTIFICATION); // balance the open above
         } else if(event_type == AC_RemoteCustomEventTypeButtonSelected) {
             ac_remote->app_state.power = HvacMitsubishiPowerOn;
             switch(event_value) {

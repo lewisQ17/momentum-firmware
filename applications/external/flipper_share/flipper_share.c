@@ -27,7 +27,8 @@ enum {
     FS_ANNOUNCE_INTERVAL_MS= 3000,   // announce interval
     FS_RX_TIMEOUT_MS       = 500,    // request timeout
     FS_TX_TIMEOUT_MS       = 100,    // beetween data, min 70 ms?
-    FS_IDLE_TICK_MS        = 50      // interval for calling fs_idle()  // TODO, move to .h?
+    FS_IDLE_TICK_MS        = 50,     // interval for calling fs_idle()  // TODO, move to .h?
+    FS_LOCK_TIMEOUT_MS     = 20000   // receiver drops the session after this long without valid ANNOUNCE/DATA
 };
 
 // ===== Global state =====
@@ -483,7 +484,7 @@ void fs_ensure_inbox_dir(void) {
 }
 
 uint8_t fs_file_create_truncate(uint32_t file_size) {
-    FURI_LOG_I(TAG, "fs_file_create_truncate: Creating and truncating file '%s'", g.r_file_path);
+    FURI_LOG_I(TAG, "fs_file_create_truncate: Creating and truncating file '%s'", g.r_tmp_path);
     if (g.mode != FS_MODE_RECEIVER) {
         FURI_LOG_E(TAG, "fs_file_create_truncate: Not available in SENDER mode");
         return 1;
@@ -495,8 +496,8 @@ uint8_t fs_file_create_truncate(uint32_t file_size) {
         FURI_LOG_E(TAG, "fs_file_create_truncate: Failed to allocate file handle");
         return 2;
     }
-    if(!storage_file_open(g.file, g.r_file_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        FURI_LOG_E(TAG, "fs_file_create_truncate: Failed to open file '%s'", g.r_file_path);
+    if(!storage_file_open(g.file, g.r_tmp_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+        FURI_LOG_E(TAG, "fs_file_create_truncate: Failed to open file '%s'", g.r_tmp_path);
         storage_file_close(g.file);
         storage_file_free(g.file);
         furi_record_close(RECORD_STORAGE);
@@ -532,8 +533,8 @@ bool my_write_block(uint32_t block_number, const uint8_t in52[FS_DATA_LENGTH], u
         furi_record_close(RECORD_STORAGE);
         return false;
     }
-    if(!storage_file_open(g.file, g.r_file_path, FSAM_WRITE, FSOM_OPEN_EXISTING)) {
-        FURI_LOG_E(TAG, "my_write_block: Failed to open file '%s'", g.r_file_path);
+    if(!storage_file_open(g.file, g.r_tmp_path, FSAM_WRITE, FSOM_OPEN_EXISTING)) {
+        FURI_LOG_E(TAG, "my_write_block: Failed to open file '%s'", g.r_tmp_path);
         storage_file_close(g.file);
         storage_file_free(g.file);
         furi_record_close(RECORD_STORAGE);
@@ -564,21 +565,23 @@ bool my_write_block(uint32_t block_number, const uint8_t in52[FS_DATA_LENGTH], u
 uint32_t my_read_block(uint32_t block_number, uint8_t out52[FS_DATA_LENGTH]) {
     // FURI_LOG_I(TAG, "my_read_block: block %lu", block_number);
 
+    // Always initialise the output: callers must never transmit uninitialised stack bytes
+    memset(out52, 0, FS_DATA_LENGTH);
+
     g.storage = furi_record_open(RECORD_STORAGE);
     g.file = storage_file_alloc(g.storage);
     if(!g.file) {
         FURI_LOG_E(TAG, "my_read_block: Failed to allocate file handle");
-        return 1;
+        furi_record_close(RECORD_STORAGE);
+        return FS_READ_BLOCK_ERROR;
     }
     if(!storage_file_open(g.file, g.s_file_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
         FURI_LOG_E(TAG, "my_read_block: Failed to open file '%s'", g.s_file_path);
         storage_file_close(g.file);
         storage_file_free(g.file);
         furi_record_close(RECORD_STORAGE);
-        return 2;
+        return FS_READ_BLOCK_ERROR; // not 1/2: those are valid byte counts of a short last block
     }
-
-    memset(out52, 0, FS_DATA_LENGTH);
 
     storage_file_seek(g.file, block_number * FS_DATA_LENGTH, true);
 
@@ -625,7 +628,17 @@ bool fs_init_from_external_receive() {
     return fs_init(&pr);
 }
 
+static bool fs_init_impl(const fs_init_params_t* p);
+
 bool fs_init(const fs_init_params_t* p) {
+    if (fs_init_impl(p)) return true;
+    // Failed init must not leave a half-configured SENDER/RECEIVER (it would keep announcing/polling)
+    fs_map_deinit();
+    memset(&g, 0, sizeof(g));
+    return false;
+}
+
+static bool fs_init_impl(const fs_init_params_t* p) {
     memset(&g, 0, sizeof(g));
 
     if (!p || !p->send_bytes || !p->now_ms) {
@@ -675,6 +688,13 @@ bool fs_init(const fs_init_params_t* p) {
         if (g.file) {
             if (storage_file_open(g.file, g.s_file_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
                 g.s_file_size = storage_file_size(g.file);
+                if (g.s_file_size > FS_MAX_FILE_SIZE) { // every receiver rejects this announce
+                    FURI_LOG_E(TAG, "fs_init: File too large: %lu bytes", g.s_file_size);
+                    storage_file_close(g.file);
+                    storage_file_free(g.file);
+                    furi_record_close(RECORD_STORAGE);
+                    return false;
+                }
             } else {
                 FURI_LOG_E(TAG, "fs_init: Failed to open file '%s'", g.s_file_path);
                 g.s_file_size = 0; // Reset file size on failure
@@ -684,6 +704,7 @@ bool fs_init(const fs_init_params_t* p) {
             }
         } else {
             FURI_LOG_E(TAG, "fs_init: Invalid file name or storage");
+            furi_record_close(RECORD_STORAGE);
             return false;
         }
         if (g.storage) {
@@ -813,12 +834,17 @@ void fs_send_data() {
 
     FURI_LOG_I(TAG, "fs_send_data: block_number=%lu", block_number);
 
-    uint8_t data52[FS_DATA_LENGTH];
+    uint8_t data52[FS_DATA_LENGTH] = {0};
     uint32_t valid = g.cb_read_block(block_number, data52); // fill and zero‑pad if valid<FS_DATA_LENGTH
+
+    if (valid == FS_READ_BLOCK_ERROR) { // source unreadable: don't send a bogus block, receiver re-requests
+        FURI_LOG_E(TAG, "fs_send_data: read of block %lu failed, skipping", block_number);
+        return;
+    }
 
     fs_notify_led_green();
 
-    (void)valid; // receiver computes final length using file_size
+    // receiver computes final length using file_size
 
     FS_pl_data_t pl = {0};
     pl.block_number = block_number;
@@ -830,6 +856,52 @@ void fs_send_data() {
     FS_packet_t pkt;
     fs_packet_pack(&pkt, FS_VERSION, g.tx_id, FS_PKT_DATA, payload);
     g.cb_send_bytes((const uint8_t*)&pkt, sizeof(pkt));
+}
+
+// Deletes the unfinished "<name>.part" (abort, hash failure, lost sender). Idempotent.
+void fs_receive_discard_partial(void) {
+    if (g.mode != FS_MODE_RECEIVER || g.r_tmp_path[0] == '\0') return;
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    storage_simply_remove(storage, g.r_tmp_path);
+    furi_record_close(RECORD_STORAGE);
+    g.r_tmp_path[0] = '\0';
+}
+
+// Moves the verified "<name>.part" to its final name. Never overwrites: a taken name becomes name_1.ext, ...
+static bool fs_receive_finalize(void) {
+    bool ok = false;
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    FuriString* final_path = furi_string_alloc_set(g.r_file_path);
+
+    if (storage_common_stat(storage, g.r_file_path, NULL) != FSE_NOT_EXIST) {
+        FuriString* stem = furi_string_alloc_set(g.r_file_path);
+        FuriString* ext = furi_string_alloc();
+        size_t dot = furi_string_search_rchar(stem, '.');
+        size_t slash = furi_string_search_rchar(stem, '/');
+        if (dot != FURI_STRING_FAILURE && (slash == FURI_STRING_FAILURE || dot > slash + 1)) {
+            furi_string_set(ext, furi_string_get_cstr(stem) + dot);
+            furi_string_left(stem, dot);
+        }
+        bool found = false;
+        for (uint32_t n = 1; n < 100 && !found; ++n) {
+            furi_string_printf(final_path, "%s_%lu%s", furi_string_get_cstr(stem), n, furi_string_get_cstr(ext));
+            found = (storage_common_stat(storage, furi_string_get_cstr(final_path), NULL) == FSE_NOT_EXIST);
+        }
+        furi_string_free(stem);
+        furi_string_free(ext);
+        if (!found) goto done;
+    }
+
+    if (storage_common_rename(storage, g.r_tmp_path, furi_string_get_cstr(final_path)) == FSE_OK) {
+        strncpy(g.r_file_path, furi_string_get_cstr(final_path), sizeof(g.r_file_path) - 1);
+        g.r_file_path[sizeof(g.r_file_path) - 1] = '\0';
+        g.r_tmp_path[0] = '\0'; // nothing left to discard
+        ok = true;
+    }
+done:
+    furi_string_free(final_path);
+    furi_record_close(RECORD_STORAGE);
+    return ok;
 }
 
 // ===== Simple timer/behavior logic =====
@@ -855,6 +927,19 @@ void fs_idle(void) {
     if (g.mode == FS_MODE_RECEIVER) {
         if (g.r_is_finished) {
             // FURI_LOG_I(TAG, "fs_idle: Receiver finished, reopen to try again.");
+            return;
+        }
+        if (g.r_locked && g.r_blocks_received < g.r_blocks_needed && now - g.r_last_valid_ms > FS_LOCK_TIMEOUT_MS) {
+            // Sender gone (or spoofed ANNOUNCE): stop transmitting REQUESTs and free the session
+            FURI_LOG_W(TAG, "fs_idle: no valid ANNOUNCE/DATA for %dms, dropping session", FS_LOCK_TIMEOUT_MS);
+            g.r_locked = false;
+            g.r_locked_tx_id = 0;
+            g.r_blocks_received = 0;
+            fs_map_deinit();
+            fs_parts_deinit();
+            fs_receive_discard_partial();
+            g.last_rx_ms = now;
+            g.last_tick_ms = now;
             return;
         }
         if (now - g.last_rx_ms > FS_RX_TIMEOUT_MS) {
@@ -910,7 +995,7 @@ void fs_idle(void) {
             unsigned char real_md5[16];
             real_md5[0] = 0; // Zero-initialize MD5
             FS_Error err = 0;
-            md5_calc_file(g.file, g.r_file_path, real_md5, &err);
+            md5_calc_file(g.file, g.r_tmp_path, real_md5, &err);
 
             if (err != 0) {
                 FURI_LOG_E(TAG, "fs_idle: md5_calc_file error %d", err);
@@ -937,6 +1022,13 @@ void fs_idle(void) {
                 FURI_LOG_W(TAG, "fs_idle: MD5 mismatch, file may be corrupted");
                 g.r_is_success = false;
             }
+
+            // Verified file gets its real name; a failed one is not left behind
+            if (g.r_is_success && !fs_receive_finalize()) {
+                FURI_LOG_E(TAG, "fs_idle: Failed to move received file to its final name");
+                g.r_is_success = false;
+            }
+            if (!g.r_is_success) fs_receive_discard_partial();
 
             g.r_is_finished = true; // reception finished flag
 
@@ -984,7 +1076,9 @@ static void fs_handle_announce(uint8_t tx_id, const FS_pl_announce_t* ann) {
 
         // build fullpath as /ext/<file_name>
         snprintf((char*)g.r_file_path, sizeof(g.r_file_path), "/ext/%s/%s", FS_RECEIVER_DIRECTORY, g.r_file_name);
+        snprintf((char*)g.r_tmp_path, sizeof(g.r_tmp_path), "%s.part", g.r_file_path);
         FURI_LOG_I(TAG, "fs_handle_announce: r_file_path='%s'", g.r_file_path);
+        g.r_last_valid_ms = g.last_rx_ms;
 
         fs_ensure_inbox_dir();
         if (fs_file_create_truncate(g.r_file_size)!= 0) {
@@ -1016,6 +1110,8 @@ static void fs_handle_announce(uint8_t tx_id, const FS_pl_announce_t* ann) {
         fs_notify_led_red();
         return;
     }
+
+    if (g.r_locked) g.r_last_valid_ms = g.last_rx_ms; // sender is still alive
 
     fs_notify_led_blue();
 
@@ -1091,6 +1187,7 @@ static void fs_handle_data(uint8_t tx_id, const FS_pl_data_t* d) {
     if (!fs_map_set(d->block_number, 1)) return; // mark block as received
     fs_parts_on_block_set(d->block_number); // handle parts
     g.r_blocks_received++;
+    g.r_last_valid_ms = g.last_rx_ms;
 
     fs_notify_led_green();
 

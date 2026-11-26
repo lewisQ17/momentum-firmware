@@ -18,6 +18,7 @@ typedef struct {
     float rssi;
     float sensitivity;
     bool scanning;
+    uint8_t resume_holdoff; // hops to skip the lock test after the user resumed with OK
     ScanDirection scan_direction;
     const SubGhzDevice* radio_device;
     bool speaker_acquired;

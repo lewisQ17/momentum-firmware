@@ -327,6 +327,14 @@ size_t seader_ccid_process(Seader* seader, uint8_t* cmd, size_t cmd_len) {
         message.bError = ccid[8];
         message.payload = ccid + 10;
 
+        // dwLength comes off the wire: reject before the sum below can wrap uint32 or
+        // wait forever for a frame that can never fit the RX buffer. Drop SYNC+CTRL and resync.
+        if(message.dwLength > SEADER_UART_RX_BUF_SIZE - (2 + 10 + 1)) {
+            FURI_LOG_W(TAG, "Oversized dwLength %lu, dropping frame", (unsigned long)message.dwLength);
+            message.consumed += 2;
+            return message.consumed;
+        }
+
         if(cmd_len < 2 + 10 + message.dwLength + 1) {
             // Incomplete
             return message.consumed;

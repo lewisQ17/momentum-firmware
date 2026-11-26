@@ -14,6 +14,7 @@
 typedef struct {
     uint32_t counter;
     bool reading_complete;
+    volatile bool failed; // init failed (name >= 36 chars, file unreadable/too large, radio TX unavailable)
     FuriThread* worker_thread;
 } FileReadingState;
 
@@ -24,6 +25,7 @@ static FileReadingState* file_reading_state_alloc() {
     FileReadingState* state = malloc(sizeof(FileReadingState));
     state->counter = 0;
     state->reading_complete = false;
+    state->failed = false;
     state->worker_thread = NULL;
     return state;
 }
@@ -41,12 +43,14 @@ static int32_t file_read_worker_thread(void* context) {
 
     bool is_running = true;
 
-    fs_init_from_external_transmit(app->selected_file_path);
+    if(!fs_init_from_external_transmit(app->selected_file_path)) {
+        state->failed = true; // nothing to announce; keep looping only to wait for the stop flag
+    }
 
     state->counter = g.s_file_size;
 
     while(is_running) {
-        fs_idle();
+        if(!state->failed) fs_idle();
 
         furi_delay_ms(FS_IDLE_OPERATION);
 
@@ -90,7 +94,9 @@ void flipper_share_scene_send_on_enter(void* context) {
     app->timer = furi_timer_alloc(update_timer_callback, FuriTimerTypePeriodic, app);
     furi_timer_start(app->timer, 250);
 
-    ss_subghz_init(); // TODO Move to thread?
+    if(ss_subghz_init() != 0) {
+        state->failed = true; // radio TX unavailable: don't pretend to send
+    }
 }
 
 // Callback for handling button presses in the dialog
@@ -111,7 +117,13 @@ static void update_timer_callback(void* context) {
 
     char progress_text[255];
     if(state) {
-        if(state->reading_complete) {
+        if(state->failed) {
+            dialog_ex_set_header(app->dialog_show_file, "Cannot send", 64, 10, AlignCenter, AlignCenter);
+            snprintf(
+                progress_text,
+                sizeof(progress_text),
+                "Name max 35 chars,\nsize max 16 MB,\nradio must allow TX");
+        } else if(state->reading_complete) {
             snprintf(
                 progress_text, sizeof(progress_text), "Complete! %lu bytes read", state->counter);
 

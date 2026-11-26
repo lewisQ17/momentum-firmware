@@ -20,6 +20,8 @@
 #define MAX_TAG_BLOCK_SIZE 32
 #define TAG_BLOCK_SIZE 4
 #define ISO_APP_DATA_PATH "/ext/apps_data/ISO15693-3_Writer"
+#define ISO_MAX_DUMP_FILE_SIZE (32 * 1024)
+#define ISO_MAX_DUMP_LINE_LEN 512
 
 typedef enum {
     Iso15693WriterViewSubmenu,
@@ -210,21 +212,20 @@ static bool iso15693_save_to_file(Iso15693App* app, const char* filepath) {
         uint8_t size = app->actual_block_size > 0 ? app->actual_block_size : 4;
         
         
-        snprintf(buf, sizeof(buf), "# Blocks: %d, Size: %d\n", count, size);
-        storage_file_write(file, buf, strlen(buf));
+        int len = snprintf(buf, sizeof(buf), "# Blocks: %d, Size: %d\n", count, size);
+        ok = storage_file_write(file, buf, len) == (size_t)len;
         
-        for(int b = 0; b < count; b++) {
-            snprintf(buf, sizeof(buf), "%02X: ", b);
-            storage_file_write(file, buf, strlen(buf));
+        // One write per line instead of one per byte (this runs on the GUI thread)
+        for(int b = 0; ok && b < count; b++) {
+            len = snprintf(buf, sizeof(buf), "%02X: ", b);
             
             uint16_t offset = b * size;
-            for(int i = 0; i < size; i++) {
-                snprintf(buf, sizeof(buf), "%02X", app->full_tag_data[offset+i]);
-                storage_file_write(file, buf, strlen(buf));
+            for(int i = 0; i < size && len + 3 < (int)sizeof(buf); i++) {
+                len += snprintf(buf + len, sizeof(buf) - len, "%02X", app->full_tag_data[offset+i]);
             }
-            storage_file_write(file, "\n", 1);
+            buf[len++] = '\n';
+            ok = storage_file_write(file, buf, len) == (size_t)len;
         }
-        ok = true;
     }
     storage_file_close(file);
     storage_file_free(file);
@@ -237,25 +238,36 @@ static bool iso15693_load_from_file(Iso15693App* app, const char* filepath) {
     File* file = storage_file_alloc(storage);
     bool ok = false;
     if(storage_file_open(file, filepath, FSAM_READ, FSOM_OPEN_EXISTING)) {
+        // Never write a previous dump (or zeros) to a tag because this file was rejected
+        memset(app->full_tag_data, 0, sizeof(app->full_tag_data));
         app->actual_block_size = 4;
         app->actual_block_count = 0;
         
         FuriString* line = furi_string_alloc();
-        char buffer[1];
+        uint8_t chunk[64];
+        size_t chunk_len = 0;
+        size_t chunk_pos = 0;
+        bool eof_hit = false;
         int b = 0;
-        bool header_ok = true;
+        bool header_ok = storage_file_size(file) <= ISO_MAX_DUMP_FILE_SIZE;
 
-        while(true) {
+        while(header_ok) {
             furi_string_reset(line);
             bool line_end = false;
             while(!line_end) {
-                 size_t read = storage_file_read(file, buffer, 1);
-                 if(read == 0) break;
-                 if(buffer[0] == '\n') line_end = true;
-                 else furi_string_push_back(line, buffer[0]);
+                 if(chunk_pos >= chunk_len) {
+                     chunk_len = storage_file_read(file, chunk, sizeof(chunk));
+                     chunk_pos = 0;
+                     if(chunk_len == 0) { eof_hit = true; break; }
+                 }
+                 char c = (char)chunk[chunk_pos++];
+                 if(c == '\n') line_end = true;
+                 else if(furi_string_size(line) < ISO_MAX_DUMP_LINE_LEN) furi_string_push_back(line, c);
+                 else { header_ok = false; break; } // overlong line: not a dump file
             }
+            if(!header_ok) break;
             
-            if(furi_string_empty(line) && storage_file_eof(file)) break;
+            if(furi_string_empty(line) && eof_hit) break;
             
             const char* s = furi_string_get_cstr(line);
             
@@ -293,9 +305,12 @@ static bool iso15693_load_from_file(Iso15693App* app, const char* filepath) {
                 }
                 b++;
             }
+            if(eof_hit) break;
         }
         
         if(app->actual_block_count == 0) app->actual_block_count = (b > MAX_TAG_BLOCKS) ? MAX_TAG_BLOCKS : b;
+        // Header promised more blocks than the file holds: the rest would be written as zeros
+        if(b < app->actual_block_count) header_ok = false;
         
         furi_string_free(line);
         ok = header_ok;
@@ -380,7 +395,10 @@ static void iso15693_start_scan(Iso15693App* app) {
         }
     }, true);
     iso15693_writer_worker_stop(app->worker);
-    iso15693_writer_worker_start(app->worker, app->current_mode, app->target_block, app->full_tag_data, app->lock_status_data, app->target_data, app->afi_value, app->dsfid_value, iso15693_worker_callback, app);
+    iso15693_writer_worker_start(app->worker, app->current_mode, app->target_block, app->full_tag_data, app->lock_status_data, app->target_data, app->afi_value, app->dsfid_value,
+        app->current_mode == Iso15693WriterWorkerModeWriteFull ? app->actual_block_count : 0,
+        app->current_mode == Iso15693WriterWorkerModeWriteFull ? app->actual_block_size : 0,
+        iso15693_worker_callback, app);
 }
 
 static bool iso15693_custom_event_callback(void* context, uint32_t event) {
@@ -406,6 +424,7 @@ static bool iso15693_custom_event_callback(void* context, uint32_t event) {
 
         if(app->current_mode == Iso15693WriterWorkerModeReadAll && app->save_to_file) {
             iso15693_save_to_file(app, app->file_path);
+            app->save_to_file = false; // one save per request; Retry must not overwrite the file again
             with_view_model(app->writer_view, Iso15693Model* m, { 
                 m->actual_block_count = app->actual_block_count;
                 m->actual_block_size = app->actual_block_size;
@@ -447,6 +466,8 @@ static bool iso15693_custom_event_callback(void* context, uint32_t event) {
     } else if(event == Iso15693AppEventRetry) { iso15693_start_scan(app); return true; }
     else if(event == Iso15693AppEventExitToMenu) {
         iso15693_writer_worker_stop(app->worker);
+        app->save_to_file = false; // also covers a cancelled save dialog
+        app->save_preview_mode = false;
         view_dispatcher_switch_to_view(app->view_dispatcher, Iso15693WriterViewSubmenu);
         app->current_view = Iso15693WriterViewSubmenu;
         return true;
@@ -470,6 +491,7 @@ static bool iso15693_custom_event_callback(void* context, uint32_t event) {
            
             iso15693_save_to_file(app, app->file_path);
             app->save_preview_mode = false;
+            app->save_to_file = false;
             
             app->current_view = Iso15693WriterViewWriter;
             view_dispatcher_switch_to_view(app->view_dispatcher, Iso15693WriterViewWriter);
@@ -504,6 +526,17 @@ static void iso15693_byte_input_done_callback(void* context) {
 static void iso15693_text_input_callback(void* context) {
     Iso15693App* app = context;
     view_dispatcher_send_custom_event(app->view_dispatcher, Iso15693AppEventFileNameEntered);
+}
+
+// Irreversible tag actions need an explicit confirmation before the first tag in range is touched
+static bool iso15693_confirm_irreversible(Iso15693App* app, const char* what) {
+    DialogMessage* message = dialog_message_alloc();
+    dialog_message_set_header(message, "Irreversible!", 64, 0, AlignCenter, AlignTop);
+    dialog_message_set_text(message, what, 64, 32, AlignCenter, AlignCenter);
+    dialog_message_set_buttons(message, "Cancel", NULL, "Start");
+    DialogMessageButton res = dialog_message_show(app->dialogs, message);
+    dialog_message_free(message);
+    return res == DialogMessageButtonRight;
 }
 
 static void iso15693_submenu_callback(void* context, uint32_t index) {
@@ -546,7 +579,11 @@ static void iso15693_submenu_callback(void* context, uint32_t index) {
             snprintf(app->file_path, sizeof(app->file_path), "%s", furi_string_get_cstr(filepath));
             furi_string_free(filepath);
             furi_string_free(path);
-            iso15693_load_from_file(app, app->file_path);
+            if(!iso15693_load_from_file(app, app->file_path)) {
+                // Nothing was written: a rejected file must never reach the tag
+                dialog_message_show_storage_error(app->dialogs, "Invalid dump file");
+                return;
+            }
             app->current_mode = Iso15693WriterWorkerModeWriteFull;
             app->current_view = Iso15693WriterViewWriter;
             view_dispatcher_switch_to_view(app->view_dispatcher, Iso15693WriterViewWriter);
@@ -574,6 +611,14 @@ static void iso15693_submenu_callback(void* context, uint32_t index) {
     else if(index == Iso15693MenuLockAFI) app->current_mode = Iso15693WriterWorkerModeLockAFI;
     else if(index == Iso15693MenuWriteDSFID) app->current_mode = Iso15693WriterWorkerModeWriteDSFID;
     else if(index == Iso15693MenuLockDSFID) app->current_mode = Iso15693WriterWorkerModeLockDSFID;
+
+    const char* irreversible = NULL;
+    if(app->current_mode == Iso15693WriterWorkerModeFormat) irreversible = "Overwrites ALL blocks\nof the next tag";
+    else if(app->current_mode == Iso15693WriterWorkerModeLock) irreversible = "Locks a block of\nthe next tag forever";
+    else if(app->current_mode == Iso15693WriterWorkerModeLockAll) irreversible = "Locks ALL blocks of\nthe next tag forever";
+    else if(app->current_mode == Iso15693WriterWorkerModeLockAFI) irreversible = "Locks the AFI of\nthe next tag forever";
+    else if(app->current_mode == Iso15693WriterWorkerModeLockDSFID) irreversible = "Locks the DSFID of\nthe next tag forever";
+    if(irreversible && !iso15693_confirm_irreversible(app, irreversible)) return;
 
     app->current_view = Iso15693WriterViewWriter;
     view_dispatcher_switch_to_view(app->view_dispatcher, Iso15693WriterViewWriter);

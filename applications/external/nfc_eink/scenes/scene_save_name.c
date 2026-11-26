@@ -47,19 +47,27 @@ bool nfc_eink_scene_save_name_on_event(void* context, SceneManagerEvent event) {
 
     if(event.type == SceneManagerEventTypeCustom) {
         if(event.event == NfcEinkAppCustomEventTextInputDone) {
-            if(!furi_string_empty(instance->file_name)) {
-                nfc_eink_screen_delete(furi_string_get_cstr(instance->file_path));
-                furi_string_set(instance->file_path, NFC_EINK_APP_FOLDER);
-            }
+            // Build the target path fresh on every attempt (a failed save used to append ".eink" twice)
+            FuriString* new_path = furi_string_alloc_set(NFC_EINK_APP_FOLDER);
+            FuriString* new_name = furi_string_alloc_set(instance->text_store);
+            furi_string_cat_str(new_name, NFC_EINK_APP_EXTENSION);
+            path_append(new_path, furi_string_get_cstr(new_name));
 
-            strlcat(instance->text_store, NFC_EINK_APP_EXTENSION, sizeof(instance->text_store));
-            path_append(instance->file_path, instance->text_store);
-
-            if(nfc_eink_screen_save(instance->screen, furi_string_get_cstr(instance->file_path))) {
+            if(nfc_eink_screen_save(instance->screen, furi_string_get_cstr(new_path))) {
+                // Rename flow: remove the old file only after the new one is safely written
+                if(!furi_string_empty(instance->file_name) &&
+                   !furi_string_equal(instance->file_path, new_path)) {
+                    nfc_eink_screen_delete(furi_string_get_cstr(instance->file_path));
+                }
+                furi_string_set(instance->file_path, new_path);
                 scene_manager_next_scene(instance->scene_manager, NfcEinkAppSceneSaveSuccess);
                 dolphin_deed(DolphinDeedNfcSave);
                 memset(instance->text_store, 0, sizeof(instance->text_store));
+            } else {
+                dialog_message_show_storage_error(instance->dialogs, "Save failed");
             }
+            furi_string_free(new_path);
+            furi_string_free(new_name);
             consumed = true;
         }
     }

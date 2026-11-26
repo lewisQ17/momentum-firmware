@@ -184,6 +184,29 @@ SubRemLoadMapState subrem_map_file_load(SubGhzRemoteApp* app, const char* file_p
     return ret;
 }
 
+/* Write the stream to <path>.tmp, check the write, then swap it over the
+ * original, so a failed save never destroys the user's existing file. */
+static bool subrem_stream_save_replace(Storage* storage, Stream* stream, const char* path) {
+    bool ok = false;
+    FuriString* tmp_path = furi_string_alloc_printf("%s.tmp", path);
+    do {
+        stream_seek(stream, 0, StreamOffsetFromStart);
+        if(stream_save_to_file(stream, storage, furi_string_get_cstr(tmp_path), FSOM_CREATE_ALWAYS) ==
+           0) {
+            storage_simply_remove(storage, furi_string_get_cstr(tmp_path));
+            break;
+        }
+        if(!storage_simply_remove(storage, path)) {
+            storage_simply_remove(storage, furi_string_get_cstr(tmp_path));
+            break;
+        }
+        if(storage_common_rename(storage, furi_string_get_cstr(tmp_path), path) != FSE_OK) break;
+        ok = true;
+    } while(false);
+    furi_string_free(tmp_path);
+    return ok;
+}
+
 bool subrem_save_protocol_to_file(FlipperFormat* flipper_format, const char* sub_file_name) {
     furi_assert(flipper_format);
     furi_assert(sub_file_name);
@@ -201,13 +224,9 @@ bool subrem_save_protocol_to_file(FlipperFormat* flipper_format, const char* sub
         flipper_format_delete_key(flipper_format, "Repeat");
         // flipper_format_delete_key(flipper_format, "Manufacture");
 
-        if(!storage_simply_remove(storage, sub_file_name)) {
+        if(!subrem_stream_save_replace(storage, flipper_format_stream, sub_file_name)) {
             break;
         }
-
-        //ToDo check Write
-        stream_seek(flipper_format_stream, 0, StreamOffsetFromStart);
-        stream_save_to_file(flipper_format_stream, storage, sub_file_name, FSOM_CREATE_ALWAYS);
 
         if(!flipper_format_insert_or_update_uint32(flipper_format, "Repeat", &repeat, 1)) {
             FURI_LOG_E(TAG, "Unable Repeat");
@@ -277,7 +296,10 @@ bool subrem_tx_stop_sub(SubGhzRemoteApp* app, bool forced) {
             subghz_txrx_custom_button_reset(app->txrx);
 
             // Call deserialize yet another time to restore the original button if a custom button was used
-            subghz_transmitter_deserialize(app->txrx->transmitter, sub_preset->fff_data);
+            // (transmitter is NULL after a failed or already stopped TX)
+            if(app->txrx->transmitter) {
+                subghz_transmitter_deserialize(app->txrx->transmitter, sub_preset->fff_data);
+            }
 
             subghz_custom_btns_reset();
         }
@@ -408,12 +430,9 @@ bool subrem_save_map_to_file(SubGhzRemoteApp* app) {
     Stream* flipper_format_stream = flipper_format_get_raw_stream(fff_data);
 
     do {
-        if(!storage_simply_remove(storage, file_name)) {
+        if(!subrem_stream_save_replace(storage, flipper_format_stream, file_name)) {
             break;
         }
-        //ToDo check Write
-        stream_seek(flipper_format_stream, 0, StreamOffsetFromStart);
-        stream_save_to_file(flipper_format_stream, storage, file_name, FSOM_CREATE_ALWAYS);
 
         saved = true;
     } while(0);

@@ -60,6 +60,11 @@ static void bytes_to_hex(const uint8_t* bytes, size_t len, char* hex_out, size_t
 
 static App* cli_get_app(void) {
     if(g_running_app) {
+        // Cards are not loaded while the lock screen is up; a save would overwrite cards.enc
+        if(g_running_app->passcode_prompt_active) {
+            printf("Error: app is locked, enter the passcode on the device first\r\n");
+            return NULL;
+        }
         return g_running_app;
     }
     App* app = malloc(sizeof(App));
@@ -502,14 +507,9 @@ static void nfc_login_cli_set(PipeSide* pipe, FuriString* args, void* context) {
             error = true;
         }
     } else if(strcmp(setting, "passcode_disabled") == 0) {
-        int value = atoi(value_start);
-        if(value == 0 || value == 1) {
-            app->passcode_disabled = (value == 1);
-            setting_changed = true;
-        } else {
-            snprintf(error_msg, sizeof(error_msg), "Invalid value. Use 0 or 1");
-            error = true;
-        }
+        // Not persisted via settings (lives in the cards.enc header); changing it over CLI would bypass the lock
+        snprintf(error_msg, sizeof(error_msg), "passcode_disabled can only be changed on the device");
+        error = true;
     } else {
         snprintf(error_msg, sizeof(error_msg), "Unknown setting: %s", setting);
         error = true;

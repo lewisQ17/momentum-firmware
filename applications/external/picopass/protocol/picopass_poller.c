@@ -419,12 +419,18 @@ NfcCommand picopass_poller_read_block_handler(PicopassPoller* instance) {
     NfcCommand command = NfcCommandContinue;
 
     do {
-        if(instance->current_block == instance->app_limit) {
+        // >= so an app_limit of 0/1 cannot run past card_data[]
+        if(instance->current_block >= instance->app_limit) {
             if(instance->secured) {
                 instance->state = PicopassPollerStateParseCredential;
             } else {
                 instance->state = PicopassPollerStateSuccess;
             }
+            break;
+        }
+
+        if(instance->current_block >= PICOPASS_MAX_APP_LIMIT) { // never index past card_data[]
+            instance->state = PicopassPollerStateFail;
             break;
         }
 

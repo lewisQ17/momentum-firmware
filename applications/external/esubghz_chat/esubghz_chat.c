@@ -33,19 +33,35 @@ void set_chat_input_header(ESubGhzChatState* state) {
     }
 }
 
+/* The text box only keeps a pointer to its text and the GUI thread reads it, so the
+ * displayed buffer must never be edited in place (cat/right can realloc/memmove it).
+ * Edit a copy in the idle buffer, then publish it with chat_box_edit_commit(). */
+static FuriString* chat_box_edit_begin(ESubGhzChatState* state) {
+    FuriString* next = state->chat_box_bufs[state->chat_box_cur ^ 1];
+    furi_string_set(next, state->chat_box_store);
+    return next;
+}
+
+static void chat_box_edit_commit(ESubGhzChatState* state, FuriString* next) {
+    state->chat_box_cur ^= 1;
+    state->chat_box_store = next;
+    /* text_box_set_text takes the model lock: after it returns the GUI no longer reads the old buffer */
+    text_box_set_text(state->chat_box, furi_string_get_cstr(next));
+}
+
 /* Appends the latest message to the chat box and prepares the message preview.
  */
 void append_msg(ESubGhzChatState* state, const char* msg) {
     /* append message to text box */
-    furi_string_cat_printf(state->chat_box_store, "\n%s", msg);
+    FuriString* store = chat_box_edit_begin(state);
+    furi_string_cat_printf(store, "\n%s", msg);
 
     /* cap the store: drop the oldest lines, so a flood of received packets cannot exhaust the heap */
-    size_t store_size = furi_string_size(state->chat_box_store);
+    size_t store_size = furi_string_size(store);
     if(store_size > CHAT_BOX_STORE_SIZE) {
         size_t keep_from = store_size - CHAT_BOX_STORE_SIZE;
-        size_t line_start = furi_string_search_char(state->chat_box_store, '\n', keep_from);
-        furi_string_right(
-            state->chat_box_store, (line_start == FURI_STRING_FAILURE) ? keep_from : line_start);
+        size_t line_start = furi_string_search_char(store, '\n', keep_from);
+        furi_string_right(store, (line_start == FURI_STRING_FAILURE) ? keep_from : line_start);
     }
 
     /* prepare message preview */
@@ -54,7 +70,7 @@ void append_msg(ESubGhzChatState* state, const char* msg) {
     set_chat_input_header(state);
 
     /* reset text box contents and focus */
-    text_box_set_text(state->chat_box, furi_string_get_cstr(state->chat_box_store));
+    chat_box_edit_commit(state, store);
     text_box_set_focus(state->chat_box, TextBoxFocusEnd);
 }
 
@@ -139,18 +155,19 @@ void tx_msg_input(ESubGhzChatState* state) {
  * box. Also clears the text input buffer to remove the password and starts the
  * Sub-GHz worker. After starting the worker a join message is transmitted. */
 void enter_chat(ESubGhzChatState* state) {
-    furi_string_cat_printf(state->chat_box_store, "Frequency: %lu", state->frequency);
+    FuriString* store = chat_box_edit_begin(state);
+    furi_string_cat_printf(store, "Frequency: %lu", state->frequency);
 
-    furi_string_cat_printf(
-        state->chat_box_store, "\nEncrypted: %s", (state->encrypted ? "yes" : "no"));
+    furi_string_cat_printf(store, "\nEncrypted: %s", (state->encrypted ? "yes" : "no"));
 
     subghz_tx_rx_worker_start(state->subghz_worker, state->subghz_device, state->frequency);
 
     if(strcmp(state->subghz_device->name, "cc1101_ext") == 0) {
-        furi_string_cat_printf(state->chat_box_store, "\nRadio: External");
+        furi_string_cat_printf(store, "\nRadio: External");
     } else {
-        furi_string_cat_printf(state->chat_box_store, "\nRadio: Internal");
+        furi_string_cat_printf(store, "\nRadio: Internal");
     }
+    chat_box_edit_commit(state, store);
 
     /* concatenate the name prefix and join message */
     furi_string_set(state->msg_input, state->name_prefix);
@@ -534,14 +551,21 @@ static bool chat_box_alloc(ESubGhzChatState* state) {
         return false;
     }
 
-    state->chat_box_store = furi_string_alloc();
-    if(state->chat_box_store == NULL) {
+    state->chat_box_bufs[0] = furi_string_alloc();
+    state->chat_box_bufs[1] = furi_string_alloc();
+    if(state->chat_box_bufs[0] == NULL || state->chat_box_bufs[1] == NULL) {
+        if(state->chat_box_bufs[0]) furi_string_free(state->chat_box_bufs[0]);
+        if(state->chat_box_bufs[1]) furi_string_free(state->chat_box_bufs[1]);
         text_box_free(state->chat_box);
         return false;
     }
 
-    furi_string_reserve(state->chat_box_store, CHAT_BOX_STORE_SIZE);
-    furi_string_set_char(state->chat_box_store, 0, 0);
+    for(size_t i = 0; i < 2; i++) {
+        furi_string_reserve(state->chat_box_bufs[i], CHAT_BOX_STORE_SIZE);
+        furi_string_set_char(state->chat_box_bufs[i], 0, 0);
+    }
+    state->chat_box_cur = 0;
+    state->chat_box_store = state->chat_box_bufs[0];
     text_box_set_text(state->chat_box, furi_string_get_cstr(state->chat_box_store));
     text_box_set_focus(state->chat_box, TextBoxFocusEnd);
 
@@ -552,7 +576,9 @@ static void chat_box_free(ESubGhzChatState* state) {
     furi_assert(state);
 
     text_box_free(state->chat_box);
-    furi_string_free(state->chat_box_store);
+    furi_string_free(state->chat_box_bufs[0]);
+    furi_string_free(state->chat_box_bufs[1]);
+    state->chat_box_store = NULL;
 }
 
 int32_t esubghz_chat(const char* args) {

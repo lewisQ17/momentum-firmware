@@ -122,6 +122,9 @@ void pcsg_view_receiver_info_free(PCSGReceiverInfo* pcsg_receiver_info) {
         pcsg_receiver_info->view,
         PCSGReceiverInfoModel * model,
         {
+            // result_ric/result_msg are allocated lazily when a message is opened
+            if(model->generic->result_ric) furi_string_free(model->generic->result_ric);
+            if(model->generic->result_msg) furi_string_free(model->generic->result_msg);
             furi_string_free(model->protocol_name);
             free(model->generic);
         },

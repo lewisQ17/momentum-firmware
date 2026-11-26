@@ -86,7 +86,7 @@ static void xremote_scene_settings_set_ir_timing(VariableItem* item) {
     XRemote* app = variable_item_get_context(item);
     uint32_t index = variable_item_get_current_value_index(item);
 
-    snprintf(app->ir_timing_char, 20, "%lu", (index * 100));
+    snprintf(app->ir_timing_char, sizeof(app->ir_timing_buf), "%lu", (index * 100));
     variable_item_set_current_value_text(item, app->ir_timing_char);
     app->ir_timing = (index * 100);
 }
@@ -95,7 +95,7 @@ static void xremote_scene_settings_set_sg_timing(VariableItem* item) {
     XRemote* app = variable_item_get_context(item);
     uint32_t index = variable_item_get_current_value_index(item);
 
-    snprintf(app->sg_timing_char, 20, "%lu", (index * 100));
+    snprintf(app->sg_timing_char, sizeof(app->sg_timing_buf), "%lu", (index * 100));
     variable_item_set_current_value_text(item, app->sg_timing_char);
     app->sg_timing = (index * 100);
 }
@@ -166,7 +166,7 @@ void xremote_scene_settings_init(void* context) {
         app->variable_item_list, "IR Time ms", 30, xremote_scene_settings_set_ir_timing, app);
 
     variable_item_set_current_value_index(item, (uint8_t)(app->ir_timing / 100));
-    snprintf(app->ir_timing_char, 20, "%lu", app->ir_timing);
+    snprintf(app->ir_timing_char, sizeof(app->ir_timing_buf), "%lu", app->ir_timing);
     variable_item_set_current_value_text(item, app->ir_timing_char);
 
     // Set SubGhz Timer
@@ -174,7 +174,7 @@ void xremote_scene_settings_init(void* context) {
         app->variable_item_list, "SubG. Time ms", 30, xremote_scene_settings_set_sg_timing, app);
 
     variable_item_set_current_value_index(item, (uint8_t)(app->sg_timing / 100));
-    snprintf(app->sg_timing_char, 20, "%lu", app->sg_timing);
+    snprintf(app->sg_timing_char, sizeof(app->sg_timing_buf), "%lu", app->sg_timing);
     variable_item_set_current_value_text(item, app->sg_timing_char);    
 }
 

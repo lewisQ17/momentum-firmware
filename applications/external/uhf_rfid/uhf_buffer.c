@@ -13,31 +13,28 @@ Buffer* uhf_buffer_alloc(size_t initial_capacity) {
     buf->capacity = initial_capacity;
     buf->head = 0;
     buf->tail = 0;
+    buf->closed = false;
     return buf;
 }
 
 bool uhf_buffer_append_single(Buffer* buf, uint8_t data) {
     if(buf->closed) return false;
+    // Never wrap: callers read data[0..size) contiguously from get_data()
+    if(buf->size >= buf->capacity) return false;
     buf->data[buf->tail] = data;
     buf->tail = (buf->tail + 1) % buf->capacity;
-    if(buf->size < buf->capacity) {
-        buf->size++;
-    } else {
-        buf->head = (buf->head + 1) % buf->capacity;
-    }
+    buf->size++;
     return true;
 }
 
 bool uhf_buffer_append(Buffer* buf, uint8_t* data, size_t data_size) {
     if(buf->closed) return false;
+    // Never wrap (see uhf_buffer_append_single); refuse data that doesn't fit
+    if(data_size > buf->capacity - buf->size) return false;
     for(size_t i = 0; i < data_size; i++) {
         buf->data[buf->tail] = data[i];
         buf->tail = (buf->tail + 1) % buf->capacity;
-        if(buf->size < buf->capacity) {
-            buf->size++;
-        } else {
-            buf->head = (buf->head + 1) % buf->capacity;
-        }
+        buf->size++;
     }
     return true;
 }

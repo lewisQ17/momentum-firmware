@@ -22,7 +22,6 @@ static NfcApduRunner* nfc_apdu_runner_alloc();
 static void nfc_apdu_runner_init(NfcApduRunner* app);
 static bool nfc_apdu_runner_custom_event_callback(void* context, uint32_t event);
 static bool nfc_apdu_runner_back_event_callback(void* context);
-static void nfc_apdu_runner_tick_event_callback(void* context);
 
 // 释放APDU脚本资源
 void nfc_apdu_script_free(NfcApduScript* script) {
@@ -44,6 +43,8 @@ void nfc_apdu_responses_free(NfcApduResponse* responses, uint32_t count) {
     }
     free(responses);
 }
+
+#define APDU_SCRIPT_MAX_FILE_SIZE (32 * 1024)
 
 // 解析卡类型字符串
 static CardType parse_card_type(const char* type_str) {
@@ -94,6 +95,7 @@ NfcApduScript* nfc_apdu_script_parse(Storage* storage, const char* file_path) {
 
     bool success = false;
     bool in_data_section = false;
+    char* file_buf = NULL;
 
     do {
         if(!storage_file_open(file, file_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
@@ -102,9 +104,19 @@ NfcApduScript* nfc_apdu_script_parse(Storage* storage, const char* file_path) {
         }
 
         // 读取整个文件内容到缓冲区
-        char file_buf[1024];
-        size_t bytes_read = storage_file_read(file, file_buf, sizeof(file_buf) - 1);
-        if(bytes_read <= 0) {
+        // Whole file on the heap; a silently truncated command list used to run and report success
+        uint64_t file_size = storage_file_size(file);
+        if(file_size == 0 || file_size > APDU_SCRIPT_MAX_FILE_SIZE) {
+            FURI_LOG_E("APDU_DEBUG", "脚本文件大小无效: %lu", (unsigned long)file_size);
+            break;
+        }
+        file_buf = malloc((size_t)file_size + 1);
+        if(!file_buf) {
+            FURI_LOG_E("APDU_DEBUG", "分配文件缓冲区失败");
+            break;
+        }
+        size_t bytes_read = storage_file_read(file, file_buf, (size_t)file_size);
+        if(bytes_read != (size_t)file_size) {
             FURI_LOG_E("APDU_DEBUG", "读取文件内容失败");
             break;
         }
@@ -157,6 +169,8 @@ NfcApduScript* nfc_apdu_script_parse(Storage* storage, const char* file_path) {
         }
 
         // 提取卡类型
+        // CRLF scripts: drop the trailing '\r' before comparing
+        if(next_line > line && *(next_line - 1) == '\r') *(next_line - 1) = '\0';
         const char* card_type_str = line + 10; // 跳过 "CardType: "
         script->card_type = parse_card_type(card_type_str);
 
@@ -285,6 +299,7 @@ NfcApduScript* nfc_apdu_script_parse(Storage* storage, const char* file_path) {
         FURI_LOG_I("APDU_DEBUG", "命令解析完成, 命令数: %lu", script->command_count);
     } while(false);
 
+    free(file_buf);
     storage_file_close(file);
     storage_file_free(file);
     furi_string_free(temp_str);
@@ -435,13 +450,6 @@ static bool nfc_apdu_runner_back_event_callback(void* context) {
     bool handled = scene_manager_handle_back_event(app->scene_manager);
 
     return handled;
-}
-
-static void nfc_apdu_runner_tick_event_callback(void* context) {
-    furi_assert(context);
-    NfcApduRunner* app = context;
-
-    scene_manager_handle_tick_event(app->scene_manager);
 }
 
 // 分配应用程序资源
@@ -697,8 +705,7 @@ static void nfc_apdu_runner_init(NfcApduRunner* app) {
         app->view_dispatcher, nfc_apdu_runner_custom_event_callback);
     view_dispatcher_set_navigation_event_callback(
         app->view_dispatcher, nfc_apdu_runner_back_event_callback);
-    view_dispatcher_set_tick_event_callback(
-        app->view_dispatcher, nfc_apdu_runner_tick_event_callback, 100);
+    // No scene uses tick events: no tick callback (it woke the app 10x/s for nothing)
 
     // 检查GUI是否已分配
     if(!app->gui) {

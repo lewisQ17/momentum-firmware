@@ -1,12 +1,15 @@
 #include "../nfc_apdu_runner.h"
 #include "nfc_apdu_runner_scene.h"
 
+// Worker events are offset so they cannot collide with PopupClosed/ViewExit custom events (ids 0 and 1)
+#define NFC_WORKER_EVENT_BASE 100
+
 // NFC Worker回调函数
 static void nfc_worker_callback(NfcWorkerEvent event, void* context) {
     NfcApduRunner* app = context;
 
     // 发送自定义事件到视图分发器
-    view_dispatcher_send_custom_event(app->view_dispatcher, event);
+    view_dispatcher_send_custom_event(app->view_dispatcher, NFC_WORKER_EVENT_BASE + event);
 }
 
 // 运行场景弹出窗口回调
@@ -91,7 +94,10 @@ void nfc_apdu_runner_scene_running_on_enter(void* context) {
     FURI_LOG_I("APDU_DEBUG", "脚本解析成功, 卡类型: %d", app->script->card_type);
 
     // 检查卡类型是否支持
-    if(app->script->card_type == CardTypeUnknown) {
+    // 3a/3b are parsed but the worker has no detect/send path for them (it would poll forever)
+    if(app->script->card_type == CardTypeUnknown ||
+       app->script->card_type == CardTypeIso14443_3a ||
+       app->script->card_type == CardTypeIso14443_3b) {
         FURI_LOG_E("APDU_DEBUG", "不支持的卡类型");
         show_error_popup(app, "Unsupported card type");
         return;
@@ -119,11 +125,11 @@ bool nfc_apdu_runner_scene_running_on_event(void* context, SceneManagerEvent eve
         // 处理自定义事件
         uint32_t custom_event = event.event;
 
-        if(custom_event == NfcWorkerEventCardDetected) {
+        if(custom_event == NFC_WORKER_EVENT_BASE + NfcWorkerEventCardDetected) {
             FURI_LOG_I("APDU_DEBUG", "卡片检测成功事件");
             show_running_popup(app);
             consumed = true;
-        } else if(custom_event == NfcWorkerEventSuccess) {
+        } else if(custom_event == NFC_WORKER_EVENT_BASE + NfcWorkerEventSuccess) {
             FURI_LOG_I("APDU_DEBUG", "操作成功事件");
 
             // 获取响应结果
@@ -132,7 +138,7 @@ bool nfc_apdu_runner_scene_running_on_event(void* context, SceneManagerEvent eve
             // 切换到结果场景
             scene_manager_next_scene(app->scene_manager, NfcApduRunnerSceneResults);
             consumed = true;
-        } else if(custom_event == NfcWorkerEventFail) {
+        } else if(custom_event == NFC_WORKER_EVENT_BASE + NfcWorkerEventFail) {
             FURI_LOG_E("APDU_DEBUG", "操作失败事件");
             // 停止NFC Worker
             nfc_worker_stop(app->worker);
@@ -147,12 +153,12 @@ bool nfc_apdu_runner_scene_running_on_event(void* context, SceneManagerEvent eve
             }
 
             consumed = true;
-        } else if(custom_event == NfcWorkerEventCardLost) {
+        } else if(custom_event == NFC_WORKER_EVENT_BASE + NfcWorkerEventCardLost) {
             FURI_LOG_E("APDU_DEBUG", "卡片丢失事件");
             // 不停止NFC Worker，而是显示等待卡片弹窗
             show_waiting_popup(app);
             consumed = true;
-        } else if(custom_event == NfcWorkerEventAborted) {
+        } else if(custom_event == NFC_WORKER_EVENT_BASE + NfcWorkerEventAborted) {
             FURI_LOG_I("APDU_DEBUG", "操作被中止事件");
             // 停止NFC Worker
             nfc_worker_stop(app->worker);

@@ -332,8 +332,7 @@ bool uhf_reader_view_read_input_callback(InputEvent* event, void* context) {
                         App->CurTidIndex -= 1;
                         App->CurResIndex -= 1;
                         App->CurMemIndex -= 1;
-                        furi_string_set_str(
-                            model->EpcValue, App->EpcValues[model->CurEpcIndex * 26]);
+                        uhf_set_str_nonnull(model->EpcValue, UHF_EPC_AT(App, model->CurEpcIndex));
                         model->NumEpcsRead = App->NumberOfEpcsToRead;
                     }
                 },
@@ -346,17 +345,16 @@ bool uhf_reader_view_read_input_callback(InputEvent* event, void* context) {
                 UHFRFIDTagModel * model,
                 {
                     if(App->NumberOfEpcsToRead > 0) {
-                        furi_string_set_str(model->Epc, App->EpcValues[App->CurTidIndex * 26]);
+                        uhf_set_str_nonnull(model->Epc, UHF_EPC_AT(App, App->CurTidIndex));
                     }
                     if(App->NumberOfTidsToRead > 0) {
-                        furi_string_set_str(model->Tid, App->TidValues[App->CurTidIndex * 41]);
+                        uhf_set_str_nonnull(model->Tid, UHF_TID_AT(App, App->CurTidIndex));
                     }
                     if(App->NumberOfResToRead > 0) {
-                        furi_string_set_str(
-                            model->Reserved, App->ResValues[App->CurResIndex * 17]);
+                        uhf_set_str_nonnull(model->Reserved, UHF_RES_AT(App, App->CurResIndex));
                     }
                     if(App->NumberOfMemToRead > 0) {
-                        furi_string_set_str(model->User, App->MemValues[App->CurMemIndex * 33]);
+                        uhf_set_str_nonnull(model->User, UHF_MEM_AT(App, App->CurMemIndex));
                     }
                 },
                 Redraw);
@@ -373,14 +371,14 @@ bool uhf_reader_view_read_input_callback(InputEvent* event, void* context) {
                 UHFReaderConfigModel * model,
                 {
                     if(App->NumberOfEpcsToRead > 1 &&
-                       model->CurEpcIndex < App->NumberOfEpcsToRead) {
+                       model->CurEpcIndex < App->NumberOfEpcsToRead &&
+                       model->CurEpcIndex < UHF_TABLE_MAX_ENTRIES) { // tables hold 12 entries
                         //TODO: Add better bounds checking to ensure no crashes with short reads
                         model->CurEpcIndex += 1;
                         App->CurTidIndex += 1;
                         App->CurResIndex += 1;
                         App->CurMemIndex += 1;
-                        furi_string_set_str(
-                            model->EpcValue, App->EpcValues[model->CurEpcIndex * 26]);
+                        uhf_set_str_nonnull(model->EpcValue, UHF_EPC_AT(App, model->CurEpcIndex));
                         model->NumEpcsRead = App->NumberOfEpcsToRead;
                     }
                 },
@@ -392,17 +390,16 @@ bool uhf_reader_view_read_input_callback(InputEvent* event, void* context) {
                 UHFRFIDTagModel * model,
                 {
                     if(App->NumberOfEpcsToRead > 0) {
-                        furi_string_set_str(model->Epc, App->EpcValues[App->CurTidIndex * 26]);
+                        uhf_set_str_nonnull(model->Epc, UHF_EPC_AT(App, App->CurTidIndex));
                     }
                     if(App->NumberOfTidsToRead > 0) {
-                        furi_string_set_str(model->Tid, App->TidValues[App->CurTidIndex * 41]);
+                        uhf_set_str_nonnull(model->Tid, UHF_TID_AT(App, App->CurTidIndex));
                     }
                     if(App->NumberOfResToRead > 0) {
-                        furi_string_set_str(
-                            model->Reserved, App->ResValues[App->CurResIndex * 17]);
+                        uhf_set_str_nonnull(model->Reserved, UHF_RES_AT(App, App->CurResIndex));
                     }
                     if(App->NumberOfMemToRead > 0) {
-                        furi_string_set_str(model->User, App->MemValues[App->CurMemIndex * 33]);
+                        uhf_set_str_nonnull(model->User, UHF_MEM_AT(App, App->CurMemIndex));
                     }
                 },
                 Redraw);
@@ -457,6 +454,10 @@ void uhf_reader_view_read_exit_callback(void* context) {
     furi_timer_stop(App->Timer);
     furi_timer_free(App->Timer);
     App->Timer = NULL;
+
+    // The cyan blink uses do_not_reset: stop it, and don't leave the app thinking it still reads
+    notification_message(App->Notifications, &uhf_sequence_blink_stop);
+    App->IsReading = false;
 }
 
 /**

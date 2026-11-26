@@ -14,6 +14,8 @@ struct Iso15693WriterWorker {
     uint8_t progress;
     uint16_t block_count;
     uint8_t block_size;
+    uint16_t expected_block_count; // WriteFull: geometry of the loaded dump (0 = no check)
+    uint8_t expected_block_size;
     Iso15693WriterWorkerMode mode;
     bool is_running;
 };
@@ -23,7 +25,7 @@ static bool iso15693_send_read_with_status(Iso15693_3Poller* poller, uint8_t blo
     bit_buffer_append_byte(tx, 0x42);
     bit_buffer_append_byte(tx, 0x20);
     bit_buffer_append_byte(tx, block);
-    BitBuffer* rx = bit_buffer_alloc(40);
+    BitBuffer* rx = bit_buffer_alloc(64); // poller frames can be up to 64 bytes; a smaller buffer crashes on long replies
     Iso15693_3Error err = iso15693_3_poller_send_frame(poller, tx, rx, 300000);
     bool ok = false;
 
@@ -40,7 +42,7 @@ static bool iso15693_send_get_system_info(Iso15693_3Poller* poller, uint16_t* bl
     BitBuffer* tx = bit_buffer_alloc(32);
     bit_buffer_append_byte(tx, 0x02); 
     bit_buffer_append_byte(tx, 0x2B); 
-    BitBuffer* rx = bit_buffer_alloc(40);
+    BitBuffer* rx = bit_buffer_alloc(64); // poller frames can be up to 64 bytes; a smaller buffer crashes on long replies
     Iso15693_3Error err = iso15693_3_poller_send_frame(poller, tx, rx, 300000);
     bool ok = false;
     
@@ -76,7 +78,7 @@ static bool iso15693_send_write(Iso15693_3Poller* poller, uint8_t block, const u
         bit_buffer_append_byte(tx, data[i]);
     }
     
-    BitBuffer* rx = bit_buffer_alloc(40);
+    BitBuffer* rx = bit_buffer_alloc(64); // poller frames can be up to 64 bytes; a smaller buffer crashes on long replies
     Iso15693_3Error err = iso15693_3_poller_send_frame(poller, tx, rx, 300000);
     bool ok = (err == Iso15693_3ErrorNone && bit_buffer_get_size_bytes(rx) > 0 && (bit_buffer_get_byte(rx, 0) & 0x01) == 0);
     
@@ -84,12 +86,17 @@ static bool iso15693_send_write(Iso15693_3Poller* poller, uint8_t block, const u
     return ok;
 }
 
+static bool iso15693_send_write_retry(Iso15693_3Poller* poller, uint8_t block, const uint8_t* data, uint8_t block_size) {
+    return iso15693_send_write(poller, block, data, block_size) ||
+           iso15693_send_write(poller, block, data, block_size);
+}
+
 static bool iso15693_send_read(Iso15693_3Poller* poller, uint8_t block, uint8_t* dest, uint8_t block_size) {
     BitBuffer* tx = bit_buffer_alloc(32);
     bit_buffer_append_byte(tx, 0x02);
     bit_buffer_append_byte(tx, 0x20);
     bit_buffer_append_byte(tx, block);
-    BitBuffer* rx = bit_buffer_alloc(40);
+    BitBuffer* rx = bit_buffer_alloc(64); // poller frames can be up to 64 bytes; a smaller buffer crashes on long replies
     Iso15693_3Error err = iso15693_3_poller_send_frame(poller, tx, rx, 300000);
     bool ok = false;
     if(err == Iso15693_3ErrorNone && bit_buffer_get_size_bytes(rx) >= (size_t)(1 + block_size) && (bit_buffer_get_byte(rx, 0) & 0x01) == 0) {
@@ -105,7 +112,7 @@ static bool iso15693_send_lock(Iso15693_3Poller* poller, uint8_t block) {
     bit_buffer_append_byte(tx, 0x02);
     bit_buffer_append_byte(tx, 0x22);
     bit_buffer_append_byte(tx, block);
-    BitBuffer* rx = bit_buffer_alloc(40);
+    BitBuffer* rx = bit_buffer_alloc(64); // poller frames can be up to 64 bytes; a smaller buffer crashes on long replies
     Iso15693_3Error err = iso15693_3_poller_send_frame(poller, tx, rx, 300000);
     bool ok = (err == Iso15693_3ErrorNone && bit_buffer_get_size_bytes(rx) > 0 && (bit_buffer_get_byte(rx, 0) & 0x01) == 0);
     bit_buffer_free(tx); bit_buffer_free(rx);
@@ -117,7 +124,7 @@ static bool iso15693_send_write_afi(Iso15693_3Poller* poller, uint8_t afi_value)
     bit_buffer_append_byte(tx, 0x02);
     bit_buffer_append_byte(tx, 0x27);
     bit_buffer_append_byte(tx, afi_value);
-    BitBuffer* rx = bit_buffer_alloc(40);
+    BitBuffer* rx = bit_buffer_alloc(64); // poller frames can be up to 64 bytes; a smaller buffer crashes on long replies
     Iso15693_3Error err = iso15693_3_poller_send_frame(poller, tx, rx, 300000);
     bool ok = (err == Iso15693_3ErrorNone && bit_buffer_get_size_bytes(rx) > 0 && (bit_buffer_get_byte(rx, 0) & 0x01) == 0);
     bit_buffer_free(tx); bit_buffer_free(rx);
@@ -128,7 +135,7 @@ static bool iso15693_send_lock_afi(Iso15693_3Poller* poller) {
     BitBuffer* tx = bit_buffer_alloc(32);
     bit_buffer_append_byte(tx, 0x02);
     bit_buffer_append_byte(tx, 0x28);
-    BitBuffer* rx = bit_buffer_alloc(40);
+    BitBuffer* rx = bit_buffer_alloc(64); // poller frames can be up to 64 bytes; a smaller buffer crashes on long replies
     Iso15693_3Error err = iso15693_3_poller_send_frame(poller, tx, rx, 300000);
     bool ok = (err == Iso15693_3ErrorNone && bit_buffer_get_size_bytes(rx) > 0 && (bit_buffer_get_byte(rx, 0) & 0x01) == 0);
     bit_buffer_free(tx); bit_buffer_free(rx);
@@ -140,7 +147,7 @@ static bool iso15693_send_write_dsfid(Iso15693_3Poller* poller, uint8_t dsfid_va
     bit_buffer_append_byte(tx, 0x02);
     bit_buffer_append_byte(tx, 0x29);
     bit_buffer_append_byte(tx, dsfid_value);
-    BitBuffer* rx = bit_buffer_alloc(40);
+    BitBuffer* rx = bit_buffer_alloc(64); // poller frames can be up to 64 bytes; a smaller buffer crashes on long replies
     Iso15693_3Error err = iso15693_3_poller_send_frame(poller, tx, rx, 300000);
     bool ok = (err == Iso15693_3ErrorNone && bit_buffer_get_size_bytes(rx) > 0 && (bit_buffer_get_byte(rx, 0) & 0x01) == 0);
     bit_buffer_free(tx); bit_buffer_free(rx);
@@ -151,7 +158,7 @@ static bool iso15693_send_lock_dsfid(Iso15693_3Poller* poller) {
     BitBuffer* tx = bit_buffer_alloc(32);
     bit_buffer_append_byte(tx, 0x02);
     bit_buffer_append_byte(tx, 0x2A);
-    BitBuffer* rx = bit_buffer_alloc(40);
+    BitBuffer* rx = bit_buffer_alloc(64); // poller frames can be up to 64 bytes; a smaller buffer crashes on long replies
     Iso15693_3Error err = iso15693_3_poller_send_frame(poller, tx, rx, 300000);
     bool ok = (err == Iso15693_3ErrorNone && bit_buffer_get_size_bytes(rx) > 0 && (bit_buffer_get_byte(rx, 0) & 0x01) == 0);
     bit_buffer_free(tx); bit_buffer_free(rx);
@@ -194,17 +201,29 @@ static NfcCommand iso15693_writer_poller_callback(NfcGenericEvent event, void* c
                     if(b % 4 == 0 || b == instance->block_count - 1) {
                         if(instance->callback) instance->callback(Iso15693WriterWorkerEventProgress, instance->context);
                     }
-                    iso15693_send_write(iso15693_poller, (uint8_t)b, ff_data, instance->block_size);
+                    if(!iso15693_send_write_retry(iso15693_poller, (uint8_t)b, ff_data, instance->block_size)) {
+                        success = false;
+                        break;
+                    }
                     furi_delay_ms(5);
                 }
                 result_event = Iso15693WriterWorkerEventWriteSuccess;
             } else if(instance->mode == Iso15693WriterWorkerModeWriteFull) {
-                for(uint16_t b = 0; b < instance->block_count; b++) {
+                // Dump geometry must match the tag, otherwise blocks would be misaligned or left stale
+                if(instance->expected_block_count != 0 &&
+                   (instance->expected_block_count != instance->block_count ||
+                    instance->expected_block_size != instance->block_size)) {
+                    success = false;
+                }
+                for(uint16_t b = 0; success && b < instance->block_count; b++) {
                     instance->progress = (b > 255) ? 255 : (uint8_t)b;
                     if(b % 4 == 0 || b == instance->block_count - 1) {
                          if(instance->callback) instance->callback(Iso15693WriterWorkerEventProgress, instance->context);
                     }
-                    iso15693_send_write(iso15693_poller, (uint8_t)b, &instance->full_data[b * instance->block_size], instance->block_size);
+                    if(!iso15693_send_write_retry(iso15693_poller, (uint8_t)b, &instance->full_data[b * instance->block_size], instance->block_size)) {
+                        success = false;
+                        break;
+                    }
                     furi_delay_ms(5);
                 }
                 result_event = Iso15693WriterWorkerEventWriteSuccess;
@@ -285,7 +304,7 @@ void iso15693_writer_worker_free(Iso15693WriterWorker* instance) {
     free(instance);
 }
 
-void iso15693_writer_worker_start(Iso15693WriterWorker* instance, Iso15693WriterWorkerMode mode, uint8_t block, uint8_t* full_data, uint8_t* lock_status, const uint8_t* single_data, uint8_t afi, uint8_t dsfid, Iso15693WriterWorkerCallback cb, void* ctx) {
+void iso15693_writer_worker_start(Iso15693WriterWorker* instance, Iso15693WriterWorkerMode mode, uint8_t block, uint8_t* full_data, uint8_t* lock_status, const uint8_t* single_data, uint8_t afi, uint8_t dsfid, uint16_t expected_block_count, uint8_t expected_block_size, Iso15693WriterWorkerCallback cb, void* ctx) {
     memset(instance, 0, sizeof(Iso15693WriterWorker));
     instance->mode = mode;
     instance->write_block = block;
@@ -297,6 +316,8 @@ void iso15693_writer_worker_start(Iso15693WriterWorker* instance, Iso15693Writer
     instance->block_count = 28;
     instance->block_size = 4;
     
+    instance->expected_block_count = expected_block_count;
+    instance->expected_block_size = expected_block_size;
     instance->afi_value = afi;
     instance->dsfid_value = dsfid;
     instance->callback = cb;

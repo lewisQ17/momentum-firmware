@@ -12,6 +12,9 @@ static void nfc_apdu_runner_scene_save_file_text_input_callback(void* context) {
 void nfc_apdu_runner_scene_save_file_on_enter(void* context) {
     NfcApduRunner* app = context;
 
+    // 0 = may return to Results (keep responses); 1 = leaving to Start (free responses)
+    scene_manager_set_scene_state(app->scene_manager, NfcApduRunnerSceneSaveFile, 0);
+
     // 分配文本输入视图
     TextInput* text_input = app->text_input;
 
@@ -86,7 +89,8 @@ bool nfc_apdu_runner_scene_save_file_on_event(void* context, SceneManagerEvent e
                 dialog_message_free(message);
             }
 
-            // 返回到开始场景
+            // 返回到开始场景 (responses are freed in on_exit from here on)
+            scene_manager_set_scene_state(app->scene_manager, NfcApduRunnerSceneSaveFile, 1);
             scene_manager_search_and_switch_to_previous_scene(
                 app->scene_manager, NfcApduRunnerSceneStart);
             consumed = true;
@@ -105,8 +109,9 @@ void nfc_apdu_runner_scene_save_file_on_exit(void* context) {
     NfcApduRunner* app = context;
     text_input_reset(app->text_input);
 
-    // 释放响应资源
-    if(app->responses != NULL) {
+    // 释放响应资源 (only when leaving to Start; Back must keep them for the Results scene)
+    if(app->responses != NULL &&
+       scene_manager_get_scene_state(app->scene_manager, NfcApduRunnerSceneSaveFile) == 1) {
         nfc_apdu_responses_free(app->responses, app->response_count);
         app->responses = NULL;
         app->response_count = 0;

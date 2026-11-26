@@ -53,7 +53,8 @@ bool nfc_eink_scene_choose_screen_on_event(void* context, SceneManagerEvent even
     SceneManager* scene_manager = instance->scene_manager;
     bool consumed = false;
 
-    if(event.type == SceneManagerEventTypeCustom) {
+    if(event.type == SceneManagerEventTypeCustom &&
+       event.event < EinkScreenInfoArray_size(instance->arr)) {
         const uint32_t index = event.event;
         const NfcEinkScreenInfo* item = *EinkScreenInfoArray_get(instance->arr, index);
         instance->screen = nfc_eink_screen_alloc(item->screen_manufacturer);
@@ -65,6 +66,12 @@ bool nfc_eink_scene_choose_screen_on_event(void* context, SceneManagerEvent even
             scene_manager_next_scene(scene_manager, NfcEinkAppSceneWrite);
         } else {
             FURI_LOG_E(TAG, "Unable to load image data");
+            // Don't leak the screen allocated for this attempt
+            nfc_eink_screen_free(instance->screen);
+            instance->screen = NULL;
+            instance->last_error = NfcEinkScreenErrorUnsupportedScreen;
+            scene_manager_next_scene(scene_manager, NfcEinkAppSceneError);
+            notification_message(instance->notifications, &sequence_error);
         }
         consumed = true;
     }

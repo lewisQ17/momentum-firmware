@@ -167,14 +167,31 @@ void seos_characteristic_reader_flow(
         bit_buffer_append_bytes(
             rx_buffer, rx_data, bit_buffer_get_size_bytes(attribute_value) - 1);
         seos_log_bitbuffer(TAG, "BLE response(wrapped)", rx_buffer);
-        secure_messaging_unwrap_rapdu(secure_messaging, rx_buffer);
+        if(!secure_messaging_unwrap_rapdu(secure_messaging, rx_buffer)) {
+            FURI_LOG_W(TAG, "Malformed secure messaging response");
+            bit_buffer_free(rx_buffer);
+            return;
+        }
         seos_log_bitbuffer(TAG, "BLE response(clear)", rx_buffer);
 
-        // Skip fileId
+        // Skip fileId; need fileId(2) + length byte before reading it
+        if(bit_buffer_get_size_bytes(rx_buffer) < 3) {
+            FURI_LOG_W(TAG, "SIO response too short");
+            bit_buffer_free(rx_buffer);
+            return;
+        }
         seos_characteristic->credential->sio_len = bit_buffer_get_byte(rx_buffer, 2);
         if(seos_characteristic->credential->sio_len >
            sizeof(seos_characteristic->credential->sio)) {
             FURI_LOG_W(TAG, "SIO too long to save");
+            bit_buffer_free(rx_buffer);
+            return;
+        }
+        // sio_len is peer-supplied, must lie inside the received frame
+        if(3 + (size_t)seos_characteristic->credential->sio_len >
+           bit_buffer_get_size_bytes(rx_buffer)) {
+            FURI_LOG_W(TAG, "SIO length exceeds response");
+            bit_buffer_free(rx_buffer);
             return;
         }
         memcpy(
@@ -265,11 +282,12 @@ void seos_characteristic_cred_flow(
                 bit_buffer_get_size_bytes(attribute_value) - bytes_to_ignore);
 
             seos_log_bitbuffer(TAG, "received(wrapped)", tmp);
-            secure_messaging_unwrap_apdu(seos_characteristic->secure_messaging, tmp);
+            bool unwrapped =
+                secure_messaging_unwrap_apdu(seos_characteristic->secure_messaging, tmp);
             seos_log_bitbuffer(TAG, "received(clear)", tmp);
 
             const uint8_t* message = bit_buffer_get_data(tmp);
-            if(memcmp(message, request_sio, sizeof(request_sio)) == 0) {
+            if(unwrapped && memcmp(message, request_sio, sizeof(request_sio)) == 0) {
                 view_dispatcher_send_custom_event(
                     seos_characteristic->seos->view_dispatcher, SeosCustomEventSIORequested);
 

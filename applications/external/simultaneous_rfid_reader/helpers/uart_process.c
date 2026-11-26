@@ -6,6 +6,32 @@
  * @param      line     The current line in the buffer to read
  * @param      context  The UHFReaderApp
 */
+// Pi-reported tag counts are untrusted; the result tables only hold UHF_TABLE_MAX_ENTRIES
+static uint32_t uhf_parse_count(const char* Line) {
+    int Count = atoi(Line);
+    if(Count < 0) return 0;
+    if(Count > UHF_TABLE_MAX_ENTRIES) return UHF_TABLE_MAX_ENTRIES;
+    return (uint32_t)Count;
+}
+
+// Free the strdup'd table entries (stored at idx*stride, idx 0..12) and empty the table
+static void uhf_table_clear(char** Table, size_t Stride, size_t Bytes) {
+    for(size_t Idx = 0; Idx <= UHF_TABLE_MAX_ENTRIES; Idx++) {
+        if(Idx * Stride < Bytes / sizeof(char*)) {
+            free(Table[Idx * Stride]);
+            Table[Idx * Stride] = NULL;
+        }
+    }
+    memset(Table, 0, Bytes);
+}
+
+void uhf_reader_free_tag_tables(UHFReaderApp* App) {
+    uhf_table_clear(App->EpcValues, 26, 50 * 26);
+    uhf_table_clear(App->TidValues, 41, 50 * 41);
+    uhf_table_clear(App->ResValues, 17, 50 * 17);
+    uhf_table_clear(App->MemValues, 33, 50 * 33);
+}
+
 void uart_demo_process_line(FuriString* Line, void* Context) {
     UHFReaderApp* App = (UHFReaderApp*)Context;
     bool Redraw = true;
@@ -53,6 +79,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
             FuriString* NumEpcs = furi_string_alloc();
             FuriString* EpcAndName = furi_string_alloc();
+            FuriString* TempPc = furi_string_alloc();
+            FuriString* TempCrc = furi_string_alloc();
             FuriString* TempTid = furi_string_alloc();
             FuriString* TempRes = furi_string_alloc();
             FuriString* TempMem = furi_string_alloc();
@@ -65,6 +93,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
                     furi_string_set(TempRes, Model->ResValue);
                     furi_string_set(TempMem, Model->MemValue);
                     furi_string_set(Model->WriteFunction, WRITE_EPC_OK);
+                    furi_string_set(TempPc, Model->Pc);
+                    furi_string_set(TempCrc, Model->Crc);
                 },
                 Redraw);
 
@@ -72,12 +102,14 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
             furi_string_printf(
                 EpcAndName,
-                "%s:%s:%s:%s:%s",
+                "%s:%s:%s:%s:%s:%s:%s", // keep the 7-field saved-tag format (PC + CRC)
                 furi_string_get_cstr(App->EpcName),
                 App->TempSaveBuffer,
                 furi_string_get_cstr(TempTid),
                 furi_string_get_cstr(TempRes),
-                furi_string_get_cstr(TempMem));
+                furi_string_get_cstr(TempMem),
+                furi_string_get_cstr(TempPc),
+                furi_string_get_cstr(TempCrc));
 
             if(!flipper_format_update_string_cstr(
                    App->EpcFile, furi_string_get_cstr(NumEpcs), furi_string_get_cstr(EpcAndName))) {
@@ -87,6 +119,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
             flipper_format_file_close(App->EpcFile);
             furi_string_free(NumEpcs);
             furi_string_free(EpcAndName);
+            furi_string_free(TempPc);
+            furi_string_free(TempCrc);
             furi_string_free(TempTid);
             furi_string_free(TempRes);
             furi_string_free(TempMem);
@@ -105,6 +139,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
             FuriString* NumEpcs = furi_string_alloc();
             FuriString* EpcAndName = furi_string_alloc();
+            FuriString* TempPc = furi_string_alloc();
+            FuriString* TempCrc = furi_string_alloc();
             FuriString* TempTid = furi_string_alloc();
             FuriString* TempEpc = furi_string_alloc();
             FuriString* TempMem = furi_string_alloc();
@@ -117,6 +153,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
                     furi_string_set(TempEpc, App->EpcToWrite);
                     furi_string_set(TempMem, Model->MemValue);
                     furi_string_set(Model->WriteFunction, WRITE_EPC_OK);
+                    furi_string_set(TempPc, Model->Pc);
+                    furi_string_set(TempCrc, Model->Crc);
                 },
                 Redraw);
 
@@ -124,12 +162,14 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
             furi_string_printf(
                 EpcAndName,
-                "%s:%s:%s:%s:%s",
+                "%s:%s:%s:%s:%s:%s:%s", // keep the 7-field saved-tag format (PC + CRC)
                 furi_string_get_cstr(App->EpcName),
                 furi_string_get_cstr(TempEpc),
                 furi_string_get_cstr(TempTid),
                 App->TempSaveBuffer,
-                furi_string_get_cstr(TempMem));
+                furi_string_get_cstr(TempMem),
+                furi_string_get_cstr(TempPc),
+                furi_string_get_cstr(TempCrc));
 
             if(!flipper_format_update_string_cstr(
                    App->EpcFile, furi_string_get_cstr(NumEpcs), furi_string_get_cstr(EpcAndName))) {
@@ -139,6 +179,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
             flipper_format_file_close(App->EpcFile);
             furi_string_free(NumEpcs);
             furi_string_free(EpcAndName);
+            furi_string_free(TempPc);
+            furi_string_free(TempCrc);
             furi_string_free(TempTid);
             furi_string_free(TempEpc);
             furi_string_free(TempMem);
@@ -163,6 +205,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
             FuriString* NumEpcs = furi_string_alloc();
             FuriString* EpcAndName = furi_string_alloc();
+            FuriString* TempPc = furi_string_alloc();
+            FuriString* TempCrc = furi_string_alloc();
             FuriString* TempRes = furi_string_alloc();
             FuriString* TempEpc = furi_string_alloc();
             FuriString* TempMem = furi_string_alloc();
@@ -175,6 +219,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
                     furi_string_set(TempEpc, App->EpcToWrite);
                     furi_string_set(TempMem, Model->MemValue);
                     furi_string_set(Model->WriteFunction, WRITE_EPC_OK);
+                    furi_string_set(TempPc, Model->Pc);
+                    furi_string_set(TempCrc, Model->Crc);
                 },
                 Redraw);
 
@@ -182,12 +228,14 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
             furi_string_printf(
                 EpcAndName,
-                "%s:%s:%s:%s:%s",
+                "%s:%s:%s:%s:%s:%s:%s", // keep the 7-field saved-tag format (PC + CRC)
                 furi_string_get_cstr(App->EpcName),
                 furi_string_get_cstr(TempEpc),
                 App->TempSaveBuffer,
                 furi_string_get_cstr(TempRes),
-                furi_string_get_cstr(TempMem));
+                furi_string_get_cstr(TempMem),
+                furi_string_get_cstr(TempPc),
+                furi_string_get_cstr(TempCrc));
 
             if(!flipper_format_update_string_cstr(
                    App->EpcFile, furi_string_get_cstr(NumEpcs), furi_string_get_cstr(EpcAndName))) {
@@ -197,6 +245,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
             flipper_format_file_close(App->EpcFile);
             furi_string_free(NumEpcs);
             furi_string_free(EpcAndName);
+            furi_string_free(TempPc);
+            furi_string_free(TempCrc);
             furi_string_free(TempRes);
             furi_string_free(TempEpc);
             furi_string_free(TempMem);
@@ -222,6 +272,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
             FuriString* NumEpcs = furi_string_alloc();
             FuriString* EpcAndName = furi_string_alloc();
+            FuriString* TempPc = furi_string_alloc();
+            FuriString* TempCrc = furi_string_alloc();
             FuriString* TempTid = furi_string_alloc();
             FuriString* TempEpc = furi_string_alloc();
             FuriString* TempRes = furi_string_alloc();
@@ -234,6 +286,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
                     furi_string_set(TempEpc, App->EpcToWrite);
                     furi_string_set(TempRes, Model->ResValue);
                     furi_string_set(Model->WriteFunction, WRITE_EPC_OK);
+                    furi_string_set(TempPc, Model->Pc);
+                    furi_string_set(TempCrc, Model->Crc);
                 },
                 Redraw);
 
@@ -241,12 +295,14 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
             furi_string_printf(
                 EpcAndName,
-                "%s:%s:%s:%s:%s",
+                "%s:%s:%s:%s:%s:%s:%s", // keep the 7-field saved-tag format (PC + CRC)
                 furi_string_get_cstr(App->EpcName),
                 furi_string_get_cstr(TempEpc),
                 furi_string_get_cstr(TempTid),
                 furi_string_get_cstr(TempRes),
-                App->TempSaveBuffer);
+                App->TempSaveBuffer,
+                furi_string_get_cstr(TempPc),
+                furi_string_get_cstr(TempCrc));
 
             if(!flipper_format_update_string_cstr(
                    App->EpcFile, furi_string_get_cstr(NumEpcs), furi_string_get_cstr(EpcAndName))) {
@@ -256,6 +312,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
             flipper_format_file_close(App->EpcFile);
             furi_string_free(NumEpcs);
             furi_string_free(EpcAndName);
+            furi_string_free(TempPc);
+            furi_string_free(TempCrc);
             furi_string_free(TempTid);
             furi_string_free(TempEpc);
             furi_string_free(TempRes);
@@ -275,8 +333,8 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
     // Wait for the number of tags read
     case UHFReaderStateWaitForNumber:
-        App->NumberOfEpcsToRead = atoi(furi_string_get_cstr(Line));
-        memset(App->EpcValues, 0, 50 * 26); // buffer is allocated for 50 entries, not 127
+        App->NumberOfEpcsToRead = uhf_parse_count(furi_string_get_cstr(Line));
+        uhf_table_clear(App->EpcValues, 26, 50 * 26); // frees old strings, buffer holds 50 entries
         App->State = UHFReaderStateCollectEPCs;
         break;
 
@@ -296,22 +354,22 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
 
     // Wait for the number of TIDs read
     case UHFReaderStateWaitForTID:
-        App->NumberOfTidsToRead = atoi(furi_string_get_cstr(Line));
-        memset(App->TidValues, 0, 50 * 41); // buffer is allocated for 50 entries, not 127
+        App->NumberOfTidsToRead = uhf_parse_count(furi_string_get_cstr(Line));
+        uhf_table_clear(App->TidValues, 41, 50 * 41); // frees old strings, buffer holds 50 entries
         App->State = UHFReaderStateCollectTIDs;
         break;
 
     // Wait for number of reserved reads
     case UHFReaderStateWaitForRES:
-        App->NumberOfResToRead = atoi(furi_string_get_cstr(Line));
-        memset(App->ResValues, 0, 50 * 17); // buffer is allocated for 50 entries, not 127
+        App->NumberOfResToRead = uhf_parse_count(furi_string_get_cstr(Line));
+        uhf_table_clear(App->ResValues, 17, 50 * 17); // frees old strings, buffer holds 50 entries
         App->State = UHFReaderStateCollectRESs;
         break;
 
     // Wait for number of user reads
     case UHFReaderStateWaitForMEM:
-        App->NumberOfMemToRead = atoi(furi_string_get_cstr(Line));
-        memset(App->MemValues, 0, 50 * 33); // buffer is allocated for 50 entries, not 127
+        App->NumberOfMemToRead = uhf_parse_count(furi_string_get_cstr(Line));
+        uhf_table_clear(App->MemValues, 33, 50 * 33); // frees old strings, buffer holds 50 entries
         App->State = UHFReaderStateCollectMEMs;
         break;
 
@@ -357,7 +415,7 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
             UHFRFIDTagModel * Model,
             {
                 if(App->NumberOfTidsToRead > 0) {
-                    furi_string_set_str(Model->Tid, App->TidValues[App->CurTidIndex * 41]);
+                    uhf_set_str_nonnull(Model->Tid, UHF_TID_AT(App, App->CurTidIndex));
                 }
             },
             Redraw);
@@ -375,7 +433,7 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
             UHFRFIDTagModel * Model,
             {
                 if(App->NumberOfResToRead > 0) {
-                    furi_string_set_str(Model->Reserved, App->ResValues[App->CurResIndex * 17]);
+                    uhf_set_str_nonnull(Model->Reserved, UHF_RES_AT(App, App->CurResIndex));
                 }
             },
             Redraw);
@@ -391,7 +449,7 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
             UHFRFIDTagModel * Model,
             {
                 if(App->NumberOfMemToRead > 0) {
-                    furi_string_set_str(Model->User, App->MemValues[App->CurMemIndex * 33]);
+                    uhf_set_str_nonnull(Model->User, UHF_MEM_AT(App, App->CurMemIndex));
                 }
             },
             Redraw);
@@ -412,7 +470,7 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
             UHFReaderConfigModel * Model,
             {
                 if(App->NumberOfEpcsToRead > 0) {
-                    furi_string_set_str(Model->EpcValue, App->EpcValues[Model->CurEpcIndex * 26]);
+                    uhf_set_str_nonnull(Model->EpcValue, UHF_EPC_AT(App, Model->CurEpcIndex));
 
                     Model->NumEpcsRead = App->NumberOfEpcsToRead;
                 }
@@ -423,7 +481,7 @@ void uart_demo_process_line(FuriString* Line, void* Context) {
             UHFRFIDTagModel * Model,
             {
                 if(App->NumberOfEpcsToRead > 0) {
-                    furi_string_set_str(Model->Epc, App->EpcValues[App->CurTidIndex * 26]);
+                    uhf_set_str_nonnull(Model->Epc, UHF_EPC_AT(App, App->CurTidIndex));
                 }
             },
             Redraw);

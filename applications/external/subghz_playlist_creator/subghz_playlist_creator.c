@@ -47,10 +47,12 @@ bool scene_playlist_edit_back_event_callback(void* context);
 static bool file_read_line(File* file, char* buffer, size_t max_len) {
     size_t i = 0;
     char c = 0;
-    while(i + 1 < max_len) {
+    while(true) {
         if(storage_file_read(file, &c, 1) != 1) break;
         if(c == '\n') break;
-        buffer[i++] = c;
+        if(c == '\r') continue; // CRLF playlists: never keep the CR in the entry
+        // over-long line: keep the head, discard the rest instead of splitting it
+        if(i + 1 < max_len) buffer[i++] = c;
     }
     buffer[i] = 0;
     return (i > 0) || (c == '\n');
@@ -132,7 +134,7 @@ static void on_edit_file_selected(SubGhzPlaylistCreator* app, const char* path) 
     // Open and parse the playlist file
     File* file = storage_file_alloc(app->storage);
     if(file && storage_file_open(file, path, FSAM_READ, FSOM_OPEN_EXISTING)) {
-        char line[256];
+        char line[512];
         while(file_read_line(file, line, sizeof(line))) {
             // Ignore lines starting with '#'
             if(line[0] == '#') continue;

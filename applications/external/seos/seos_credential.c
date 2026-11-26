@@ -175,10 +175,17 @@ static bool
             seos_credential->adf_response,
             sizeof(seos_credential->adf_response));
 
-        flipper_format_read_uint32(
-            file, "ADF OID Length", (uint32_t*)&(seos_credential->adf_oid_len), 1);
-        flipper_format_read_hex(
-            file, "ADF OID", seos_credential->adf_oid, seos_credential->adf_oid_len);
+        // File-supplied length: must fit adf_oid[] before it is used as a read size
+        uint32_t adf_oid_len = 0;
+        seos_credential->adf_oid_len = 0;
+        if(flipper_format_read_uint32(file, "ADF OID Length", &adf_oid_len, 1)) {
+            if(adf_oid_len > sizeof(seos_credential->adf_oid)) {
+                adf_oid_len = sizeof(seos_credential->adf_oid);
+            }
+            if(flipper_format_read_hex(file, "ADF OID", seos_credential->adf_oid, adf_oid_len)) {
+                seos_credential->adf_oid_len = adf_oid_len;
+            }
+        }
 
         parsed = true;
     } while(false);

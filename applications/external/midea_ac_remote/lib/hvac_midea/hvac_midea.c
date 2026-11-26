@@ -126,9 +126,9 @@ void hvac_midea_set_temperature_raw(HvacMideaPacket packet, uint8_t temperature_
 
 void hvac_midea_set_temperature(HvacMideaPacket packet, HvacMideaTemperature temperature) {
     furi_assert(packet);
-    furi_assert(
-        (temperature >= HVAC_MIDEA_TEMPERATURE_MIN) &&
-        (temperature <= HVAC_MIDEA_TEMPERATURE_MAX));
+    // furi_assert is compiled out in release: clamp so the table index stays in range
+    if(temperature < HVAC_MIDEA_TEMPERATURE_MIN) temperature = HVAC_MIDEA_TEMPERATURE_MIN;
+    if(temperature > HVAC_MIDEA_TEMPERATURE_MAX) temperature = HVAC_MIDEA_TEMPERATURE_MAX;
 
     hvac_midea_set_temperature_raw(
         packet, hvac_midea_temperature_table[temperature - HVAC_MIDEA_TEMPERATURE_MIN]);

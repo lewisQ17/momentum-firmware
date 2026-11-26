@@ -200,13 +200,13 @@ void uhf_reader_view_epc_enter_callback(void* context) {
         UHFRFIDTagModel * model,
         {
             if(App->NumberOfTidsToRead > 0 && CurTidIndex < App->NumberOfTidsToRead) {
-                furi_string_set_str(model->Tid, App->TidValues[CurTidIndex * 41]);
+                uhf_set_str_nonnull(model->Tid, UHF_TID_AT(App, CurTidIndex));
             }
             if(App->NumberOfResToRead > 0 && CurResIndex < App->NumberOfResToRead) {
-                furi_string_set_str(model->Reserved, App->ResValues[CurResIndex * 17]);
+                uhf_set_str_nonnull(model->Reserved, UHF_RES_AT(App, CurResIndex));
             }
             if(App->NumberOfMemToRead > 0 && CurMemIndex < App->NumberOfMemToRead) {
-                furi_string_set_str(model->User, App->MemValues[CurMemIndex * 33]);
+                uhf_set_str_nonnull(model->User, UHF_MEM_AT(App, CurMemIndex));
             }
         },
         Redraw);

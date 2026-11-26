@@ -56,7 +56,9 @@ static void edit_dialog_callback(DialogExResult result, void* context) {
             FURI_LOG_D(TAG, "Save: DialogExResultRight -> save and menu");
             File* file = storage_file_alloc(app->storage);
             bool save_ok = false;
-            if(file && storage_file_open(file, furi_string_get_cstr(app->playlist_path), FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+            // write to a temp file first, so a failed save never truncates the playlist
+            FuriString* tmp_path = furi_string_alloc_printf("%s.tmp", furi_string_get_cstr(app->playlist_path));
+            if(file && storage_file_open(file, furi_string_get_cstr(tmp_path), FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
                 save_ok = true;
                 for(size_t i = 0; i < app->playlist_entry_count && save_ok; ++i) {
                     size_t len = strlen(app->playlist_entries[i]);
@@ -67,6 +69,18 @@ static void edit_dialog_callback(DialogExResult result, void* context) {
                 storage_file_close(file);
             }
             if(file) storage_file_free(file);
+            bool orig_removed = false;
+            if(save_ok) {
+                orig_removed = storage_simply_remove(app->storage, furi_string_get_cstr(app->playlist_path));
+                save_ok = orig_removed &&
+                          storage_common_rename(
+                              app->storage,
+                              furi_string_get_cstr(tmp_path),
+                              furi_string_get_cstr(app->playlist_path)) == FSE_OK;
+            }
+            // keep the temp file when the original is already gone: it is then the only copy
+            if(!save_ok && !orig_removed) storage_simply_remove(app->storage, furi_string_get_cstr(tmp_path));
+            furi_string_free(tmp_path);
             if(!save_ok) {
                 // keep the entries so the user does not lose the playlist
                 FURI_LOG_E(TAG, "Save: failed to write playlist");

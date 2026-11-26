@@ -83,12 +83,7 @@ UHFWorkerEvent read_single_card(UHFWorker* uhf_worker) {
 }
 
 //Modified by Riley Haffner to be able to write to the reserved bank
-UHFWorkerEvent write_single_card(UHFWorker* uhf_worker) {
-    //uhf_worker->TagToWrite
-    UHFTag* uhf_tag_des = send_polling_command(
-        uhf_worker); 
-    if(uhf_tag_des == NULL) return UHFWorkerEventAborted;
-    
+static UHFWorkerEvent write_single_card_to(UHFWorker* uhf_worker, UHFTag* uhf_tag_des) {
     UHFTag* uhf_tag_from =
         uhf_worker->NewTag; 
     M100ResponseType rp_type;
@@ -178,6 +173,14 @@ UHFWorkerEvent write_single_card(UHFWorker* uhf_worker) {
         }
     }
     return UHFWorkerEventSuccess;
+}
+
+UHFWorkerEvent write_single_card(UHFWorker* uhf_worker) {
+    UHFTag* uhf_tag_des = send_polling_command(uhf_worker);
+    if(uhf_tag_des == NULL) return UHFWorkerEventAborted;
+    UHFWorkerEvent event = write_single_card_to(uhf_worker, uhf_tag_des);
+    uhf_tag_free(uhf_tag_des); // polled destination tag was leaked on every path
+    return event;
 }
 
 int32_t uhf_worker_task(void* ctx) {

@@ -48,8 +48,11 @@ typedef struct {
     uint32_t edit_item;
     uint32_t ir_timing;
     char* ir_timing_char;
+    char ir_timing_buf[12]; /**< Writable storage for ir_timing_char (u32 max + NUL). */
     uint32_t sg_timing;
     char* sg_timing_char;
+    char sg_timing_buf[12]; /**< Writable storage for sg_timing_char. */
+    bool otg_was_enabled; /**< OTG state at launch, restored on exit. */
     bool transmitting;
     bool stop_transmit;
     size_t transmit_item;

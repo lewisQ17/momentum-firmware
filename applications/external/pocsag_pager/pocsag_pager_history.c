@@ -180,6 +180,9 @@ PCSGHistoryStateAddKey
     item->flipper_string = flipper_format_string_alloc();
     subghz_protocol_decoder_base_serialize(decoder_base, item->flipper_string, preset);
 
+    // allocated up front so every exit path of the block below frees them
+    FuriString* temp_ric = furi_string_alloc();
+    FuriString* temp_message = furi_string_alloc();
     do {
         if(!flipper_format_rewind(item->flipper_string)) {
             FURI_LOG_E(TAG, "Rewind error");
@@ -194,13 +197,11 @@ PCSGHistoryStateAddKey
             FURI_LOG_E(TAG, "Rewind error");
             break;
         }
-        FuriString* temp_ric = furi_string_alloc();
         if(!flipper_format_read_string(item->flipper_string, "Ric", temp_ric)) {
             FURI_LOG_E(TAG, "Missing Ric");
             break;
         }
 
-        FuriString* temp_message = furi_string_alloc();
         if(!flipper_format_read_string(item->flipper_string, "Message", temp_message)) {
             FURI_LOG_E(TAG, "Missing Message");
             break;
@@ -212,10 +213,9 @@ PCSGHistoryStateAddKey
             furi_string_get_cstr(temp_ric),
             furi_string_get_cstr(temp_message));
 
-        furi_string_free(temp_message);
-        furi_string_free(temp_ric);
-
     } while(false);
+    furi_string_free(temp_message);
+    furi_string_free(temp_ric);
     instance->last_index_write++;
     return PCSGHistoryStateAddKeyNewDada;
 

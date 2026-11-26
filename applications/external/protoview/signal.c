@@ -54,6 +54,8 @@ uint32_t duration_delta(uint32_t a, uint32_t b) {
 
 /* Reset the current signal, so that a new one can be detected. */
 void reset_current_signal(ProtoViewApp* app) {
+    /* Same lock as the renderer: it dereferences msg_info while drawing. */
+    furi_mutex_acquire(app->view_updating_mutex, FuriWaitForever);
     app->signal_bestlen = 0;
     app->signal_offset = 0;
     app->signal_decoded = false;
@@ -61,6 +63,7 @@ void reset_current_signal(ProtoViewApp* app) {
     raw_samples_reset(RawSamples);
     free_msg_info(app->msg_info);
     app->msg_info = NULL;
+    furi_mutex_release(app->view_updating_mutex);
 }
 
 /* This function starts scanning samples at offset idx looking for the
@@ -221,17 +224,26 @@ void scan_for_signal(ProtoViewApp* app, RawSamplesBuffer* source, uint32_t min_d
             /* Accept this signal as the new signal if either it's longer
              * than the previous undecoded one, or the previous one was
              * unknown and this is decoded. */
+            furi_mutex_acquire(app->view_updating_mutex, FuriWaitForever);
             bool oldsignal_not_decoded = app->signal_decoded == false ||
+                                         app->msg_info == NULL ||
                                          app->msg_info->decoder == &UnknownDecoder;
+            furi_mutex_release(app->view_updating_mutex);
 
             if(oldsignal_not_decoded &&
                (thislen > app->signal_bestlen || (decoded && info->decoder != &UnknownDecoder))) {
+                /* Swap under the renderer's mutex: it reads msg_info and
+                 * DetectedSamples from the GUI thread. 'info' is not touched
+                 * after the swap since a reset may free it. */
+                bool known_decoder = info->decoder != &UnknownDecoder;
+                furi_mutex_acquire(app->view_updating_mutex, FuriWaitForever);
                 free_msg_info(app->msg_info);
                 app->msg_info = info;
                 app->signal_bestlen = thislen;
                 app->signal_decoded = decoded;
                 raw_samples_copy(DetectedSamples, copy);
                 raw_samples_center(DetectedSamples, i);
+                furi_mutex_release(app->view_updating_mutex);
                 FURI_LOG_E(
                     TAG,
                     "===> Displayed sample updated (%d samples %lu us)",
@@ -239,7 +251,7 @@ void scan_for_signal(ProtoViewApp* app, RawSamplesBuffer* source, uint32_t min_d
                     DetectedSamples->short_pulse_dur);
 
                 adjust_raw_view_scale(app, DetectedSamples->short_pulse_dur);
-                if(app->msg_info->decoder != &UnknownDecoder) notify_signal_detected(app, decoded);
+                if(known_decoder) notify_signal_detected(app, decoded);
             } else {
                 /* If the structure was not filled, discard it. Otherwise
                  * now the owner is app->msg_info. */

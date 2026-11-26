@@ -2,6 +2,7 @@
 #include "../scenes/enroll/enroll_scene.h"
 #include "../hid/nfc_login_hid.h"
 #include "../hid/nfc_login_hid_ble.h"
+#include <usb_hid.h>
 #include <nfc/nfc.h>
 #include <nfc/nfc_poller.h>
 #include <nfc/protocols/iso14443_3a/iso14443_3a.h>
@@ -78,7 +79,11 @@ int32_t app_scan_thread(void* context) {
                     // CRITICAL: Only touch USB functions when USB mode is active
                     // BLE mode must NEVER call any USB functions
                     if(effective_mode == HidModeUsb) {
-                        app->previous_usb_config = furi_hal_usb_get_config();
+                        // Don't record our own HID config as "previous" (a failed earlier tap leaves HID active)
+                        FuriHalUsbInterface* current_usb_config = furi_hal_usb_get_config();
+                        if(current_usb_config != &usb_hid) {
+                            app->previous_usb_config = current_usb_config;
+                        }
                     } else {
                         // BLE mode - NEVER touch USB, set to NULL
                         app->previous_usb_config = NULL;
@@ -129,6 +134,11 @@ int32_t app_scan_thread(void* context) {
                         }
                         furi_delay_ms(HID_POST_TYPE_DELAY_MS);
                     } else {
+                        // No host enumerated: put USB back right away so HID is not left active
+                        if(effective_mode == HidModeUsb) {
+                            deinitialize_hid_with_restore_and_mode(app->previous_usb_config, effective_mode);
+                            app->previous_usb_config = NULL;
+                        }
                         notification_message(app->notification, &sequence_error);
                     }
                 } else {

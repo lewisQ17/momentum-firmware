@@ -32,6 +32,7 @@ SchedulerApp* scheduler_app_alloc(void) {
     expansion_disable(app->expansion);
 
     app->file_path = furi_string_alloc();
+    app->thread_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
 
     app->gui = furi_record_open(RECORD_GUI);
     app->dialogs = furi_record_open(RECORD_DIALOGS);
@@ -85,6 +86,7 @@ void scheduler_app_free(SchedulerApp* app) {
     furi_record_close(RECORD_DIALOGS);
     furi_record_close(RECORD_GUI);
     furi_string_free(app->file_path);
+    furi_mutex_free(app->thread_mutex);
     expansion_enable(app->expansion);
     furi_record_close(RECORD_EXPANSION);
 

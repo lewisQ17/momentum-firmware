@@ -25,7 +25,7 @@ bool save_signal(ProtoViewApp* app, const char* filename) {
 
     if(flipper_format_file_open_always(file, filename)) {
         /* Write the file header. */
-        FuriString* file_content = furi_string_alloc();
+        file_content = furi_string_alloc();
         const char* preset_id = ProtoViewModulations[app->modulation].id;
 
         furi_string_printf(

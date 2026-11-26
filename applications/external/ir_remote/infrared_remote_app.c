@@ -405,22 +405,25 @@ int32_t infrared_remote_app(char* p) {
     furi_record_close(RECORD_STORAGE);
 
     bool otg_was_enabled = furi_hal_power_is_otg_enabled();
-    InfraredSettings settings = {0};
-    infrared_settings_load(&settings);
-    if(settings.tx_pin < FuriHalInfraredTxPinMax) {
-        furi_hal_infrared_set_tx_output(settings.tx_pin);
-        if(settings.otg_enabled != otg_was_enabled) {
-            if(settings.otg_enabled) {
-                furi_hal_power_enable_otg();
-            } else {
-                furi_hal_power_disable_otg();
+    // Only power the TX pin / OTG when the remote loaded; a bad config transmits nothing
+    if(!app->status) {
+        InfraredSettings settings = {0};
+        infrared_settings_load(&settings);
+        if(settings.tx_pin < FuriHalInfraredTxPinMax) {
+            furi_hal_infrared_set_tx_output(settings.tx_pin);
+            if(settings.otg_enabled != otg_was_enabled) {
+                if(settings.otg_enabled) {
+                    furi_hal_power_enable_otg();
+                } else {
+                    furi_hal_power_disable_otg();
+                }
             }
-        }
-    } else {
-        FuriHalInfraredTxPin tx_pin_detected = furi_hal_infrared_detect_tx_output();
-        furi_hal_infrared_set_tx_output(tx_pin_detected);
-        if(tx_pin_detected != FuriHalInfraredTxPinInternal) {
-            furi_hal_power_enable_otg();
+        } else {
+            FuriHalInfraredTxPin tx_pin_detected = furi_hal_infrared_detect_tx_output();
+            furi_hal_infrared_set_tx_output(tx_pin_detected);
+            if(tx_pin_detected != FuriHalInfraredTxPinInternal) {
+                furi_hal_power_enable_otg();
+            }
         }
     }
 

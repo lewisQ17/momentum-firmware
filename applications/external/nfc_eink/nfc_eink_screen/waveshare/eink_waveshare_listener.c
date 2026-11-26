@@ -195,7 +195,9 @@ NfcCommand eink_waveshare_listener_process(Nfc* nfc, NfcEinkScreen* screen, cons
         eink_waveshare_listener_get_command_callback(data);
     if(handler != NULL) {
         command = handler(screen, data);
-        iso14443_crc_append(Iso14443CrcTypeA, screen->tx_buf);
+        // Silent commands must stay silent: a CRC on an empty frame is a bogus 2-byte reply
+        if(bit_buffer_get_size_bytes(screen->tx_buf) > 0)
+            iso14443_crc_append(Iso14443CrcTypeA, screen->tx_buf);
     }
 
     if(bit_buffer_get_size_bytes(screen->tx_buf) > 0) {

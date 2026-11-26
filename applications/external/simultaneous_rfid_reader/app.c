@@ -82,6 +82,11 @@ static UHFReaderApp* uhf_reader_app_alloc() {
     App->TidValues = (char**)malloc(50 * 41);
     App->ResValues = (char**)malloc(50 * 17);
     App->MemValues = (char**)malloc(50 * 33);
+    // Zero the tables: entries are free()d on re-read/exit, so no garbage pointers
+    memset(App->EpcValues, 0, 50 * 26);
+    memset(App->TidValues, 0, 50 * 41);
+    memset(App->ResValues, 0, 50 * 17);
+    memset(App->MemValues, 0, 50 * 33);
     App->EpcToSave = (char*)malloc(25);
     App->NumberOfEpcsToRead = 0;
 
@@ -182,6 +187,9 @@ static void uhf_reader_app_free(UHFReaderApp* App) {
     furi_string_free(App->EpcDelete);
     furi_string_free(App->EpcNameDelete);
     furi_string_free(App->EpcToWrite);
+    uhf_reader_free_tag_tables(App);
+    flipper_format_free(App->EpcFile);
+    flipper_format_free(App->EpcIndexFile);
     free(App->EpcValues);
     free(App->TidValues);
     free(App->ResValues);

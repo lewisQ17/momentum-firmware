@@ -1237,6 +1237,14 @@ static int32_t ami_tool_info_write_worker(void* context) {
         }
     }
 
+    // Tag accepted: from here on Back must not abort mid-sequence (half-programmed tag, lock bits/password)
+    app->write_waiting_for_tag = false;
+    if(app->write_cancel_requested) {
+        ami_tool_info_write_send_event(app, AmiToolEventInfoWriteCancelled, "Write cancelled.");
+        goto cleanup;
+    }
+    ami_tool_info_write_send_event(app, AmiToolEventInfoWriteStarted, NULL);
+
     MfUltralightError io_error = MfUltralightErrorNone;
     uint16_t failed_page = UINT16_MAX;
     AmiToolWriteStatus status = ami_tool_write_custom_sequence(app, &io_error, &failed_page);

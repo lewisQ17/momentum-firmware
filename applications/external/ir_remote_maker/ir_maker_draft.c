@@ -131,12 +131,18 @@ InfraredErrorCode ir_maker_draft_save(IrMakerDraft* draft, Storage* storage, con
     furi_assert(draft);
     FlipperFormat* ff = flipper_format_file_alloc(storage);
     InfraredErrorCode error = InfraredErrorCodeNone;
+    /* Write to "<path>.tmp" and rename on success: a failed write must never truncate the
+     * original remote. */
+    FuriString* tmp_path = furi_string_alloc_printf("%s.tmp", path);
+    const char* tmp = furi_string_get_cstr(tmp_path);
+    bool tmp_created = false;
 
     do {
-        if(!flipper_format_file_open_always(ff, path)) {
+        if(!flipper_format_file_open_always(ff, tmp)) {
             error = InfraredErrorCodeFileOperationFailed;
             break;
         }
+        tmp_created = true;
         if(!flipper_format_write_header_cstr(ff, IR_MAKER_FILE_HEADER, IR_MAKER_FILE_VERSION)) {
             error = InfraredErrorCodeFileOperationFailed;
             break;
@@ -144,9 +150,12 @@ InfraredErrorCode ir_maker_draft_save(IrMakerDraft* draft, Storage* storage, con
 
         for(size_t i = 0; i < draft->count; i++) {
             const IrMakerButton* button = &draft->items[i];
-            /* Skip any button that somehow holds an invalid signal rather than
-             * emitting a malformed record. */
-            if(!infrared_signal_is_valid(button->signal)) continue;
+            /* An invalid signal must fail the save: silently dropping the button would
+             * overwrite the original without it while reporting success. */
+            if(!infrared_signal_is_valid(button->signal)) {
+                error = InfraredErrorCodeSignalMessageIsInvalid;
+                break;
+            }
 
             error = infrared_signal_save(
                 button->signal, ff, furi_string_get_cstr(button->name));
@@ -154,8 +163,22 @@ InfraredErrorCode ir_maker_draft_save(IrMakerDraft* draft, Storage* storage, con
         }
     } while(false);
 
-    flipper_format_file_close(ff);
+    /* Close result is part of the outcome (flush can fail on a full/ejected SD). */
+    if(!flipper_format_file_close(ff) && !INFRARED_ERROR_PRESENT(error)) {
+        error = InfraredErrorCodeFileOperationFailed;
+    }
     flipper_format_free(ff);
+
+    if(!INFRARED_ERROR_PRESENT(error)) {
+        /* storage_common_rename replaces the destination. */
+        if(storage_common_rename(storage, tmp, path) != FSE_OK) {
+            error = InfraredErrorCodeFileOperationFailed;
+        }
+    }
+    if(INFRARED_ERROR_PRESENT(error) && tmp_created) {
+        storage_simply_remove(storage, tmp); /* original stays untouched */
+    }
+    furi_string_free(tmp_path);
     return error;
 }
 

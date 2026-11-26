@@ -31,6 +31,7 @@ static void xremote_item_update_item(VariableItem* item, FuriString* button) {
 
     int button_index = variable_item_get_current_value_index(item);
     const char* button_name = xremote_button_get_name(button_index);
+    if(button_name == NULL) return; // index out of range (unknown name in .ir file)
     variable_item_set_current_value_text(item, button_name);
 
     furi_string_set_str(button, button_name);
@@ -100,7 +101,8 @@ static void xremote_edit_list_add_item(
 
     /* Get button name and index */
     const char* button_name = furi_string_get_cstr(button);
-    uint32_t button_index = xremote_button_get_index(button_name);
+    int found_index = xremote_button_get_index(button_name);
+    uint32_t button_index = (found_index < 0) ? 0 : (uint32_t)found_index; // unknown name -> first entry
 
     /* Set button name and index to the list item */
     variable_item_set_current_value_index(item, button_index);
@@ -146,7 +148,9 @@ static XRemoteEditContext* xremote_edit_context_alloc(XRemoteAppButtons* buttons
 
 void xremote_edit_context_clear_callback(void* context) {
     XRemoteEditContext* ctx = (XRemoteEditContext*)context;
+    // Frees the list's own View too; xremote_view_free must not view_free it again
     variable_item_list_free(ctx->item_list);
+    free(ctx);
 }
 
 void xremote_edit_view_alloc(XRemoteApp* app, uint32_t view_id, XRemoteAppButtons* buttons) {
@@ -155,7 +159,7 @@ void xremote_edit_view_alloc(XRemoteApp* app, uint32_t view_id, XRemoteAppButton
     XRemoteEditContext* context = xremote_edit_context_alloc(buttons);
 
     xremote_view_set_app_context(remote_view, buttons->app_ctx);
-    xremote_view_set_view(remote_view, variable_item_list_get_view(context->item_list));
+    xremote_view_set_external_view(remote_view, variable_item_list_get_view(context->item_list));
     xremote_view_set_context(remote_view, context, xremote_edit_context_clear_callback);
 
     app->view_ctx = remote_view;

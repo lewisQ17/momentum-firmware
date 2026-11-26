@@ -97,7 +97,5 @@ void t5577_multiwriter_scene_write_second_key_on_exit(void* context) {
     LfRfid* app = context;
     notification_message(app->notifications, &sequence_blink_stop);
     popup_reset(app->popup);
-
-    size_t size = protocol_dict_get_data_size(app->dict, app->protocol_id);
-    protocol_dict_set_data(app->dict, app->protocol_id, app->old_key_data, size);
+    // old_key_data was never filled: restoring it overwrote the dict key with heap garbage
 }

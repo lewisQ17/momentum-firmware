@@ -145,13 +145,13 @@ static void text_input_done_callback(void* context) {
 
     FuriString* save_path =
         furi_string_alloc_printf("%s/%s.sub", EXT_PATH("subghz"), privdata->filename);
-    save_signal(app, furi_string_get_cstr(save_path));
+    bool saved_ok = save_signal(app, furi_string_get_cstr(save_path));
     furi_string_free(save_path);
 
     free(privdata->filename);
     privdata->filename = NULL; // Don't free it again on view exit
     ui_dismiss_keyboard(app);
-    ui_show_alert(app, "Signal saved", 1500);
+    ui_show_alert(app, saved_ok ? "Signal saved" : "Save failed", 1500);
 }
 
 /* Replace all the occurrences of character c1 with c2 in the specified

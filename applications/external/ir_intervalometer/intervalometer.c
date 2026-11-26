@@ -541,13 +541,16 @@ static void flipvalo_intv_tick(struct flipvalo_priv* fv_priv) {
                 run->tick_cur + flipvalo_msec_to_ticks(conf->burst_delay_msec, conf->tickrate);
         }
     }
-    if(run->shot_cur > conf->shot_count) {
+    // Seq Count 0 is selectable in the UI: treat it as 1 so a run still fires once
+    if(run->shot_cur > (conf->shot_count < 1 ? 1 : conf->shot_count)) {
         run->state = FVDone;
     }
 }
 
 static void flipvalo_intv_stop(struct flipvalo_priv* fv_priv) {
     fv_priv->run_state.state = FVDone;
+    // No 125 Hz wakeups while idle
+    if(fv_priv->timer) furi_timer_stop(fv_priv->timer);
 }
 
 static void flipvalo_intv_start(struct flipvalo_priv* fv_priv) {
@@ -557,6 +560,12 @@ static void flipvalo_intv_start(struct flipvalo_priv* fv_priv) {
     fv_priv->run_state.state = FVWaitInitShot;
     fv_priv->run_state.tick_next =
         flipvalo_msec_to_ticks(fv_priv->config.init_delay_msec, fv_priv->config.tickrate);
+    // The tick timer only runs while a sequence is active
+    if(fv_priv->timer) {
+        furi_timer_start(
+            fv_priv->timer,
+            (uint32_t)furi_kernel_get_tick_frequency() / fv_priv->config.tickrate);
+    }
 }
 
 static void timer_callback(void* ctx) {
@@ -660,6 +669,8 @@ int32_t flipvalo_app() {
     Gui* gui = NULL;
     FuriStatus event_status = {0};
     struct plugin_event event = {0};
+    bool redraw = true;
+    bool was_active = true;
 
     FuriMessageQueue* event_queue = furi_message_queue_alloc(8, sizeof(struct plugin_event));
     struct flipvalo_priv* fv_priv = malloc(sizeof(*fv_priv));
@@ -697,8 +708,6 @@ int32_t flipvalo_app() {
     view_port_input_callback_set(view_port, input_callback, event_queue);
 
     fv_priv->timer = furi_timer_alloc(timer_callback, FuriTimerTypePeriodic, fv_priv);
-    furi_timer_start(
-        fv_priv->timer, (uint32_t)furi_kernel_get_tick_frequency() / fv_priv->config.tickrate);
     gui = furi_record_open("gui");
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
 
@@ -770,9 +779,17 @@ int32_t flipvalo_app() {
         }
 
     next_event:
+        // Run finished inside the timer callback: stop the tick timer from the main thread
+        if(!flipvalo_intv_running(fv_priv) && furi_timer_is_running(fv_priv->timer)) {
+            furi_timer_stop(fv_priv->timer);
+        }
+        // Idle timeouts need no redraw; keep redrawing while running/blinking (and once after)
+        redraw = (event_status != FuriStatusErrorTimeout) || flipvalo_intv_running(fv_priv) ||
+                 fv_priv->gui_shutter_blink > 0 || was_active;
+        was_active = flipvalo_intv_running(fv_priv) || fv_priv->gui_shutter_blink > 0;
         furi_mutex_release(fv_priv->mutex);
 
-        view_port_update(view_port);
+        if(redraw) view_port_update(view_port);
     }
 
 cleanup:

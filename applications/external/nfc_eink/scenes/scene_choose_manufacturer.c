@@ -27,7 +27,7 @@ bool nfc_eink_scene_choose_manufacturer_on_event(void* context, SceneManagerEven
     SceneManager* scene_manager = instance->scene_manager;
     bool consumed = false;
 
-    if(event.type == SceneManagerEventTypeCustom) {
+    if(event.type == SceneManagerEventTypeCustom && event.event < NfcEinkManufacturerNum) {
         const NfcEinkManufacturer screen_manufacturer = event.event;
         instance->screen =
             nfc_eink_screen_alloc(screen_manufacturer /* NfcEinkManufacturerWaveshare */);

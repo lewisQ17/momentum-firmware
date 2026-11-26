@@ -142,10 +142,18 @@ void radio_tx_signal(ProtoViewApp* app, FuriHalSubGhzAsyncTxCallback data_feeder
     uint32_t value = subghz_devices_set_frequency(app->radio_device, app->frequency);
     FURI_LOG_E(TAG, "Switched to frequency: %lu", value);
 
-    subghz_devices_start_async_tx(app->radio_device, data_feeder, ctx);
-    while(!subghz_devices_is_async_complete_tx(app->radio_device))
-        furi_delay_ms(10);
-    subghz_devices_stop_async_tx(app->radio_device);
+    /* start_async_tx fails when TX is not allowed on this frequency: then
+     * the completion flag never turns true and stop_async_tx would assert. */
+    if(subghz_devices_start_async_tx(app->radio_device, data_feeder, ctx)) {
+        /* Bounded wait (30s) so a stuck TX can never freeze the app. */
+        uint32_t tx_start_tick = furi_get_tick();
+        while(!subghz_devices_is_async_complete_tx(app->radio_device) &&
+              furi_get_tick() - tx_start_tick < 30000)
+            furi_delay_ms(10);
+        subghz_devices_stop_async_tx(app->radio_device);
+    } else {
+        ui_show_alert(app, "TX not allowed", 3000);
+    }
     subghz_devices_idle(app->radio_device);
 
     radio_begin(app);

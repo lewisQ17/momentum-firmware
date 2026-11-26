@@ -186,6 +186,7 @@ void xremote_view_clear_context(XRemoteView* rview);
 void xremote_view_set_app_context(XRemoteView* rview, void* app_ctx);
 void xremote_view_set_context(XRemoteView* rview, void* context, XRemoteClearCallback on_clear);
 void xremote_view_set_view(XRemoteView* rview, View* view);
+void xremote_view_set_external_view(XRemoteView* rview, View* view);
 
 void* xremote_view_get_app_context(XRemoteView* rview);
 void* xremote_view_get_context(XRemoteView* rview);

@@ -39,7 +39,7 @@ void weebo_scene_save_name_on_enter(void* context) {
         weebo_scene_save_name_text_input_callback,
         weebo,
         weebo->text_store,
-        sizeof(weebo->text_store),
+        sizeof(weebo->file_name), // never let the user type more than file_name can hold
         file_name_empty);
 
     FuriString* folder_path;
@@ -64,7 +64,8 @@ bool weebo_scene_save_name_on_event(void* context, SceneManagerEvent event) {
 
     if(event.type == SceneManagerEventTypeCustom) {
         if(event.event == WeeboCustomEventTextInputDone) {
-            strlcpy(weebo->file_name, weebo->text_store, strlen(weebo->text_store) + 1);
+            // Bound by the destination size, not the source length
+            strlcpy(weebo->file_name, weebo->text_store, sizeof(weebo->file_name));
 
             FuriString* path = furi_string_alloc_set(NFC_APP_PATH_PREFIX);
             if(furi_string_end_with(weebo->load_path, NFC_APP_EXTENSION)) {

@@ -36,12 +36,6 @@ bool mfc_editor_app_back_event_callback(void* context) {
     return scene_manager_handle_back_event(instance->scene_manager);
 }
 
-void mfc_editor_app_tick_event_callback(void* context) {
-    furi_assert(context);
-    MfcEditorApp* instance = context;
-    scene_manager_handle_tick_event(instance->scene_manager);
-}
-
 MfcEditorApp* mfc_editor_app_alloc() {
     MfcEditorApp* instance = malloc(sizeof(MfcEditorApp));
 
@@ -52,8 +46,7 @@ MfcEditorApp* mfc_editor_app_alloc() {
         instance->view_dispatcher, mfc_editor_app_custom_event_callback);
     view_dispatcher_set_navigation_event_callback(
         instance->view_dispatcher, mfc_editor_app_back_event_callback);
-    view_dispatcher_set_tick_event_callback(
-        instance->view_dispatcher, mfc_editor_app_tick_event_callback, 100);
+    // No scene uses tick events: no tick callback (it woke the app 10x/s for nothing)
 
     instance->gui = furi_record_open(RECORD_GUI);
     view_dispatcher_attach_to_gui(

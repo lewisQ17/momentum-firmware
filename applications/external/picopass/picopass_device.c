@@ -57,7 +57,8 @@ static bool picopass_device_save_file_seader(
         storage_simply_mkdir(dev->storage, EXT_PATH("apps_data/seader"));
         if(!flipper_format_file_open_always(file, furi_string_get_cstr(file_path))) break;
         if(!flipper_format_write_header_cstr(file, seader_file_header, seader_file_version)) break;
-        if(!flipper_format_write_uint32(file, "Bits", (uint32_t*)&pacs->bitLength, 1)) break;
+        uint32_t bits = pacs->bitLength; // uint8_t field, do not type-pun it as uint32
+        if(!flipper_format_write_uint32(file, "Bits", &bits, 1)) break;
         if(!flipper_format_write_hex(file, "Credential", pacs->credential, PICOPASS_BLOCK_LEN))
             break;
 
@@ -542,6 +543,10 @@ void picopass_device_encrypt(uint8_t* dec_data, uint8_t* enc_data) {
 void picopass_device_parse_wiegand(PicopassPacs* pacs) {
     uint8_t* credential = pacs->credential;
     uint32_t* halves = (uint32_t*)credential;
+    if(halves[0] == 0 && halves[1] == 0) { // clz(0) is undefined, empty credential has no bits
+        pacs->bitLength = 0;
+        return;
+    }
     if(halves[0] == 0) {
         uint8_t leading0s = __builtin_clz(REVERSE_BYTES_U32(halves[1]));
         pacs->bitLength = 31 - leading0s;

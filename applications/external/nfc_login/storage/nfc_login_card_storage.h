@@ -4,4 +4,5 @@
 
 void app_load_cards(App* app);
 bool app_save_cards(App* app);
+void app_recover_cards_file(void);
 void app_ensure_data_dir(Storage* storage);

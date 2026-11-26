@@ -325,6 +325,7 @@ static void ami_tool_scene_bluetooth_stop(AmiToolApp* app) {
         bt_set_status_changed_callback(app->bt, NULL, NULL);
         furi_hal_bt_stop_advertising();
         bt_disconnect(app->bt);
+        app->bt_connected = false; // the profile struct is freed by restore_default: stop tx paths first
         bt_profile_restore_default(app->bt);
         app->bt_serial_profile = NULL;
     }

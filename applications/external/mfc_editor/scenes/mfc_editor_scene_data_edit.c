@@ -199,6 +199,9 @@ void mfc_editor_scene_data_edit_on_exit(void* context) {
     MfcEditorApp* instance = context;
 
     if(instance->edit_buffer != NULL) {
+        // Re-point the ByteInput at a harmless buffer first: it must not keep reading/writing freed memory
+        static uint8_t detached_bytes[1];
+        byte_input_set_result_callback(instance->byte_input, NULL, NULL, NULL, detached_bytes, 1);
         free(instance->edit_buffer);
         instance->edit_buffer = NULL;
     }

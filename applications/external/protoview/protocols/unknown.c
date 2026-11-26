@@ -242,7 +242,7 @@ static bool decode(uint8_t* bits, uint32_t numbytes, uint32_t numbits, ProtoView
         start1 = tmp1;
         start2 = tmp2;
         pwm_len = 4;
-        msgbits = pwm3_bits * pwm_len;
+        msgbits = pwm4_bits * pwm_len; /* PWM4 won: use its own symbol count. */
     }
 
     // Try Manchester

@@ -287,7 +287,8 @@ M100ResponseType m100_write_label_data_storage(
     BankType bank,
     uint16_t source_address,
     uint32_t access_pwd) {
-    uint8_t cmd[MAX_BUFFER_SIZE];
+    // 14 header + up to 4+MAX_BANK_SIZE data + checksum + end must fit
+    uint8_t cmd[MAX_BANK_SIZE + 32];
     size_t cmd_length = CMD_WRITE_LABEL_DATA_STORE.length;
     memcpy(cmd, CMD_WRITE_LABEL_DATA_STORE.cmd, cmd_length);
     uint16_t payload_len = 9;

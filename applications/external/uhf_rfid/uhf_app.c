@@ -3,7 +3,7 @@
 
 char* convertToHexString(uint8_t* array, size_t length) {
     if(array == NULL || length == 0) {
-        return " ";
+        return strdup(" "); // callers free() the result
     }
     FuriString* temp_str = furi_string_alloc();
 
@@ -13,9 +13,10 @@ char* convertToHexString(uint8_t* array, size_t length) {
     const char* furi_str = furi_string_get_cstr(temp_str);
 
     size_t str_len = strlen(furi_str);
-    char* str = (char*)malloc(sizeof(char) * str_len);
+    char* str = (char*)malloc(sizeof(char) * (str_len + 1));
 
     memcpy(str, furi_str, str_len);
+    str[str_len] = '\0'; // NUL-terminate: callers pass it to widget/strlen
     furi_string_free(temp_str);
     return str;
 }

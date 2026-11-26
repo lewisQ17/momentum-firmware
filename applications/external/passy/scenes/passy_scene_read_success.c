@@ -53,7 +53,13 @@ void passy_scene_read_success_on_enter(void* context) {
                 FURI_LOG_D(TAG, "Received empty Payload");
             }
 
-            const char* document_code = (const char*)dg1->mrz.buf;
+            // Copy at most 2 bytes; mrz.buf may be NULL or shorter than 2
+            char document_code[3] = {0};
+            if(dg1->mrz.buf) {
+                for(size_t i = 0; i < 2 && i < dg1->mrz.size; i++) {
+                    document_code[i] = (char)dg1->mrz.buf[i];
+                }
+            }
 
             if(strncmp(document_code, "IP", 2) == 0) {
                 furi_string_cat_printf(str, "Passport card (IP)\n");
@@ -144,7 +150,12 @@ void passy_scene_read_success_on_enter(void* context) {
 
         } else {
             FURI_LOG_E(TAG, "ASN.1 decode failed: %d.  %d consumed", rval.code, rval.consumed);
-            furi_string_cat_printf(str, "%s\n", bit_buffer_get_data(passy->DG1));
+            // DG1 buffer is binary and not NUL-terminated; bound the print by its size
+            furi_string_cat_printf(
+                str,
+                "%.*s\n",
+                (int)bit_buffer_get_size_bytes(passy->DG1),
+                (const char*)bit_buffer_get_data(passy->DG1));
         }
 
         // asn_decode allocates dg1->mrz.buf; a plain free() would leak it

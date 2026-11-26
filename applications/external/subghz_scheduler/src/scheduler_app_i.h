@@ -32,6 +32,9 @@ struct SchedulerApp {
     SchedulerRunView* run_view;
 
     volatile bool is_transmitting;
+    volatile bool stop_tx; // asks the TX thread to abort (set on scene exit)
+    bool exiting; // scene is leaving: the state callback must not free the thread
+    FuriMutex* thread_mutex; // guards thread free/NULL between callback and scene exit
 };
 
 typedef enum {

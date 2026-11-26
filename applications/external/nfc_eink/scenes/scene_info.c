@@ -11,7 +11,12 @@ void nfc_eink_scene_info_on_enter(void* context) {
         if(!nfc_eink_screen_load_data(
                furi_string_get_cstr(instance->file_path), instance->screen, info)) {
             nfc_eink_screen_free(instance->screen);
+            instance->screen = NULL; // freed: nothing below may touch it
             instance->screen_loaded = false;
+            instance->last_error = NfcEinkScreenErrorUnsupportedScreen;
+            scene_manager_next_scene(instance->scene_manager, NfcEinkAppSceneError);
+            notification_message(instance->notifications, &sequence_error);
+            return;
         } else {
             instance->screen_loaded = true;
         }

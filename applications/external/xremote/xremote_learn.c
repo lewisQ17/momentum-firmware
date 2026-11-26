@@ -23,6 +23,7 @@ struct XRemoteLearnContext {
 
     /* User interactions */
     TextInput* text_input;
+    ValidatorIsFile* name_validator;
     DialogEx* dialog_ex;
 
     /* User context and clear callback */
@@ -201,7 +202,8 @@ static void xremote_learn_text_input_callback(void* context) {
 
         infrared_remote_set_name(learn_ctx->ir_remote, learn_ctx->text_store);
         infrared_remote_set_path(learn_ctx->ir_remote, output_file);
-        infrared_remote_store(learn_ctx->ir_remote);
+        // Keep the learned buttons and stay on the name page when the store fails
+        if(!infrared_remote_store(learn_ctx->ir_remote)) return;
         infrared_remote_reset(learn_ctx->ir_remote);
     }
 
@@ -348,7 +350,11 @@ static XRemoteLearnContext* xremote_learn_context_alloc(XRemoteAppContext* app_c
     view_dispatcher_add_view(app_ctx->view_dispatcher, XRemoteViewSignal, view);
 
     learn_ctx->text_input = text_input_alloc();
-    text_input_set_validator(learn_ctx->text_input, NULL, learn_ctx);
+    // Refuse names of existing remotes (store would overwrite them); "" = no current name
+    learn_ctx->name_validator =
+        validator_is_file_alloc_init(XREMOTE_APP_FOLDER, XREMOTE_APP_EXTENSION, "");
+    text_input_set_validator(
+        learn_ctx->text_input, validator_is_file_callback, learn_ctx->name_validator);
 
     view = text_input_get_view(learn_ctx->text_input);
     view_set_previous_callback(view, xremote_learn_text_input_exit_callback);
@@ -376,6 +382,7 @@ static void xremote_learn_context_free(XRemoteLearnContext* learn_ctx) {
 
     view_dispatcher_remove_view(view_disp, XRemoteViewTextInput);
     text_input_free(learn_ctx->text_input);
+    validator_is_file_free(learn_ctx->name_validator);
 
     view_dispatcher_remove_view(view_disp, XRemoteViewSignal);
     xremote_view_free(learn_ctx->signal_view);

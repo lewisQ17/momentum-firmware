@@ -64,6 +64,7 @@ typedef struct {
     View* view_write; // The main screen
     Widget* widget_about; // The about screen
     View* view_load; // The load view
+    View* view_placeholder; // Configure_i placeholder until the real list view replaces it
 
     VariableItem* mod_item; //
     VariableItem* clock_item; //
@@ -94,7 +95,13 @@ typedef struct {
     bool data_loaded[3];
     uint8_t edit_block_slc;
     uint8_t writing_repeat_times;
+    uint32_t block0_extra; // block 0 bits of a loaded dump that the UI has no control for
 } T5577WriterModel;
+
+// Bits of block 0 the UI edits (modulation, bitrate, max block). Everything else in a loaded
+// dump (PSK carrier, X-mode, AOR, ST, POR delay, test bits) is kept; PWD is never enabled.
+#define T5577_BLOCK0_UI_MASK \
+    (0x0001F000UL | 0x001C0000UL | (0x7UL << LFRFID_T5577_MAXBLOCK_SHIFT) | LFRFID_T5577_PWD)
 
 void initialize_config(T5577WriterModel* model) {
     model->modulation_index = 0;
@@ -108,6 +115,7 @@ void initialize_model(T5577WriterModel* model) {
     model->user_block_num = 0;
     model->edit_block_slc = 1;
     model->writing_repeat_times = 0;
+    model->block0_extra = 0;
     for(uint32_t i = 0; i < LFRFID_T5577_BLOCK_COUNT; i++) {
         model->content[i] = 0;
     }
@@ -263,7 +271,7 @@ static const char* tag_name_default_value = "Tag_1";
 static void t5577_writer_file_saver(void* context) {
     T5577WriterApp* app = (T5577WriterApp*)context;
     T5577WriterModel* model = view_get_model(app->view_write);
-    model->content[0] = 0; // clean up first block before deciding to write or save
+    model->content[0] = model->block0_extra; // keep non-UI bits of a loaded dump
     model->content[0] |= model->modulation.mod_page_zero;
     model->content[0] |= model->rf_clock.clock_page_zero;
     model->content[0] |= (model->user_block_num << LFRFID_T5577_MAXBLOCK_SHIFT);
@@ -285,6 +293,7 @@ static void t5577_writer_file_saver(void* context) {
     storage_simply_mkdir(storage, STORAGE_APP_DATA_PATH_PREFIX);
     FuriString* buffer = furi_string_alloc();
     FlipperFormat* format = flipper_format_file_alloc(storage);
+    bool saved = false;
     do {
         const uint32_t version = 2;
         const uint32_t clock_buffer = (uint32_t)model->rf_clock.rf_clock_num;
@@ -297,20 +306,26 @@ static void t5577_writer_file_saver(void* context) {
         if(!flipper_format_write_uint32(format, "RF Clock", &clock_buffer, 1)) break;
         if(!flipper_format_write_uint32(format, "Max User Block", &block_num_buffer, 1)) break;
         if(!flipper_format_write_string_cstr(format, "Raw Data", "")) break; // raw data begins
+        bool blocks_ok = true;
         for(int i = 0; i < LFRFID_T5577_BLOCK_COUNT; i++) {
             furi_string_printf(buffer, "Block %u", i);
             uint8_t byte_array_buffer[app->bytes_count];
             uint32_to_byte_buffer(model->content[i], byte_array_buffer);
             if(!flipper_format_write_hex(
-                   format, furi_string_get_cstr(buffer), byte_array_buffer, app->bytes_count))
+                   format, furi_string_get_cstr(buffer), byte_array_buffer, app->bytes_count)) {
+                blocks_ok = false;
                 break;
+            }
         }
-        // signal that the file was written successfully
+        if(!blocks_ok) break;
+        saved = true; // signal that the file was written successfully
     } while(0);
     flipper_format_free(format);
     furi_string_free(buffer);
     furi_string_free(file_path);
     furi_record_close(RECORD_STORAGE);
+
+    if(!saved) dialog_message_show_storage_error(app->dialogs, "Cannot save\nfile");
 
     view_dispatcher_switch_to_view(
         app->view_dispatcher, T5577WriterViewSubmenu); // maybe add a pop up later
@@ -334,6 +349,7 @@ void t5577_writer_update_config_from_load(void* context) {
         }
     }
     my_model->user_block_num = ((my_model->content[0] >> LFRFID_T5577_MAXBLOCK_SHIFT) & 0x7);
+    my_model->block0_extra = my_model->content[0] & ~T5577_BLOCK0_UI_MASK;
     FURI_LOG_D(TAG, "BLOCK 0 %08lX", my_model->content[0]);
     FURI_LOG_D(TAG, "bit 25-27 %ld", (my_model->content[0] >> LFRFID_T5577_MAXBLOCK_SHIFT) & 0x7);
     memset(my_model->data_loaded, true, sizeof(my_model->data_loaded)); // Everything is loaded
@@ -439,6 +455,10 @@ static void t5577_writer_config_enter_callback(void* context) {
     view_dispatcher_remove_view(
         app->view_dispatcher, T5577WriterViewConfigure_i); // delete the last one
     view_dispatcher_add_view(app->view_dispatcher, T5577WriterViewConfigure_i, view_config_i);
+    if(app->view_placeholder) {
+        view_free(app->view_placeholder); // replaced above, no longer registered
+        app->view_placeholder = NULL;
+    }
     view_dispatcher_switch_to_view(
         app->view_dispatcher, T5577WriterViewConfigure_i); // recreate it
 }
@@ -526,7 +546,7 @@ static void t5577_writer_view_save_callback(void* context) {
 
 static void t5577_writer_actual_writing(void* model) {
     T5577WriterModel* my_model = (T5577WriterModel*)model;
-    my_model->content[0] = 0; // clear up block 0
+    my_model->content[0] = my_model->block0_extra; // keep non-UI bits of a loaded dump
     my_model->content[0] |= my_model->modulation.mod_page_zero;
     my_model->content[0] |= my_model->rf_clock.clock_page_zero;
     my_model->content[0] |= (my_model->user_block_num << LFRFID_T5577_MAXBLOCK_SHIFT);
@@ -729,8 +749,9 @@ static T5577WriterApp* t5577_writer_app_alloc() {
     view_set_context(app->view_config_e, app);
     view_dispatcher_add_view(app->view_dispatcher, T5577WriterViewConfigure_e, app->view_config_e);
 
-    View* view_buffer = view_alloc();
-    view_dispatcher_add_view(app->view_dispatcher, T5577WriterViewConfigure_i, view_buffer);
+    app->view_placeholder = view_alloc();
+    view_dispatcher_add_view(
+        app->view_dispatcher, T5577WriterViewConfigure_i, app->view_placeholder);
 
     app->widget_about = widget_alloc();
     widget_add_text_scroll_element(
@@ -771,6 +792,7 @@ static void t5577_writer_app_free(T5577WriterApp* app) {
     view_dispatcher_remove_view(app->view_dispatcher, T5577WriterViewLoad);
     view_free(app->view_load);
     view_dispatcher_remove_view(app->view_dispatcher, T5577WriterViewConfigure_i);
+    if(app->view_placeholder) view_free(app->view_placeholder); // config page was never opened
     view_dispatcher_remove_view(app->view_dispatcher, T5577WriterViewConfigure_e);
     view_dispatcher_remove_view(app->view_dispatcher, T5577WriterViewByteInput);
     byte_input_free(app->byte_input);

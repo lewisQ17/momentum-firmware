@@ -364,10 +364,12 @@ static void nfc_maker_scene_save_generate_populate_device_mfc(NfcMaker* app, Car
     size_t len = app->ndef_size;
     size_t real_block = 4; // Skip MAD1
 
+    uint8_t last_sector = 1; // Last sector holding NDEF data, needed for the MAD below
     uint8_t* cur = &data->block[real_block].data[0];
     while(len) {
         size_t sector_trailer = mf_classic_get_sector_trailer_num_by_block(real_block);
         const uint8_t* end = &data->block[sector_trailer].data[0];
+        last_sector = mf_classic_get_sector_by_block(real_block);
 
         const size_t chunk_len = MIN((size_t)(end - cur), len);
         memcpy(cur, buf, chunk_len);
@@ -401,6 +403,13 @@ static void nfc_maker_scene_save_generate_populate_device_mfc(NfcMaker* app, Car
     mad[1] = 0x01; // Info byte
     mad[2] = 0x03; // NDEF app ID
     mad[3] = 0xE1; // NDEF app ID
+    // Readers follow the MAD, so every later sector carrying NDEF data needs the NDEF AID too
+    for(size_t sector = 2; sector <= last_sector && sector < 16; sector++) {
+        uint8_t* aid = (sector <= 7) ? &data->block[1].data[2 * sector] :
+                                       &data->block[2].data[2 * (sector - 8)];
+        aid[0] = 0x03;
+        aid[1] = 0xE1;
+    }
     mad[0] = bit_lib_crc8(&mad[1], MF_CLASSIC_BLOCK_SIZE * 2 - 1, 0x1D, 0xC7, false, false, 0x00);
     MfClassicSectorTrailer mad_tr = {
         .key_a = {{0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5}}, // MAD key
@@ -414,6 +423,19 @@ static void nfc_maker_scene_save_generate_populate_device_mfc(NfcMaker* app, Car
         mad_block = 64;
         mad = &data->block[mad_block].data[0];
         mad[1] = 0x01; // Info byte
+        // MAD2 covers sectors 17..39 (sector 16 is the MAD2 sector itself)
+        for(size_t sector = 17; sector <= last_sector && sector < 40; sector++) {
+            uint8_t* aid;
+            if(sector <= 23) {
+                aid = &data->block[64].data[2 * (sector - 16)];
+            } else if(sector <= 31) {
+                aid = &data->block[65].data[2 * (sector - 24)];
+            } else {
+                aid = &data->block[66].data[2 * (sector - 32)];
+            }
+            aid[0] = 0x03;
+            aid[1] = 0xE1;
+        }
         mad[0] =
             bit_lib_crc8(&mad[1], MF_CLASSIC_BLOCK_SIZE * 3 - 1, 0x1D, 0xC7, false, false, 0x00);
         mf_classic_set_sector_trailer_read(

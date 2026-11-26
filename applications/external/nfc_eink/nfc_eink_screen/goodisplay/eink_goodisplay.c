@@ -44,6 +44,7 @@ static NfcEinkScreenDevice* eink_goodisplay_device_alloc() {
 
     context->poller_state = EinkGoodisplayPollerStateSendC2Cmd;
     context->listener_state = EinkGoodisplayListenerStateIdle;
+    context->duplicate_c2_cnt = 0;
 
     device->screen_context = context;
     return device;

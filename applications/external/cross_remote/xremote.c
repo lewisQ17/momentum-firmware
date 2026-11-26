@@ -21,6 +21,11 @@ bool xremote_navigation_event_callback(void* context) {
 
 XRemote* xremote_app_alloc() {
     XRemote* app = malloc(sizeof(XRemote));
+    // Remember OTG state before anything can change it, so exit can restore it
+    app->otg_was_enabled = furi_hal_power_is_otg_enabled();
+    // Defaults when no settings file exists (internal LED, no OTG)
+    app->ir_tx_pin = FuriHalInfraredTxPinInternal;
+    app->ir_is_otg_enabled = false;
     app->gui = furi_record_open(RECORD_GUI);
     app->notification = furi_record_open(RECORD_NOTIFICATION);
 
@@ -47,9 +52,12 @@ XRemote* xremote_app_alloc() {
     app->save_settings = 1;
     app->transmitting = 0;
     app->ir_timing = 1000;
-    app->ir_timing_char = "1000";
+    // Writable buffers: string literals are too small for snprintf of larger values
+    snprintf(app->ir_timing_buf, sizeof(app->ir_timing_buf), "%lu", app->ir_timing);
+    app->ir_timing_char = app->ir_timing_buf;
     app->sg_timing = 500;
-    app->sg_timing_char = "500";
+    snprintf(app->sg_timing_buf, sizeof(app->sg_timing_buf), "%lu", app->sg_timing);
+    app->sg_timing_char = app->sg_timing_buf;
     app->stop_transmit = false;
     app->loop_transmit = 0;
     app->transmit_item = 0;
@@ -175,6 +183,7 @@ void xremote_app_free(XRemote* app) {
     view_dispatcher_free(app->view_dispatcher);
     furi_record_close(RECORD_GUI);
 
+    furi_record_close(RECORD_NOTIFICATION);
     furi_record_close(RECORD_DIALOGS);
     furi_string_free(app->file_path);
 
@@ -257,7 +266,15 @@ int32_t xremote_app(void* p) {
 
     xremote_save_settings(app);
     furi_hal_power_suppress_charge_exit();
-    xremote_ir_enable_otg(app, false);
+    // Restore what the app changed: internal IR LED output and the launch-time OTG state
+    furi_hal_infrared_set_tx_output(FuriHalInfraredTxPinInternal);
+    if(furi_hal_power_is_otg_enabled() != app->otg_was_enabled) {
+        if(app->otg_was_enabled) {
+            furi_hal_power_enable_otg();
+        } else {
+            furi_hal_power_disable_otg();
+        }
+    }
     xremote_app_free(app);
 
     return 0;

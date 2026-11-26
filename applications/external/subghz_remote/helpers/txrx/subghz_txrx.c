@@ -35,6 +35,7 @@ SubGhzTxRx* subghz_txrx_alloc(void) {
     subghz_txrx_set_preset(
         instance, "AM650", subghz_setting_get_default_frequency(instance->setting), NULL, 0);
 
+    instance->transmitter = NULL; /* malloc'd struct: no stale pointer for stop paths. */
     instance->txrx_state = SubGhzTxRxStateSleep;
 
     subghz_txrx_hopper_set_state(instance, SubGhzHopperStateOFF);
@@ -77,6 +78,12 @@ SubGhzTxRx* subghz_txrx_alloc(void) {
 
 void subghz_txrx_free(SubGhzTxRx* instance) {
     furi_assert(instance);
+
+    // Put the internal CC1101 to sleep (SPWD) so it doesn't idle awake after the app
+    if(instance->radio_device_type == SubGhzRadioDeviceTypeInternal &&
+       instance->txrx_state == SubGhzTxRxStateIDLE) {
+        subghz_txrx_sleep(instance);
+    }
 
     if(instance->radio_device_type != SubGhzRadioDeviceTypeInternal) {
         subghz_txrx_radio_device_power_off(instance);
@@ -321,7 +328,12 @@ SubGhzTxRxStartTxState subghz_txrx_tx_start(SubGhzTxRx* instance, FlipperFormat*
             ret = SubGhzTxRxStartTxStateErrorParserOthers;
         }
         if(ret != SubGhzTxRxStartTxStateOk) {
-            subghz_transmitter_free(instance->transmitter);
+            /* NULL it after free: subrem_tx_stop_sub() may deserialize into it later. */
+            if(instance->transmitter) subghz_transmitter_free(instance->transmitter);
+            instance->transmitter = NULL;
+#ifndef FW_ORIGIN_Official
+            subghz_custom_btns_reset();
+#endif
             if(instance->txrx_state != SubGhzTxRxStateIDLE) {
                 subghz_txrx_idle(instance);
             }
@@ -358,6 +370,7 @@ static void subghz_txrx_tx_stop(SubGhzTxRx* instance) {
     subghz_devices_stop_async_tx(instance->radio_device);
     subghz_transmitter_stop(instance->transmitter);
     subghz_transmitter_free(instance->transmitter);
+    instance->transmitter = NULL; /* Freed: never reuse the stale pointer. */
 
     //if protocol dynamic then we save the last upload
     if(instance->decoder_result->protocol->type == SubGhzProtocolTypeDynamic) {

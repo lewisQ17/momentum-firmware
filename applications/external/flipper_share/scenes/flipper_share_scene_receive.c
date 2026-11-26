@@ -235,7 +235,12 @@ static void update_timer_callback(void* context) {
             } else {
                 dialog_ex_set_header(app->dialog_show_file, "Hash failed", 64, 10, AlignCenter, AlignCenter);
             }
-            snprintf(progress_text, sizeof(progress_text), "Saved to:\n%.*s", 64, g.r_file_path);
+            if (g.r_is_success) {
+                snprintf(progress_text, sizeof(progress_text), "Saved to:\n%.*s", 64, g.r_file_path);
+            } else {
+                // The unverified file is deleted, nothing was saved
+                snprintf(progress_text, sizeof(progress_text), "File discarded:\n%.*s", 64, g.r_file_name);
+            }
             // dialog_ex_set_right_button_text(app->dialog_show_file, "OK");
             
             // If completed and still showing progress view, switch back to dialog
@@ -390,4 +395,6 @@ void flipper_share_scene_receive_on_exit(void* context) {
     // timer/subghz worker are gone so nothing can touch the map concurrently.
     // (Not fs_deinit(): it would close g.file / the storage record.)
     fs_map_deinit();
+    // Same reason: delete the unfinished "<name>.part" when the user leaves mid-transfer
+    fs_receive_discard_partial();
 }

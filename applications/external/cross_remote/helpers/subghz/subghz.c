@@ -42,9 +42,16 @@ void subghz_send(void* context, const char* path) {
 
     if(subghz_get_load_type_file(app->subghz) == SubGhzLoadTypeFileRaw) {
         FURI_LOG_D(TAG, "Starting Transmission");
-        subghz_txrx_tx_start(
+        SubGhzTxRxStartTxState tx_state = subghz_txrx_tx_start(
             app->subghz->txrx,
             subghz_txrx_get_fff_data(app->subghz->txrx)); //Seems like it must be done this way
+        if(tx_state != SubGhzTxRxStartTxStateOk) {
+            // TX did not start (transmitter already freed): don't touch it, end this item
+            FURI_LOG_E(TAG, "Sub-GHz TX start failed");
+            xremote_cross_remote_set_transmitting(app->cross_remote, XRemoteTransmittingStop);
+            app->transmitting = false;
+            return;
+        }
 
         FURI_LOG_D(TAG, "setting sugbhz raw file encoder worker callback");
         subghz_txrx_set_raw_file_encoder_worker_callback_end(

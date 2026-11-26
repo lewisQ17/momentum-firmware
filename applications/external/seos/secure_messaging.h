@@ -34,9 +34,10 @@ void secure_messaging_wrap_apdu(
     size_t apdu_header_len,
     BitBuffer* tx_buffer);
 
-void secure_messaging_unwrap_apdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer);
+// Return false (and leave rx_buffer empty) when the frame is malformed; callers must abort.
+bool secure_messaging_unwrap_apdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer);
 
-void secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer);
+bool secure_messaging_unwrap_rapdu(SecureMessaging* secure_messaging, BitBuffer* rx_buffer);
 void secure_messaging_wrap_rapdu(
     SecureMessaging* secure_messaging,
     uint8_t* message,

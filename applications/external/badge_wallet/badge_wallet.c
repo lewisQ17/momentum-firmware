@@ -80,6 +80,13 @@ static void badge_wallet_apply_sidecar(BadgeWalletApp* app) {
 void badge_wallet_load_cards(BadgeWalletApp* app) {
     furi_assert(app);
     badge_wallet_free_cards(app);
+    app->list_truncated = false;
+
+    /* Interrupted sidecar save (old file removed, temp not yet renamed): restore it. */
+    if(!storage_file_exists(app->storage, BADGE_WALLET_SIDECAR) &&
+       storage_file_exists(app->storage, BADGE_WALLET_SIDECAR ".tmp")) {
+        storage_common_rename(app->storage, BADGE_WALLET_SIDECAR ".tmp", BADGE_WALLET_SIDECAR);
+    }
 
     File* dir = storage_file_alloc(app->storage);
     if(storage_dir_open(dir, BADGE_WALLET_NFC_DIR)) {
@@ -87,14 +94,18 @@ void badge_wallet_load_cards(BadgeWalletApp* app) {
         /* Heap, not stack: the app stack is only 3 KB. A 128-byte buffer
          * truncated long names and dropped their ".nfc" suffix. */
         char* name = malloc(BADGE_WALLET_NAME_MAX);
-        while(app->card_count < BADGE_WALLET_MAX_CARDS &&
-              storage_dir_read(dir, &info, name, BADGE_WALLET_NAME_MAX)) {
+        while(storage_dir_read(dir, &info, name, BADGE_WALLET_NAME_MAX)) {
             if(file_info_is_dir(&info)) continue;
 
             FuriString* fname = furi_string_alloc_set(name);
             bool is_nfc = furi_string_end_with_str(fname, BADGE_WALLET_NFC_EXT);
             furi_string_free(fname);
             if(!is_nfc) continue;
+
+            if(app->card_count >= BADGE_WALLET_MAX_CARDS) {
+                app->list_truncated = true; /* more badges exist than we can list */
+                break;
+            }
 
             BadgeCard* card = &app->cards[app->card_count];
             card->path = furi_string_alloc_printf("%s/%s", BADGE_WALLET_NFC_DIR, name);
@@ -184,9 +195,8 @@ void badge_wallet_save_sidecar(BadgeWalletApp* app) {
 
     if(ok) {
         storage_common_remove(app->storage, BADGE_WALLET_SIDECAR);
-        if(storage_common_rename(app->storage, tmp_path, BADGE_WALLET_SIDECAR) != FSE_OK) {
-            storage_common_remove(app->storage, tmp_path);
-        }
+        /* Keep the temp file when the rename fails: load_cards() restores it. */
+        storage_common_rename(app->storage, tmp_path, BADGE_WALLET_SIDECAR);
     } else {
         storage_common_remove(app->storage, tmp_path);
     }
@@ -241,6 +251,7 @@ static BadgeWalletApp* badge_wallet_alloc(void) {
         app->view_dispatcher, BadgeWalletViewWidget, widget_get_view(app->widget));
 
     app->card_count = 0;
+    app->list_truncated = false;
     app->list_mode = BadgeWalletListModeAll;
     app->selected_index = 0;
     app->nfc = NULL;

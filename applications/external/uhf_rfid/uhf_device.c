@@ -135,6 +135,7 @@ static bool uhf_device_load_data(UHFDevice* dev, FuriString* path, bool show_dia
         uhf_tag_set_epc_crc(uhf_tag, (temp_arr2[0] << 8) + temp_arr2[1]);
         // read epc
         if(!flipper_format_read_uint32(file, UHF_EPC_BANK_LENGTH_LABEL, temp_arr, 1)) break;
+        if(temp_arr[0] > MAX_BANK_SIZE) break; // reject oversized bank length from file
         uhf_tag_set_epc_size(uhf_tag, temp_arr[0]);
         if(!flipper_format_read_hex(
                file, UHF_EPC_BANK_LABEL, uhf_tag_get_epc(uhf_tag), uhf_tag_get_epc_size(uhf_tag)))
@@ -142,12 +143,14 @@ static bool uhf_device_load_data(UHFDevice* dev, FuriString* path, bool show_dia
 
         // read tid
         if(!flipper_format_read_uint32(file, UHF_TID_BANK_LENGTH_LABEL, temp_arr, 1)) break;
+        if(temp_arr[0] > MAX_BANK_SIZE) break; // reject oversized bank length from file
         uhf_tag_set_tid_size(uhf_tag, temp_arr[0]);
         if(!flipper_format_read_hex(
                file, UHF_TID_BANK_LABEL, uhf_tag_get_tid(uhf_tag), uhf_tag_get_tid_size(uhf_tag)))
             break;
         // read user
         if(!flipper_format_read_uint32(file, UHF_USER_BANK_LENGTH_LABEL, temp_arr, 1)) break;
+        if(temp_arr[0] > MAX_BANK_SIZE) break; // reject oversized bank length from file
         uhf_tag_set_user_size(uhf_tag, temp_arr[0]);
         if(!flipper_format_read_hex(
                file,

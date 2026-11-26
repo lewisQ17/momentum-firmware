@@ -151,5 +151,5 @@ void send_xbox_ir(uint32_t command, NotificationApp* notifications, bool repeat)
     notification_message(notifications, &sequence_blink_purple_50);
     infrared_send(message, 2);
     free(message);
-    dolphin_deed(DolphinDeedIrSend);
+    if(!repeat) dolphin_deed(DolphinDeedIrSend); // one deed per press, not per key repeat
 }

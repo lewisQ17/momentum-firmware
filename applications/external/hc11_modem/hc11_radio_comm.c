@@ -324,7 +324,7 @@ static int32_t hc11_rx_tx_thread(void *ctx) {
   FuriHalSpiBusHandle *spi;
   bool get_pkt_size;
   uint8_t leave_bytes_in_fifo;
-  uint8_t pkt_bytes_remaining;
+  uint16_t pkt_bytes_remaining; /* 16 bit: length byte + 2 must not wrap */
   uint8_t num_rxbytes;
   bool crc_ok;
   uint8_t mode1_wake_up_pkt_ctr;
@@ -376,6 +376,12 @@ static int32_t hc11_rx_tx_thread(void *ctx) {
       furi_hal_power_suppress_charge_exit();
 
       app->radio_started = false;
+
+      /* A transmission was in progress: wake up radio_tx() waiting for it */
+      if(!app->receiving) {
+        app->receiving = true;
+        furi_semaphore_release(app->cc1101_sent_sem);
+      }
     }
 
     /* Should we stop the thread? */
@@ -420,8 +426,12 @@ static int32_t hc11_rx_tx_thread(void *ctx) {
     }
 
     /* If the radio isn't started, keep getting events */
-    if(!app->radio_started)
+    if(!app->radio_started) {
+      /* Nothing will ever be sent: don't leave radio_tx() waiting */
+      if(evts & send_data)
+        furi_semaphore_release(app->cc1101_sent_sem);
       continue;
+    }
 
     /* Have we received a GDO0 rise interrupt and are we receiving? */
     if(evts & gdo0_rise && app->receiving) {
@@ -479,6 +489,16 @@ static int32_t hc11_rx_tx_thread(void *ctx) {
           num_rxbytes--;
           get_pkt_size = false;
 
+          /* Reject a bogus length byte: the packet (length + RSSI/LQI bytes)
+             must fit the 8-bit-counted receive buffer. Flush and bail out. */
+          if(pkt_bytes_remaining > CC1101_MAX_PKT_SIZE - 3) {
+            cc1101_set_idle(spi);
+            cc1101_strobe(spi, CC1101_STROBE_SFRX);
+            cc1101_enable_rx(spi);
+            furi_hal_spi_release(spi);
+            goto rx_done;
+          }
+
           /* Add 2 bytes for the RSSI and LQI + CRC_OK bytes at the end of
              the packet */
           pkt_bytes_remaining += 2;
@@ -509,6 +529,13 @@ static int32_t hc11_rx_tx_thread(void *ctx) {
           cc1101_read_reg(spi, CC1101_FIFO, regval);
         if(loglevel == FuriLogLevelTrace)
           FURI_LOG_T(TAG, "Error: too many bytes in RX FIFO for packet size!");
+      }
+
+      /* Need at least the RSSI and LQI/CRC bytes, else the sizes below wrap */
+      if(app->cc1101_rx_buf_pkt_size < 2) {
+        cc1101_enable_rx(spi);
+        furi_hal_spi_release(spi);
+        goto rx_done;
       }
 
       /* Get the LQI and CRC_OK flag in the last byte of the packet */
@@ -542,6 +569,10 @@ static int32_t hc11_rx_tx_thread(void *ctx) {
 			app->cc1101_rx_buf_pkt[i]);
         FURI_LOG_I(TAG, app->spstr);
       }
+
+      /* Drop packets that failed the CRC check (no CRC autoflush is set) */
+      if(!crc_ok)
+        goto rx_done;
 
       /* Decode the packets according to the transmission mode */
       switch(app->hc11_mode) {
@@ -823,6 +854,9 @@ void radio_tx(HC11RadioCommApp *app, uint8_t *data, uint16_t len) {
   /* Start a red LED flash */
   start_led_flash(&app->led_control, RED);
 
+  /* Drop a stale token left by a timed out previous transmission */
+  while(furi_semaphore_acquire(app->cc1101_sent_sem, 0) == FuriStatusOk);
+
   /* save the address of the data and size to send */
   app->tx_buf = data;
   app->tx_buf_size = len;
@@ -830,8 +864,9 @@ void radio_tx(HC11RadioCommApp *app, uint8_t *data, uint16_t len) {
   /* Tell the HC11 RX/TX thread it has data to send */
   furi_thread_flags_set(furi_thread_get_id(app->hc11_rx_tx_thread), send_data);
 
-  /* Wait for the HC11 RX/TX thread to be done sending the data */
-  furi_semaphore_acquire(app->cc1101_sent_sem, FuriWaitForever);
+  /* Wait for the HC11 RX/TX thread to be done sending the data. Bounded so a
+     radio that stops mid-transmission can't hang the caller forever. */
+  furi_semaphore_acquire(app->cc1101_sent_sem, 2000);
 }
 
 

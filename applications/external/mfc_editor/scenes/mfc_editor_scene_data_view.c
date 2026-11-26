@@ -27,8 +27,13 @@ void mfc_editor_scene_data_view_update_display(MfcEditorApp* instance) {
         mfc_editor_furi_string_render_bytes(
             instance->data_view_text, iso14443_3a_data->uid, iso14443_3a_data->uid_len);
 
-        if(memcmp(
-               iso14443_3a_data->uid, mf_classic_data->block[0].data, iso14443_3a_data->uid_len)) {
+        if(!mf_classic_is_block_read(mf_classic_data, 0)) {
+            // Zero-filled block 0 was never read: no mismatch claim, and a Fix would not be saved
+            furi_string_cat_printf(instance->data_view_text, "\nBlock 0 not read");
+        } else if(memcmp(
+                      iso14443_3a_data->uid,
+                      mf_classic_data->block[0].data,
+                      iso14443_3a_data->uid_len)) {
             // ISO-14443 UID does not match first bytes of block 0
             furi_string_cat_printf(instance->data_view_text, "\nBlock 0 does not match UID!\n(");
             mfc_editor_furi_string_render_bytes(

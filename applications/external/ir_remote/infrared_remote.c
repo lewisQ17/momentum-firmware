@@ -10,6 +10,10 @@
 
 #define TAG "InfraredRemote"
 
+// Load caps so a huge raw-heavy .ir cannot exhaust the heap (malloc failure crashes the device)
+#define IR_REMOTE_MAX_BUTTONS     512U
+#define IR_REMOTE_MAX_RAW_TIMINGS 16384U
+
 ARRAY_DEF(InfraredButtonArray, InfraredRemoteButton*, M_PTR_OPLIST);
 
 struct InfraredRemote {
@@ -159,10 +163,21 @@ bool infrared_remote_load(InfraredRemote* remote, FuriString* path) {
         infrared_remote_set_name(remote, furi_string_get_cstr(buf));
         infrared_remote_set_path(remote, furi_string_get_cstr(path));
 
+        size_t raw_timings_used = 0;
         for(bool can_read = true; can_read;) {
+            // Stop gracefully (keep what is loaded) instead of running out of memory
+            if(InfraredButtonArray_size(remote->buttons) >= IR_REMOTE_MAX_BUTTONS) break;
             InfraredRemoteButton* button = infrared_remote_button_alloc();
             can_read = infrared_signal_read(infrared_remote_button_get_signal(button), ff, buf);
             if(can_read) {
+                InfraredSignal* signal = infrared_remote_button_get_signal(button);
+                if(infrared_signal_is_raw(signal)) {
+                    raw_timings_used += infrared_signal_get_raw_signal(signal)->timings_size;
+                    if(raw_timings_used > IR_REMOTE_MAX_RAW_TIMINGS) {
+                        infrared_remote_button_free(button);
+                        break;
+                    }
+                }
                 infrared_remote_button_set_name(button, furi_string_get_cstr(buf));
                 InfraredButtonArray_push_back(remote->buttons, button);
             } else {

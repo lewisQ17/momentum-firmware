@@ -52,7 +52,7 @@ static bool xremote_ir_signal_is_raw_valid(InfraredRawSignal* raw) {
             raw->frequency);
         return false;
 
-    } else if((raw->duty_cycle <= 0) || (raw->duty_cycle > 1)) {
+    } else if(!(raw->duty_cycle > 0) || (raw->duty_cycle > 1)) { // !(>0) also rejects NaN
         FURI_LOG_E(TAG, "Duty cycle is out of range (0 - 1): %f", (double)raw->duty_cycle);
         return false;
 
@@ -87,6 +87,7 @@ static inline bool xremote_ir_signal_read_message(InfraredSignal* signal, Flippe
         xremote_ir_signal_set_message(signal, &message);
     } while(0);
 
+    furi_string_free(buf);
     return success;
 }
 
@@ -98,7 +99,7 @@ static inline bool xremote_ir_signal_read_raw(InfraredSignal* signal, FlipperFor
                    flipper_format_read_float(ff, "duty_cycle", &duty_cycle, 1) &&
                    flipper_format_get_value_count(ff, "data", &timings_size);
 
-    if(!success || timings_size > MAX_TIMINGS_AMOUNT) {
+    if(!success || timings_size == 0 || timings_size > MAX_TIMINGS_AMOUNT) {
         return false;
     }
 
@@ -107,6 +108,8 @@ static inline bool xremote_ir_signal_read_raw(InfraredSignal* signal, FlipperFor
 
     if(success) {
         xremote_ir_signal_set_raw_signal(signal, timings, timings_size, frequency, duty_cycle);
+        // Reject out-of-range frequency/duty: infrared_worker_set_raw_signal furi_checks them
+        success = xremote_ir_signal_is_valid(signal);
     }
 
     free(timings);

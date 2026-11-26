@@ -95,7 +95,8 @@ static bool
                    flipper_format_read_float(ff, "duty_cycle", &duty_cycle, 1) &&
                    flipper_format_get_value_count(ff, "data", &timings_size);
 
-    if(!success || timings_size > MAX_TIMINGS_AMOUNT) {
+    // Empty data would fail the raw-signal checks at transmit
+    if(!success || timings_size == 0 || timings_size > MAX_TIMINGS_AMOUNT) {
         return false;
     }
 
@@ -105,6 +106,8 @@ static bool
     if(success) {
         xremote_ir_signal_set_raw_signal(
             item->ir_signal, timings, timings_size, frequency, duty_cycle);
+        // Reject frequency/duty out of range: infrared_worker_set_raw_signal furi_checks them
+        success = xremote_ir_signal_is_valid(item->ir_signal);
     }
 
     free(timings);
@@ -143,6 +146,8 @@ static bool xremote_cross_remote_item_read_ir(CrossRemoteItem* item, FlipperForm
     do {
         if(!flipper_format_read_string(ff, "name", item->name)) break;
         if(!flipper_format_read_uint32(ff, "time", &item->time, 1)) item->time = 1000;
+        // Clamp to the editor maximum: the send blocks the UI thread for this long
+        if(item->time > XREMOTE_ITEM_IR_TIME_MAX) item->time = XREMOTE_ITEM_IR_TIME_MAX;
         if(!flipper_format_read_string(ff, "type", buf)) break;
         if(furi_string_equal(buf, "raw")) {
             if(!xremote_cross_remote_item_read_ir_signal_raw(item, ff)) break;
@@ -165,6 +170,8 @@ static bool xremote_cross_remote_item_read_pause(CrossRemoteItem* item, FlipperF
     do {
         if(!flipper_format_read_string(ff, "name", item->name)) break;
         if(!flipper_format_read_uint32(ff, "time", &item->time, 1)) break;
+        // Clamp to the editor maximum (9 s): the pause blocks the UI thread
+        if(item->time > XREMOTE_ITEM_PAUSE_TIME_MAX) item->time = XREMOTE_ITEM_PAUSE_TIME_MAX;
         success = true;
     } while(false);
 
@@ -185,6 +192,8 @@ bool xremote_cross_remote_item_read(CrossRemoteItem* item, FlipperFormat* ff) {
         } else {
             break;
         }
+        // Malformed item: keep reading (true) but mark it so the loader drops it
+        if(!success) item->type = XREMOTE_ITEM_TYPE_INVALID;
         success = true;
     } while(false);
     furi_string_free(type);

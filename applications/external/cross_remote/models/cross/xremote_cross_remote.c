@@ -186,7 +186,7 @@ bool xremote_cross_remote_load(CrossRemote* remote, FuriString* path) {
         for(bool can_read = true; can_read;) {
             CrossRemoteItem* item = xremote_cross_remote_item_alloc();
             can_read = xremote_cross_remote_item_read(item, ff);
-            if(can_read) {
+            if(can_read && item->type != XREMOTE_ITEM_TYPE_INVALID) {
                 CrossRemoteItemArray_push_back(remote->items, item);
             } else {
                 xremote_cross_remote_item_free(item);

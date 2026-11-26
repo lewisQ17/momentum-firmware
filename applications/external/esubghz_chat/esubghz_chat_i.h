@@ -43,7 +43,9 @@ typedef struct {
     // UI elements
     Menu* menu;
     TextBox* chat_box;
-    FuriString* chat_box_store;
+    FuriString* chat_box_store; /* buffer the text box currently shows (never edit it in place) */
+    FuriString* chat_box_bufs[2]; /* double buffer: edit the idle one, then publish it */
+    uint8_t chat_box_cur;
     TextInput* text_input;
     char text_input_store[TEXT_INPUT_STORE_SIZE + 1];
     ByteInput* hex_key_input;

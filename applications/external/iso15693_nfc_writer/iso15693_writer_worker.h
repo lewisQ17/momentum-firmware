@@ -43,6 +43,8 @@ void iso15693_writer_worker_start(
     const uint8_t* single_data,
     uint8_t afi,
     uint8_t dsfid,
+    uint16_t expected_block_count,
+    uint8_t expected_block_size,
     Iso15693WriterWorkerCallback callback,
     void* context);
 

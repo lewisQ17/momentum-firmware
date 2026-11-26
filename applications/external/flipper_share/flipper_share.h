@@ -8,6 +8,7 @@
 #define FS_PAYLOAD_LENGTH (FS_PACKET_LENGTH - 4)            // 4 for version, tx_id, packet_type, crc
 #define FS_FILENAME_LENGTH (FS_PAYLOAD_LENGTH - 4 - 16)     // 4 for file size, 16 for MD5 hash
 #define FS_DATA_LENGTH (FS_PAYLOAD_LENGTH - 4)              // 4 for block number
+#define FS_READ_BLOCK_ERROR 0xFFFFFFFFUL                    // cb_read_block failure marker (never a valid byte count)
 #define FS_MAX_FILE_SIZE (16UL * 1024UL * 1024UL)           // sanity cap for announced file size
 
 #define FS_TIMEOUT_IDLE 1000                                // ms
@@ -100,7 +101,9 @@ typedef struct {
     uint8_t    r_locked_tx_id;                          // TODO: no need for receiver?
 
     char       r_file_path[256];                        // Build actual path when announce handling and lock session to tx_id
+    char       r_tmp_path[264];                         // "<r_file_path>.part": data is written here, renamed on MD5 match
     char       r_file_name[FS_FILENAME_LENGTH];
+    uint32_t   r_last_valid_ms;                         // last valid ANNOUNCE/DATA from the locked sender (lock timeout)
     uint32_t   r_file_size;
     uint32_t   r_blocks_needed; // blocks total needed, calculated from file_size during announce handling
     uint32_t   r_blocks_received; // how many have been received
@@ -139,6 +142,7 @@ bool fs_init_from_external_receive();
 bool fs_init(const fs_init_params_t* p);
 void fs_deinit(void);
 void fs_map_deinit(void); // frees the received-block map (idempotent)
+void fs_receive_discard_partial(void); // deletes the unfinished "<name>.part" file, if any (idempotent)
 void fs_idle(void); // to be called periodically from main loop (50ms?)
 
 // High-level sending (can be called from outside):
