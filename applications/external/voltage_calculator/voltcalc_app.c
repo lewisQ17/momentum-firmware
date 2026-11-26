@@ -89,7 +89,7 @@ void decimal_substitute(char *old) {
  * otherwise %g so sub-mA currents are not rounded to 0.000 and large results are not cut off. */
 static void format_value(char* out, size_t size, double value) {
 	int len = snprintf(out, size, "%.3f", value);
-	if((len < 0 || (size_t)len >= size || (value != 0 && fabs(value) < 0.1))) {
+	if((len < 0 || (size_t)len >= size || (value != 0 && fabs(value) < (double)0.1))) {
 		snprintf(out, size, "%.4g", value);
 	}
 }
