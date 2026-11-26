@@ -259,7 +259,6 @@ static void js_button_panel_reset_children(ButtonPanel* panel, JsBtnPanelContext
 }
 
 static JsBtnPanelContext* ctx_make(struct mjs* mjs, ButtonPanel* panel, mjs_val_t view_obj) {
-    UNUSED(panel);
     JsBtnPanelContext* context = malloc(sizeof(JsBtnPanelContext));
     *context = (JsBtnPanelContext){
         .matrix_x = 1,
@@ -281,6 +280,8 @@ static JsBtnPanelContext* ctx_make(struct mjs* mjs, ButtonPanel* panel, mjs_val_
             },
     };
     mjs_set(mjs, view_obj, "input", ~0, mjs_mk_foreign(mjs, &context->contract));
+    // Match the panel to the 1x1 context, else a button added before matrixSize trips furi_check
+    button_panel_reserve(panel, context->matrix_x, context->matrix_y);
     return context;
 }
 

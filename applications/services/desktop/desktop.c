@@ -1,6 +1,7 @@
 #include "desktop_i.h"
 
 #include <cli/cli_vcp.h>
+#include <expansion/expansion.h>
 
 #include <gui/gui_i.h>
 
@@ -417,6 +418,13 @@ void desktop_lock(Desktop* desktop, bool with_pin) {
             bt_close_rpc_connection(bt);
             furi_record_close(RECORD_BT);
         }
+        if(!momentum_settings.allow_locked_rpc_usb) {
+            // Why: an expansion UART RPC session opened before the lock must not outlive it
+            Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+            expansion_disable(expansion);
+            furi_record_close(RECORD_EXPANSION);
+            desktop->expansion_disabled_by_lock = true;
+        }
     }
 
     desktop_auto_lock_inhibit(desktop);
@@ -454,6 +462,13 @@ void desktop_unlock(Desktop* desktop) {
             Bt* bt = furi_record_open(RECORD_BT);
             bt_open_rpc_connection(bt);
             furi_record_close(RECORD_BT);
+        }
+        if(desktop->expansion_disabled_by_lock) {
+            // Only undo our own disable: enable/disable are not refcounted
+            desktop->expansion_disabled_by_lock = false;
+            Expansion* expansion = furi_record_open(RECORD_EXPANSION);
+            expansion_enable(expansion);
+            furi_record_close(RECORD_EXPANSION);
         }
     }
 

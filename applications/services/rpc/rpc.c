@@ -76,6 +76,8 @@ struct RpcSession {
     FuriStreamBuffer* stream;
     PB_Main* decoded_message;
     bool terminate;
+    // Set by rpc_session_close() so long-running handlers can stop early
+    volatile bool closing;
     void** system_contexts;
     bool decode_error;
 
@@ -92,6 +94,11 @@ struct Rpc {
     FuriMutex* busy_mutex;
     size_t sessions_count;
 };
+
+bool rpc_session_is_closing(RpcSession* session) {
+    furi_check(session);
+    return session->closing;
+}
 
 RpcOwner rpc_session_get_owner(RpcSession* session) {
     furi_check(session);
@@ -400,6 +407,7 @@ RpcSession* rpc_session_open(Rpc* rpc, RpcOwner owner) {
     session->stream = furi_stream_buffer_alloc(RPC_BUFFER_SIZE, 1);
     session->rpc = rpc;
     session->terminate = false;
+    session->closing = false;
     session->decode_error = false;
     session->owner = owner;
     RpcHandlerDict_init(session->handlers);
@@ -438,6 +446,7 @@ void rpc_session_close(RpcSession* session) {
 
     session->rpc->sessions_count--;
 
+    session->closing = true;
     rpc_session_set_send_bytes_callback(session, NULL);
     rpc_session_set_close_callback(session, NULL);
     rpc_session_set_buffer_is_empty_callback(session, NULL);

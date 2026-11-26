@@ -86,6 +86,7 @@ struct Desktop {
     bool in_transition;
     bool app_running;
     bool locked;
+    bool expansion_disabled_by_lock; // desktop_lock disabled expansion; undo on unlock
 
     FuriPubSub* ascii_events_pubsub;
     FuriPubSubSubscription* ascii_events_subscription;

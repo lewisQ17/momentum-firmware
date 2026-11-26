@@ -14,7 +14,8 @@
 #include <power/power_service/power.h>
 #include <toolbox/pipe.h>
 
-#define MAX_NAME_LENGTH 254
+// FatFs _MAX_LFN is 255 (+ NUL): 254 truncated the longest names
+#define MAX_NAME_LENGTH 256
 
 static void storage_cli_print_usage(void);
 

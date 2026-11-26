@@ -1,7 +1,8 @@
 #include "dir_walk.h"
 #include <m-list.h>
 
-#define MAX_NAME_LEN 254
+// FatFs _MAX_LFN is 255 (+ NUL): 254 truncated the longest names
+#define MAX_NAME_LEN 256
 
 LIST_DEF(DirIndexList, uint32_t);
 

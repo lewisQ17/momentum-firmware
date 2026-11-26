@@ -210,6 +210,9 @@ static bool js_subghz_stop_requested(void) {
     return !(flags & FuriFlagError) && (flags & ThreadEventStop);
 }
 
+// Parsed key files are tiny; bound the in-memory copy used to set Repeat
+#define JS_SUBGHZ_KEY_FILE_MAX_SIZE (32 * 1024)
+
 static void js_subghz_transmit_file(struct mjs* mjs) {
     mjs_val_t obj_inst = mjs_get(mjs, mjs_get_this(mjs), INST_PROP_NAME, ~0);
     JsSubghzInst* js_subghz = mjs_get_ptr(mjs, obj_inst);
@@ -280,6 +283,7 @@ static void js_subghz_transmit_file(struct mjs* mjs) {
 
     FuriString* temp_str = furi_string_alloc();
     SubGhzTransmitter* transmitter = NULL;
+    FlipperFormat* fff_mem = NULL;
     uint32_t temp_data32 = 0;
     uint32_t frequency = 0;
     bool is_sent = false;
@@ -378,8 +382,24 @@ static void js_subghz_transmit_file(struct mjs* mjs) {
                     repeat = 10;
                 }
             }
+            // Why: set Repeat on an in-memory byte copy so the user's .sub file is never rewritten
+            Stream* file_stream = flipper_format_get_raw_stream(fff_file);
+            size_t file_size = stream_size(file_stream);
+            if(file_size > JS_SUBGHZ_KEY_FILE_MAX_SIZE) {
+                mjs_prepend_errorf(mjs, MJS_INTERNAL_ERROR, "File too large");
+                break;
+            }
+            fff_mem = flipper_format_string_alloc();
+            if(stream_copy_full(file_stream, flipper_format_get_raw_stream(fff_mem)) !=
+               file_size) {
+                mjs_prepend_errorf(mjs, MJS_INTERNAL_ERROR, "Failed to load file");
+                break;
+            }
             // Pass repeat value to protocol layer
-            flipper_format_insert_or_update_uint32(fff_file, "Repeat", &repeat, 1);
+            if(!flipper_format_insert_or_update_uint32(fff_mem, "Repeat", &repeat, 1)) {
+                mjs_prepend_errorf(mjs, MJS_INTERNAL_ERROR, "Failed to set repeat");
+                break;
+            }
             // Repeat variable applies to high-level code here, should only loop once
             repeat = 1;
         }
@@ -391,7 +411,7 @@ static void js_subghz_transmit_file(struct mjs* mjs) {
         }
 
         SubGhzProtocolStatus status =
-            subghz_transmitter_deserialize(transmitter, is_raw ? fff_raw : fff_file);
+            subghz_transmitter_deserialize(transmitter, is_raw ? fff_raw : fff_mem);
         if(status != SubGhzProtocolStatusOk) {
             mjs_prepend_errorf(mjs, MJS_INTERNAL_ERROR, "Failed to deserialize protocol");
             break;
@@ -455,6 +475,9 @@ static void js_subghz_transmit_file(struct mjs* mjs) {
 
     if(fff_raw) {
         flipper_format_free(fff_raw);
+    }
+    if(fff_mem) {
+        flipper_format_free(fff_mem);
     }
     flipper_format_free(fff_file);
     furi_record_close(RECORD_STORAGE);

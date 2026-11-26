@@ -21,6 +21,9 @@ typedef struct {
     void* context;
 } RpcHandler;
 
+// Internal (not in SDK): true once the owner closed the session, so long handlers can stop early
+bool rpc_session_is_closing(RpcSession* session);
+
 void rpc_send(RpcSession* session, PB_Main* main_message);
 
 void rpc_send_and_release(RpcSession* session, PB_Main* main_message);

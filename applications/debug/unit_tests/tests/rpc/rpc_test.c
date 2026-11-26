@@ -45,7 +45,7 @@ static RpcSessionContext rpc_session[TEST_RPC_SESSIONS];
 #define TAG "UnitTestsRpc"
 
 #define MAX_RECEIVE_OUTPUT_TIMEOUT 3000
-#define MAX_NAME_LENGTH            254
+#define MAX_NAME_LENGTH            256 // keep in sync with rpc_storage.c
 #define MAX_DATA_SIZE              512u // have to be exact as in rpc_storage.c
 #define TEST_DIR_NAME              EXT_PATH(".tmp/unit_tests/rpc")
 #define TEST_DIR                   TEST_DIR_NAME "/"

@@ -343,6 +343,11 @@ static void rpc_system_storage_list_process(const PB_Main* request, void* contex
     }
 
     while(!finish) { //-V1044
+        // Why: owner is gone, the rest of the listing would only be discarded
+        if(rpc_session_is_closing(session)) {
+            list->file_count = i; // so the final release frees exactly the pending names
+            break;
+        }
         FileInfo fileinfo;
         char* name = malloc(MAX_NAME_LENGTH);
         if(storage_dir_read(dir, &fileinfo, name, MAX_NAME_LENGTH)) {
@@ -458,7 +463,8 @@ static void rpc_system_storage_read_process(const PB_Main* request, void* contex
                 free(response->content.storage_read_response.file.data);
                 response->content.storage_read_response.file.data = NULL;
             }
-        } while((size_left != 0) && fs_operation_success);
+            // Why: owner is gone, sending is a no-op and the busy mutex stays held
+        } while((size_left != 0) && fs_operation_success && !rpc_session_is_closing(session));
     }
 
     if(!fs_operation_success) {

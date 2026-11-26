@@ -12,6 +12,9 @@ struct RpcAppSystem {
 
     RpcAppSystemCallback callback;
     void* callback_context;
+    // Handlers currently inside (or about to enter) the callback; set_callback(NULL) waits for 0
+    uint32_t callbacks_in_flight;
+    FuriThreadId callback_thread; // thread running the in-flight handler (re-entrancy guard)
 
     uint32_t error_code;
     char* error_text;
@@ -21,6 +24,32 @@ struct RpcAppSystem {
 };
 
 #define RPC_SYSTEM_APP_TEMP_ARGS_SIZE 16
+// Upper bound for set_callback(NULL) waiting on an in-flight callback
+#define RPC_SYSTEM_APP_CALLBACK_WAIT_MS 500
+
+// Snapshots callback+context and registers the handler as in-flight, with no lock held across the
+// callback (it may re-enter set_callback). The increment comes BEFORE the read, so once
+// set_callback(NULL) cleared the pointer and sees zero in-flight, no handler holds the old pointer.
+// Returns false (nothing registered) when there is no callback.
+static bool rpc_system_app_callback_acquire(
+    RpcAppSystem* rpc_app,
+    RpcAppSystemCallback* callback,
+    void** callback_context) {
+    rpc_app->callback_thread = furi_thread_get_current_id();
+    __atomic_fetch_add(&rpc_app->callbacks_in_flight, 1, __ATOMIC_SEQ_CST);
+
+    *callback = __atomic_load_n(&rpc_app->callback, __ATOMIC_SEQ_CST);
+    *callback_context = rpc_app->callback_context;
+    if(*callback) return true;
+
+    __atomic_fetch_sub(&rpc_app->callbacks_in_flight, 1, __ATOMIC_SEQ_CST);
+    return false;
+}
+
+static void rpc_system_app_callback_release(RpcAppSystem* rpc_app) {
+    __atomic_fetch_sub(&rpc_app->callbacks_in_flight, 1, __ATOMIC_SEQ_CST);
+}
+
 
 static void rpc_system_app_send_state_response(
     RpcAppSystem* rpc_app,
@@ -163,10 +192,10 @@ static void rpc_system_app_exit_request(const PB_Main* request, void* context) {
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    // Snapshot once: the app thread may clear the callback concurrently on exit
-    RpcAppSystemCallback callback = rpc_app->callback;
-    void* callback_context = rpc_app->callback_context;
-    if(callback) {
+    // Snapshot once and mark in-flight: set_callback(NULL) waits until the callback returned
+    RpcAppSystemCallback callback;
+    void* callback_context;
+    if(rpc_system_app_callback_acquire(rpc_app, &callback, &callback_context)) {
         FURI_LOG_D(TAG, "ExitRequest: id %lu", request->command_id);
 
         const RpcAppSystemEvent event = {
@@ -179,11 +208,13 @@ static void rpc_system_app_exit_request(const PB_Main* request, void* context) {
         };
 
         if(!rpc_system_app_set_last_command(rpc_app, request->command_id, &event, "ExitRequest")) {
+            rpc_system_app_callback_release(rpc_app);
             return;
         }
         rpc_system_app_error_reset(rpc_app);
 
         callback(&event, callback_context);
+        rpc_system_app_callback_release(rpc_app);
 
     } else {
         rpc_system_app_send_error_response(
@@ -198,10 +229,10 @@ static void rpc_system_app_load_file(const PB_Main* request, void* context) {
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    // Snapshot once: the app thread may clear the callback concurrently on exit
-    RpcAppSystemCallback callback = rpc_app->callback;
-    void* callback_context = rpc_app->callback_context;
-    if(callback) {
+    // Snapshot once and mark in-flight: set_callback(NULL) waits until the callback returned
+    RpcAppSystemCallback callback;
+    void* callback_context;
+    if(rpc_system_app_callback_acquire(rpc_app, &callback, &callback_context)) {
         FURI_LOG_D(TAG, "LoadFile: id %lu", request->command_id);
 
         const RpcAppSystemEvent event = {
@@ -214,11 +245,13 @@ static void rpc_system_app_load_file(const PB_Main* request, void* context) {
         };
 
         if(!rpc_system_app_set_last_command(rpc_app, request->command_id, &event, "LoadFile")) {
+            rpc_system_app_callback_release(rpc_app);
             return;
         }
         rpc_system_app_error_reset(rpc_app);
 
         callback(&event, callback_context);
+        rpc_system_app_callback_release(rpc_app);
 
     } else {
         rpc_system_app_send_error_response(
@@ -233,10 +266,10 @@ static void rpc_system_app_button_press(const PB_Main* request, void* context) {
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    // Snapshot once: the app thread may clear the callback concurrently on exit
-    RpcAppSystemCallback callback = rpc_app->callback;
-    void* callback_context = rpc_app->callback_context;
-    if(callback) {
+    // Snapshot once and mark in-flight: set_callback(NULL) waits until the callback returned
+    RpcAppSystemCallback callback;
+    void* callback_context;
+    if(rpc_system_app_callback_acquire(rpc_app, &callback, &callback_context)) {
         FURI_LOG_D(TAG, "ButtonPress");
 
         RpcAppSystemEvent event;
@@ -251,11 +284,13 @@ static void rpc_system_app_button_press(const PB_Main* request, void* context) {
         }
 
         if(!rpc_system_app_set_last_command(rpc_app, request->command_id, &event, "ButtonPress")) {
+            rpc_system_app_callback_release(rpc_app);
             return;
         }
         rpc_system_app_error_reset(rpc_app);
 
         callback(&event, callback_context);
+        rpc_system_app_callback_release(rpc_app);
 
     } else {
         rpc_system_app_send_error_response(
@@ -270,10 +305,10 @@ static void rpc_system_app_button_release(const PB_Main* request, void* context)
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    // Snapshot once: the app thread may clear the callback concurrently on exit
-    RpcAppSystemCallback callback = rpc_app->callback;
-    void* callback_context = rpc_app->callback_context;
-    if(callback) {
+    // Snapshot once and mark in-flight: set_callback(NULL) waits until the callback returned
+    RpcAppSystemCallback callback;
+    void* callback_context;
+    if(rpc_system_app_callback_acquire(rpc_app, &callback, &callback_context)) {
         FURI_LOG_D(TAG, "ButtonRelease");
 
         const RpcAppSystemEvent event = {
@@ -287,11 +322,13 @@ static void rpc_system_app_button_release(const PB_Main* request, void* context)
 
         if(!rpc_system_app_set_last_command(
                rpc_app, request->command_id, &event, "ButtonRelease")) {
+            rpc_system_app_callback_release(rpc_app);
             return;
         }
         rpc_system_app_error_reset(rpc_app);
 
         callback(&event, callback_context);
+        rpc_system_app_callback_release(rpc_app);
 
     } else {
         rpc_system_app_send_error_response(
@@ -306,10 +343,10 @@ static void rpc_system_app_button_press_release(const PB_Main* request, void* co
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    // Snapshot once: the app thread may clear the callback concurrently on exit
-    RpcAppSystemCallback callback = rpc_app->callback;
-    void* callback_context = rpc_app->callback_context;
-    if(callback) {
+    // Snapshot once and mark in-flight: set_callback(NULL) waits until the callback returned
+    RpcAppSystemCallback callback;
+    void* callback_context;
+    if(rpc_system_app_callback_acquire(rpc_app, &callback, &callback_context)) {
         FURI_LOG_D(TAG, "ButtonPressRelease");
 
         RpcAppSystemEvent event;
@@ -325,11 +362,13 @@ static void rpc_system_app_button_press_release(const PB_Main* request, void* co
 
         if(!rpc_system_app_set_last_command(
                rpc_app, request->command_id, &event, "ButtonPressRelease")) {
+            rpc_system_app_callback_release(rpc_app);
             return;
         }
         rpc_system_app_error_reset(rpc_app);
 
         callback(&event, callback_context);
+        rpc_system_app_callback_release(rpc_app);
 
     } else {
         rpc_system_app_send_error_response(
@@ -367,10 +406,10 @@ static void rpc_system_app_data_exchange_process(const PB_Main* request, void* c
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    // Snapshot once: the app thread may clear the callback concurrently on exit
-    RpcAppSystemCallback callback = rpc_app->callback;
-    void* callback_context = rpc_app->callback_context;
-    if(callback) {
+    // Snapshot once and mark in-flight: set_callback(NULL) waits until the callback returned
+    RpcAppSystemCallback callback;
+    void* callback_context;
+    if(rpc_system_app_callback_acquire(rpc_app, &callback, &callback_context)) {
         FURI_LOG_D(TAG, "DataExchange");
 
         const pb_bytes_array_t* data = request->content.app_data_exchange_request.data;
@@ -389,11 +428,13 @@ static void rpc_system_app_data_exchange_process(const PB_Main* request, void* c
         };
 
         if(!rpc_system_app_set_last_command(rpc_app, request->command_id, &event, "DataExchange")) {
+            rpc_system_app_callback_release(rpc_app);
             return;
         }
         rpc_system_app_error_reset(rpc_app);
 
         callback(&event, callback_context);
+        rpc_system_app_callback_release(rpc_app);
     } else {
         rpc_system_app_send_error_response(
             rpc_app, request->command_id, PB_CommandStatus_ERROR_APP_NOT_RUNNING, "DataExchange");
@@ -446,7 +487,20 @@ void rpc_system_app_set_callback(RpcAppSystem* rpc_app, RpcAppSystemCallback cal
     // callback last: rpc_system_app_free() frees us as soon as it reads NULL
     // keep ctx when clearing: handlers snapshot callback+ctx and must not see NULL ctx
     if(callback) rpc_app->callback_context = ctx;
-    rpc_app->callback = callback;
+    __atomic_store_n(&rpc_app->callback, callback, __ATOMIC_SEQ_CST);
+
+    if(!callback) {
+        // Why: the app frees its context after this returns, so no handler may still be inside the
+        // callback. Skipped when called from the callback itself (waiting would never end), and
+        // bounded so a callback blocked on this (app) thread can never hang it forever.
+        const uint32_t deadline =
+            furi_get_tick() + furi_ms_to_ticks(RPC_SYSTEM_APP_CALLBACK_WAIT_MS);
+        while(__atomic_load_n(&rpc_app->callbacks_in_flight, __ATOMIC_SEQ_CST) > 0 &&
+              rpc_app->callback_thread != furi_thread_get_current_id() &&
+              (int32_t)(deadline - furi_get_tick()) > 0) {
+            furi_delay_tick(1);
+        }
+    }
 }
 
 void rpc_system_app_set_error_code(RpcAppSystem* rpc_app, uint32_t error_code) {
@@ -498,6 +552,8 @@ void* rpc_system_app_alloc(RpcSession* session) {
     RpcAppSystem* rpc_app = malloc(sizeof(RpcAppSystem));
     rpc_app->session = session;
     rpc_app->error_text = NULL; // freed in rpc_system_app_free()
+    rpc_app->callbacks_in_flight = 0;
+    rpc_app->callback_thread = NULL;
 
     RpcHandler rpc_handler = {
         .message_handler = NULL,

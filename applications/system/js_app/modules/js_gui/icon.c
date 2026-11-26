@@ -71,7 +71,7 @@ static void js_gui_icon_load_fxbm(struct mjs* mjs) {
         // Reject bad header (size underflow / oversize / dims not matching data) before allocating
         if(fxbm_header.size < sizeof(uint32_t) * 2) break;
         uint64_t frame_size_64 = (uint64_t)fxbm_header.size - sizeof(uint32_t) * 2;
-        if(frame_size_64 > 1024 || fxbm_header.width > 128 || fxbm_header.height > 64 ||
+        if(frame_size_64 > 1024 || fxbm_header.width > 128 || fxbm_header.height > 128 ||
            frame_size_64 < (uint64_t)((fxbm_header.width + 7) / 8) * fxbm_header.height) {
             break;
         }

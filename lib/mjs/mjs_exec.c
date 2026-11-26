@@ -207,12 +207,17 @@ static int mjs_script_set_v(struct mjs* mjs, mjs_val_t obj, mjs_val_t key, mjs_v
         const char* key_str = mjs_get_string(mjs, &key, &key_len);
         bool is_dtor = key_len == strlen(MJS_DESTRUCTOR_PROP_NAME) &&
                        memcmp(key_str, MJS_DESTRUCTOR_PROP_NAME, key_len) == 0;
-        bool is_inst = key_len == 1 && key_str[0] == '_' &&
-                       mjs_get_own_property(
-                           mjs,
-                           obj,
-                           MJS_DESTRUCTOR_PROP_NAME,
-                           strlen(MJS_DESTRUCTOR_PROP_NAME)) != NULL;
+        bool is_inst = false;
+        if(key_len == 1 && key_str[0] == '_') {
+            // Never let a script move a native instance pointer, nor replace one
+            struct mjs_property* own_inst = mjs_get_own_property(mjs, obj, "_", 1);
+            is_inst = mjs_is_foreign(val) || (own_inst && mjs_is_foreign(own_inst->value)) ||
+                      mjs_get_own_property(
+                          mjs,
+                          obj,
+                          MJS_DESTRUCTOR_PROP_NAME,
+                          strlen(MJS_DESTRUCTOR_PROP_NAME)) != NULL;
+        }
         if(is_dtor || is_inst) {
             mjs_set_errorf(mjs, MJS_TYPE_ERROR, "property is read-only");
             return 0;

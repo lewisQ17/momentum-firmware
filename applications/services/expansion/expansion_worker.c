@@ -206,6 +206,9 @@ static bool expansion_worker_rpc_session_open(ExpansionWorker* instance) {
         rpc_session_set_context(instance->rpc_session, instance);
         rpc_session_set_send_bytes_callback(
             instance->rpc_session, expansion_worker_rpc_send_callback);
+    } else {
+        // Session refused (e.g. PIN-locked): don't leak the RECORD_RPC reference
+        furi_record_close(RECORD_RPC);
     }
 
     return instance->rpc_session != NULL;

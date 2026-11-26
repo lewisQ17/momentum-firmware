@@ -4,17 +4,28 @@
 #include <gui/modules/variable_item_list.h>
 #include <toolbox/str_buffer.h>
 
+typedef struct JsViListContext JsViListContext;
+
+// Per-item data owned by the list context; variants are C copies so the GUI thread never uses mjs
 typedef struct {
+    JsViListContext* context;
+    uint8_t item_index;
+    size_t variants_cnt;
+    const char** variants; // strings owned by context->str_buffer
+} JsViListItem;
+
+struct JsViListContext {
     StrBuffer str_buffer;
 
-    // let mjs do the memory management heavy lifting, store children in a js array
     struct mjs* mjs;
-    mjs_val_t children;
     VariableItemList* list;
+
+    JsViListItem** items;
+    size_t items_cnt;
 
     FuriMessageQueue* input_queue;
     JsEventLoopContract contract;
-} JsViListContext;
+};
 
 typedef struct {
     int32_t item_index;
@@ -37,17 +48,15 @@ static mjs_val_t
 }
 
 static void js_vi_list_change_callback(VariableItem* item) {
-    JsViListContext* context = variable_item_get_context(item);
-    struct mjs* mjs = context->mjs;
-    uint8_t item_index = variable_item_list_get_selected_item_index(context->list);
+    JsViListItem* item_ctx = variable_item_get_context(item);
+    JsViListContext* context = item_ctx->context;
+    uint8_t item_index = item_ctx->item_index;
     uint8_t value_index = variable_item_get_current_value_index(item);
 
-    // type safety ensured in add_child
-    mjs_val_t variants = mjs_array_get(mjs, context->children, item_index);
-    mjs_val_t variant = mjs_array_get(mjs, variants, value_index);
-    const char* variant_text = mjs_get_string(mjs, &variant, NULL);
-    // Script may have mutated the variants array since addChild; keep previous text then
-    if(variant_text) variable_item_set_current_value_text(item, variant_text);
+    // GUI thread: only the C copies are read here, never the live mjs array
+    if(value_index < item_ctx->variants_cnt) {
+        variable_item_set_current_value_text(item, item_ctx->variants[value_index]);
+    }
 
     JsViListEvent event = {
         .item_index = item_index,
@@ -91,33 +100,67 @@ static bool js_vi_list_add_child(
 
     size_t variants_cnt = mjs_array_length(mjs, variants);
     for(size_t i = 0; i < variants_cnt; i++)
-        if(!mjs_is_string(mjs_array_get(mjs, variants, i))) return false;
+        if(!mjs_is_string(mjs_array_get(mjs, variants, i))) {
+            mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "variants must be strings");
+            return false;
+        }
     // Item value count is uint8_t and the default must index an existing variant
-    if(variants_cnt < 1 || variants_cnt > 255) return false;
-    if(default_selected < 0 || (size_t)default_selected >= variants_cnt) return false;
+    if(variants_cnt < 1 || variants_cnt > 255) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "variants must have 1..255 strings");
+        return false;
+    }
+    if(default_selected < 0 || (size_t)default_selected >= variants_cnt) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "defaultSelected out of range");
+        return false;
+    }
+
+    // Item index is stored as uint8_t; refuse more items than that
+    if(context->items_cnt >= 255) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "too many items (max 255)");
+        return false;
+    }
+
+    // Copy variant strings into C memory owned by the item so the GUI thread never reads mjs
+    JsViListItem* item_ctx = malloc(sizeof(JsViListItem));
+    item_ctx->context = context;
+    item_ctx->item_index = (uint8_t)context->items_cnt;
+    item_ctx->variants_cnt = variants_cnt;
+    item_ctx->variants = malloc(variants_cnt * sizeof(const char*));
+    for(size_t i = 0; i < variants_cnt; i++) {
+        mjs_val_t variant = mjs_array_get(mjs, variants, i);
+        item_ctx->variants[i] =
+            str_buffer_make_owned_clone(&context->str_buffer, mjs_get_string(mjs, &variant, NULL));
+    }
+
+    context->items = realloc(context->items, (context->items_cnt + 1) * sizeof(JsViListItem*));
+    context->items[context->items_cnt++] = item_ctx;
 
     VariableItem* item = variable_item_list_add(
         list,
         str_buffer_make_owned_clone(&context->str_buffer, label),
         variants_cnt,
         js_vi_list_change_callback,
-        context);
+        item_ctx);
     variable_item_set_current_value_index(item, default_selected);
-    mjs_val_t default_variant = mjs_array_get(mjs, variants, default_selected);
-    const char* default_text = mjs_get_string(mjs, &default_variant, NULL);
-    if(default_text) variable_item_set_current_value_text(item, default_text);
-
-    mjs_array_push(context->mjs, context->children, variants);
+    variable_item_set_current_value_text(item, item_ctx->variants[default_selected]);
 
     return true;
 }
 
-static void js_vi_list_reset_children(VariableItemList* list, JsViListContext* context) {
-    mjs_disown(context->mjs, &context->children);
-    context->children = mjs_mk_array(context->mjs);
-    mjs_own(context->mjs, &context->children);
+static void js_vi_list_free_items(JsViListContext* context) {
+    for(size_t i = 0; i < context->items_cnt; i++) {
+        free(context->items[i]->variants);
+        free(context->items[i]);
+    }
+    free(context->items);
+    context->items = NULL;
+    context->items_cnt = 0;
+}
 
+static void js_vi_list_reset_children(VariableItemList* list, JsViListContext* context) {
     variable_item_list_reset(list);
+    // Items are gone from the list now, so their contexts can be freed
+    js_vi_list_free_items(context);
     str_buffer_clear_all_clones(&context->str_buffer);
 }
 
@@ -126,11 +169,9 @@ static JsViListContext* ctx_make(struct mjs* mjs, VariableItemList* list, mjs_va
     *context = (JsViListContext){
         .str_buffer = {0},
         .mjs = mjs,
-        .children = mjs_mk_array(mjs),
         .list = list,
         .input_queue = furi_message_queue_alloc(1, sizeof(JsViListEvent)),
     };
-    mjs_own(context->mjs, &context->children);
     context->contract = (JsEventLoopContract){
         .magic = JsForeignMagic_JsEventLoopContract,
         .object_type = JsEventLoopObjectTypeQueue,
@@ -150,6 +191,7 @@ static void ctx_destroy(VariableItemList* input, JsViListContext* context, FuriE
     UNUSED(input);
     furi_event_loop_maybe_unsubscribe(loop, context->input_queue);
     furi_message_queue_free(context->input_queue);
+    js_vi_list_free_items(context);
     str_buffer_clear_all_clones(&context->str_buffer);
     free(context);
 }
