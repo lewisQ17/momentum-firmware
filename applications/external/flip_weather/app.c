@@ -18,6 +18,8 @@ int32_t flip_weather_app(void *p)
     if (!flipper_http_ping())
     {
         FURI_LOG_E(TAG, "Failed to ping the device");
+        flip_weather_app_free(app_instance); // release serial/thread/views before exiting
+        app_instance = NULL;
         return -1;
     }
 

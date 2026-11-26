@@ -428,6 +428,10 @@ static bool camera_suite_view_camera_input(InputEvent* event, void* context) {
 
 static void camera_suite_view_camera_exit(void* context) {
     furi_assert(context);
+    CameraSuiteViewCamera* instance = context;
+    // Close while a key is held skips the Release handler: free speaker mutex + LED
+    camera_suite_stop_all_sound(instance->context);
+    camera_suite_led_set_rgb(instance->context, 0, 0, 0);
 }
 
 static void camera_suite_view_camera_enter(void* context) {

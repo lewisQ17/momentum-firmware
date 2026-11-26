@@ -94,7 +94,10 @@ Flipboard* flipboard_alloc(
  * @param app The Flipboard application to free.
 */
 void flipboard_free(Flipboard* app) {
-    flipboard_model_free(app->model);
+    // Remove all views first: on a loader/RPC close the primary view's exit callback
+    // (HID detach, button monitor join) still runs here and needs the live model
+    app_menu_free(app->app_menu);
+    app->app_menu = NULL;
 
     view_free(app->view_primary);
     if(app->action_config) {
@@ -102,7 +105,8 @@ void flipboard_free(Flipboard* app) {
     }
     widget_free(app->widget_about);
     widget_free(app->widget_qr);
-    app_menu_free(app->app_menu);
+
+    flipboard_model_free(app->model);
 
     view_dispatcher_free(app->view_dispatcher);
     furi_record_close(RECORD_GUI);

@@ -58,6 +58,7 @@ typedef struct {
     uint32_t frequency;
     SubGhzTxRxWorker* subghz_worker;
     const SubGhzDevice* subghz_device;
+    bool worker_owns_device; // true once the worker thread runs: it ends the device itself
 
     // for NFC
     NfcWorker* nfc_worker;

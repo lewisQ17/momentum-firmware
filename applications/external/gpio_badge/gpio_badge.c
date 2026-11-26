@@ -36,6 +36,19 @@ int lri = 0;
 
 const GpioPin* const pin_back = &gpio_button_back;
 
+// Set by the Back key or a loader/RPC exit signal; polled by every effect loop
+static volatile bool exit_requested = false;
+
+static bool exit_signal_callback(uint32_t signal, void* arg, void* context) {
+    UNUSED(arg);
+    UNUSED(context);
+    if(signal == FuriSignalExit) {
+        exit_requested = true;
+        return true;
+    }
+    return false;
+}
+
 static void my_draw_callback(Canvas* canvas, void* context) {
     UNUSED(context);
     canvas_set_font(canvas, FontPrimary);
@@ -48,7 +61,9 @@ static void my_input_callback(InputEvent* event, void* context) {
     UNUSED(context);
     if(event->type == InputTypePress) {
         uint32_t last_speed = speed;
-        if(event->key == InputKeyLeft) {
+        if(event->key == InputKeyBack) {
+            exit_requested = true;
+        } else if(event->key == InputKeyLeft) {
             speed *= 0.9;
             if(speed < 1) {
                 speed = 1;
@@ -91,7 +106,7 @@ void do_effect_lrl() {
             d = d * -1;
         }
 
-        if(furi_hal_gpio_read(pin_back) == false || effect != EffectIdLRL) {
+        if(furi_hal_gpio_read(pin_back) == false || exit_requested || effect != EffectIdLRL) {
             break;
         }
     }
@@ -116,7 +131,7 @@ void do_effect_both_lrl() {
             d = d * -1;
         }
 
-        if(furi_hal_gpio_read(pin_back) == false || effect != EffectIdBothLRL) {
+        if(furi_hal_gpio_read(pin_back) == false || exit_requested || effect != EffectIdBothLRL) {
             break;
         }
     }
@@ -133,7 +148,7 @@ void do_effect_lr() {
         if(lri == COUNT_OF(pin_leds)) {
             lri = 0;
         }
-        if(furi_hal_gpio_read(pin_back) == false || effect != EffectIdLR) {
+        if(furi_hal_gpio_read(pin_back) == false || exit_requested || effect != EffectIdLR) {
             break;
         }
     }
@@ -154,14 +169,14 @@ void do_effect_counter() {
         }
         c++;
 
-        if(furi_hal_gpio_read(pin_back) == false || effect != EffectIdCounter) {
+        if(furi_hal_gpio_read(pin_back) == false || exit_requested || effect != EffectIdCounter) {
             break;
         }
     }
 }
 
 void do_effects() {
-    while(furi_hal_gpio_read(pin_back)) {
+    while(furi_hal_gpio_read(pin_back) && !exit_requested) {
         switch(effect) {
         case EffectIdLRL:
             do_effect_lrl();
@@ -182,6 +197,10 @@ void do_effects() {
 int gpio_diag_lights_app(void* p) {
     UNUSED(p);
 
+    // Let a loader/RPC close end the busy loop (no view dispatcher to do it for us)
+    exit_requested = false;
+    furi_thread_set_signal_callback(furi_thread_get_current(), exit_signal_callback, NULL);
+
     // free the USART pins from the expansion service (restored on exit)
     Expansion* expansion = furi_record_open(RECORD_EXPANSION);
     expansion_disable(expansion);
@@ -197,6 +216,9 @@ int gpio_diag_lights_app(void* p) {
     }
 
     do_effects();
+
+    // Loop is over: stop reacting to signals before tearing down
+    furi_thread_set_signal_callback(furi_thread_get_current(), NULL, NULL);
 
     // Typically when a pin is no longer in use, it is set to analog mode.
     // but we need to use open drain for the 1Wire pin.

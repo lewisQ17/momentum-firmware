@@ -23,6 +23,8 @@ int32_t longwave_clock_app(void* p) {
 
     FURI_LOG_D(TAG, "Handing over to view dispatcher.");
     view_dispatcher_run(app->view_dispatcher);
+    // Loader/RPC exit skips scene handlers: run the current scene's on_exit (GPIO IRQ, timer, backlight)
+    scene_manager_stop(app->scene_manager);
     FURI_LOG_D(TAG, "Returning from view dispatcher, freeing the app.");
 
     app_free(app);

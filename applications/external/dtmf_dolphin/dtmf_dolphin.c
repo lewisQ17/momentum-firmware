@@ -61,6 +61,8 @@ static DTMFDolphinApp* app_alloc() {
 
 static void app_free(DTMFDolphinApp* app) {
     furi_assert(app);
+    // Safety net: release the tone player (speaker, DMA ISR) before the views go away (idempotent)
+    dtmf_dolphin_audio_stop_tones();
     view_dispatcher_remove_view(app->view_dispatcher, DTMFDolphinViewMainMenu);
     view_dispatcher_remove_view(app->view_dispatcher, DTMFDolphinViewDialer);
     variable_item_list_free(app->main_menu_list);

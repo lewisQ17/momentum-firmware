@@ -28,6 +28,7 @@ FuriThread *game_thread = NULL;
 FuriThread *waiting_thread = NULL;
 bool game_thread_running = false;
 bool waiting_thread_running = false;
+volatile bool waiting_closing = false;
 
 static void game_frame_cb(GameEngine *engine, Canvas *canvas, InputState input, void *context)
 {
@@ -117,19 +118,27 @@ static int32_t game_waiting_app_callback(void *p)
     }
     user_hit_back = false;
     timer_iteration = 0;
-    while (timer_iteration < 60 && !user_hit_back)
+    while (timer_iteration < 60 && !user_hit_back && !waiting_closing)
     {
         FURI_LOG_I(TAG, "Waiting for more players...");
         game_waiting_process(fhttp, app);
         FURI_LOG_I(TAG, "Waiting for more players... %d", timer_iteration);
         timer_iteration++;
-        furi_delay_ms(1000 * timer_refresh);
+        // sleep in 100 ms slices so Back / app close ends the wait promptly
+        for (uint32_t waited = 0; waited < 1000U * timer_refresh && !user_hit_back && !waiting_closing; waited += 100)
+        {
+            furi_delay_ms(100);
+        }
     }
     // if we reach here, it means we timed out or the user hit back
     FURI_LOG_E(TAG, "No players joined within the timeout or user hit back");
     game_remove_from_lobby(fhttp);
     flipper_http_free(fhttp);
-    view_dispatcher_switch_to_view(app->view_dispatcher, FlipWorldViewSubmenuOther);
+    // when the app is closing the views are being freed: never switch to one
+    if (!waiting_closing)
+    {
+        view_dispatcher_switch_to_view(app->view_dispatcher, FlipWorldViewSubmenuOther);
+    }
     return 0;
 }
 
@@ -143,9 +152,10 @@ static bool game_start_waiting_thread(void *context)
         waiting_thread_running = false;
         if (waiting_thread)
         {
-            furi_thread_flags_set(furi_thread_get_id(waiting_thread), WorkerEvtStop);
+            user_hit_back = true; // the waiting thread polls this, not thread flags
             furi_thread_join(waiting_thread);
             furi_thread_free(waiting_thread);
+            waiting_thread = NULL;
         }
     }
     // start waiting thread
@@ -244,9 +254,10 @@ static bool game_thread_start(void *context)
         game_thread_running = false;
         if (game_thread)
         {
-            furi_thread_flags_set(furi_thread_get_id(game_thread), WorkerEvtStop);
+            furi_thread_flags_set(furi_thread_get_id(game_thread), FLIP_WORLD_GAME_STOP_FLAG);
             furi_thread_join(game_thread);
             furi_thread_free(game_thread);
+            game_thread = NULL;
         }
     }
     // start game thread

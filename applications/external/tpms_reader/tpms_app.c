@@ -120,6 +120,12 @@ TPMSApp* tpms_app_alloc() {
 void tpms_app_free(TPMSApp* app) {
     furi_assert(app);
 
+    // Loader close skips the receiver Back handler: stop async RX + worker before they are freed
+    if(app->txrx->txrx_state == TPMSTxRxStateRx) {
+        tpms_rx_end(app);
+    }
+    app->txrx->hopper_state = TPMSHopperStateOFF;
+
     subghz_devices_sleep(app->txrx->radio_device);
     radio_device_loader_end(app->txrx->radio_device);
 

@@ -160,7 +160,9 @@ void enter_chat(ESubGhzChatState* state) {
 
     furi_string_cat_printf(store, "\nEncrypted: %s", (state->encrypted ? "yes" : "no"));
 
-    subghz_tx_rx_worker_start(state->subghz_worker, state->subghz_device, state->frequency);
+    /* only a started worker thread ends the device (start fails for TX-disallowed frequencies) */
+    state->worker_owns_device =
+        subghz_tx_rx_worker_start(state->subghz_worker, state->subghz_device, state->frequency);
 
     if(strcmp(state->subghz_device->name, "cc1101_ext") == 0) {
         furi_string_cat_printf(store, "\nRadio: External");
@@ -796,7 +798,14 @@ int32_t esubghz_chat(const char* args) {
     //nfc_device_data_clear(state->nfc_dev_data);
     crypto_explicit_bzero(state->nfc_dev_data, sizeof(NfcDeviceData));
 
-    /* deinit devices */
+    /* the worker never ran (left before chat / start refused): end the external CC1101 here, else its SPI bus stays initialised */
+    if(state->subghz_device && !state->worker_owns_device &&
+       strcmp(state->subghz_device->name, "cc1101_ext") == 0) {
+        subghz_devices_sleep(state->subghz_device);
+        subghz_devices_end(state->subghz_device);
+    }
+
+    /* deinit devices (only switches OTG off, does not touch the device struct) */
     radio_device_loader_end(state->subghz_device);
 
     subghz_devices_deinit();

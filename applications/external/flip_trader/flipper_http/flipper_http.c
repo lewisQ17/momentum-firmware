@@ -343,6 +343,14 @@ bool flipper_http_init(FlipperHTTP_Callback callback, void *context)
         FURI_LOG_E(HTTP_TAG, "Invalid callback provided to flipper_http_init.");
         return false;
     }
+    // handle when the UART control is busy to avoid furi_check failed
+    // (checked before any alloc/thread start so a busy bail-out leaks nothing)
+    if (furi_hal_serial_control_is_busy(UART_CH))
+    {
+        FURI_LOG_E(HTTP_TAG, "UART control is busy.");
+        return false;
+    }
+
     fhttp.flipper_http_stream = furi_stream_buffer_alloc(RX_BUF_SIZE, 1);
     if (!fhttp.flipper_http_stream)
     {
@@ -369,18 +377,13 @@ bool flipper_http_init(FlipperHTTP_Callback callback, void *context)
     furi_thread_start(fhttp.rx_thread);
     fhttp.rx_thread_id = furi_thread_get_id(fhttp.rx_thread);
 
-    // handle when the UART control is busy to avoid furi_check failed
-    if (furi_hal_serial_control_is_busy(UART_CH))
-    {
-        FURI_LOG_E(HTTP_TAG, "UART control is busy.");
-        return false;
-    }
-
     fhttp.serial_handle = furi_hal_serial_control_acquire(UART_CH);
     if (!fhttp.serial_handle)
     {
         FURI_LOG_E(HTTP_TAG, "Failed to acquire UART control - handle is NULL");
-        // Cleanup resources
+        // Cleanup resources: the rx thread is already running, stop and join it before freeing
+        furi_thread_flags_set(fhttp.rx_thread_id, WorkerEvtStop);
+        furi_thread_join(fhttp.rx_thread);
         furi_thread_free(fhttp.rx_thread);
         furi_stream_buffer_free(fhttp.flipper_http_stream);
         return false;
@@ -417,6 +420,7 @@ bool flipper_http_init(FlipperHTTP_Callback callback, void *context)
         furi_thread_join(fhttp.rx_thread);
         furi_thread_free(fhttp.rx_thread);
         furi_stream_buffer_free(fhttp.flipper_http_stream);
+        fhttp.serial_handle = NULL; // released above, keep deinit a no-op
         return false;
     }
 
@@ -427,6 +431,8 @@ bool flipper_http_init(FlipperHTTP_Callback callback, void *context)
     if (!fhttp.last_response)
     {
         FURI_LOG_E(HTTP_TAG, "Failed to allocate memory for last_response.");
+        // Everything else is up: tear it down (serial, rx thread, stream buffer, timer)
+        flipper_http_deinit();
         return false;
     }
 
@@ -454,6 +460,7 @@ void flipper_http_deinit()
     furi_hal_serial_disable_direction(fhttp.serial_handle, FuriHalSerialDirectionRx);
     furi_hal_serial_control_release(fhttp.serial_handle);
     furi_hal_serial_deinit(fhttp.serial_handle);
+    fhttp.serial_handle = NULL; // idempotent: a second deinit hits the NULL guard above
 
     // Signal the worker thread to stop
     furi_thread_flags_set(fhttp.rx_thread_id, WorkerEvtStop);

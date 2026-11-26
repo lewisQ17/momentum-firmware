@@ -79,6 +79,9 @@ SubGhzTxRx* subghz_txrx_alloc(void) {
 void subghz_txrx_free(SubGhzTxRx* instance) {
     furi_assert(instance);
 
+    // Stop any active TX/RX first (no-op when idle) so the HAL state returns to Idle
+    subghz_txrx_stop(instance);
+
     // Put the internal CC1101 to sleep (SPWD) so it doesn't idle awake after the app
     if(instance->radio_device_type == SubGhzRadioDeviceTypeInternal &&
        instance->txrx_state == SubGhzTxRxStateIDLE) {

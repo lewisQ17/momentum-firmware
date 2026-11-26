@@ -16,6 +16,7 @@ struct GBCartridgeScene2 {
     GBCartridgeScene2Callback callback;
     void* context;
     GBCartridge* app;
+    bool backlight_enforced; // enforce_on is balanced in the exit callback (also runs on dispatcher stop)
 };
 static uint64_t last_toggle_time = 0;
 
@@ -267,8 +268,6 @@ bool gb_cartridge_scene_2_input(InputEvent* event, void* context) {
                         app->cart_rom = NULL;
                     }
                     furi_mutex_release(app->dump_mutex);
-                    notification_message(
-                        app->notification, &sequence_display_backlight_enforce_auto);
                     instance->callback(GBCartridgeCustomEventScene2Back, instance->context);
                 },
                 true);
@@ -325,16 +324,26 @@ bool gb_cartridge_scene_2_input(InputEvent* event, void* context) {
 
 void gb_cartridge_scene_2_exit(void* context) {
     furi_assert(context);
-    GBCartridge* app = context;
+    GBCartridgeScene2* instance = context;
+    GBCartridge* app = (GBCartridge*)instance->context;
+    if(!app) return;
     gb_cartridge_stop_all_sound(app);
+    // Release the backlight force-on here so loader close does not leave it locked until reboot
+    if(instance->backlight_enforced) {
+        notification_message(app->notification, &sequence_display_backlight_enforce_auto);
+        instance->backlight_enforced = false;
+    }
 }
 
 void gb_cartridge_scene_2_enter(void* context) {
     furi_assert(context);
     GBCartridgeScene2* instance = context;
     GBCartridge* app = (GBCartridge*)instance->context;
-    //  backlight on
-    notification_message(app->notification, &sequence_display_backlight_enforce_on);
+    //  backlight on (once; released in the exit callback)
+    if(!instance->backlight_enforced) {
+        notification_message(app->notification, &sequence_display_backlight_enforce_on);
+        instance->backlight_enforced = true;
+    }
     // furi_hal_power_disable_otg();
     UNUSED(app);
     // dolphin_deed(DolphinDeedPluginStart);
@@ -368,6 +377,7 @@ void gb_cartridge_scene_2_enter(void* context) {
 
 GBCartridgeScene2* gb_cartridge_scene_2_alloc() {
     GBCartridgeScene2* instance = malloc(sizeof(GBCartridgeScene2));
+    instance->backlight_enforced = false;
     instance->view = view_alloc();
     view_allocate_model(
         instance->view, ViewModelTypeLocking, sizeof(GameBoyCartridgeROMBackupModel));

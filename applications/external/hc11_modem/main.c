@@ -235,6 +235,12 @@ static void hc11_modem_app_free(App *app) {
 
   FURI_LOG_I(TAG, "App free");
 
+  /* Remove the USB serial passthrough view first: if the app is closed
+     while it is current, its exit callback restores USB/CLI/radio and
+     needs the radio comm app and backlight still alive */
+  view_dispatcher_remove_view(app->view_dispatcher, view_passthru);
+  view_free(app->passthru_view);
+
   /* Stop and free up the serial communication app */
   hc11_radio_comm_app_free(app->hc11_radio_comm_app);
 
@@ -247,10 +253,6 @@ static void hc11_modem_app_free(App *app) {
   /* Remove the about view */
   view_dispatcher_remove_view(app->view_dispatcher, view_about);
   view_free(app->about_view);
-
-  /* Remove the USB serial passthrough view */
-  view_dispatcher_remove_view(app->view_dispatcher, view_passthru);
-  view_free(app->passthru_view);
 
   /* Remove the configuration view */
   view_dispatcher_remove_view(app->view_dispatcher, view_config);

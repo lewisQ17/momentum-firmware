@@ -60,8 +60,19 @@ void gpio_scene_usb_uart_on_exit(void* context) {
     GpioApp* app = context;
     uint32_t prev_state = scene_manager_get_scene_state(app->scene_manager, GpioSceneUsbUart);
     if(prev_state == 0) {
-        usb_uart_disable(app->usb_uart_bridge);
-        free(scene_usb_uart);
+        gpio_scene_usb_uart_force_close(app);
     }
     notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
+}
+
+void gpio_scene_usb_uart_force_close(GpioApp* app) {
+    // NULL after release so the on_exit path and the app-free path never double-release
+    if(app->usb_uart_bridge) {
+        usb_uart_disable(app->usb_uart_bridge);
+        app->usb_uart_bridge = NULL;
+    }
+    if(scene_usb_uart) {
+        free(scene_usb_uart);
+        scene_usb_uart = NULL;
+    }
 }

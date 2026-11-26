@@ -398,6 +398,16 @@ int32_t protoview_app_entry(void* p) {
     }
 
     /* App no longer running. Shut down and free. */
+    /* Long-press Back skips app_switch_view: undo direct sampling (TIM2 ISR/bus, async RX)
+     * so radio_rx_end below is valid and the ISR can't fire into freed memory. */
+    furi_mutex_acquire(app->view_updating_mutex, FuriWaitForever);
+    if(app->current_view == ViewDirectSampling) {
+        view_exit_direct_sampling(app);
+        /* Renderers must not touch the released capture bitmap. */
+        app->current_view = ViewRawPulses;
+    }
+    furi_mutex_release(app->view_updating_mutex);
+
     if(app->txrx->txrx_state == TxRxStateRx) {
         FURI_LOG_E(TAG, "Putting CC1101 to sleep before exiting.");
         radio_rx_end(app);

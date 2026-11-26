@@ -323,6 +323,36 @@ void _flipper_http_rx_callback(
     }
 }
 
+// Release whatever flipper_http_init() has set up so far (guarded, safe on partial init)
+static void flipper_http_init_abort(void)
+{
+    if (fhttp.serial_handle)
+    {
+        furi_hal_serial_async_rx_stop(fhttp.serial_handle);
+        furi_hal_serial_disable_direction(fhttp.serial_handle, FuriHalSerialDirectionRx);
+        furi_hal_serial_control_release(fhttp.serial_handle);
+        furi_hal_serial_deinit(fhttp.serial_handle);
+        fhttp.serial_handle = NULL;
+    }
+    if (fhttp.rx_thread)
+    {
+        furi_thread_flags_set(fhttp.rx_thread_id, WorkerEvtStop);
+        furi_thread_join(fhttp.rx_thread);
+        furi_thread_free(fhttp.rx_thread);
+        fhttp.rx_thread = NULL;
+    }
+    if (fhttp.flipper_http_stream)
+    {
+        furi_stream_buffer_free(fhttp.flipper_http_stream);
+        fhttp.flipper_http_stream = NULL;
+    }
+    if (fhttp.get_timeout_timer)
+    {
+        furi_timer_free(fhttp.get_timeout_timer);
+        fhttp.get_timeout_timer = NULL;
+    }
+}
+
 // UART initialization function
 /**
  * @brief      Initialize UART.
@@ -343,6 +373,13 @@ bool flipper_http_init(FlipperHTTP_Callback callback, void *context)
         FURI_LOG_E(HTTP_TAG, "Invalid callback provided to flipper_http_init.");
         return false;
     }
+    // handle when the UART control is busy to avoid furi_check failed (checked before the RX thread starts)
+    if (furi_hal_serial_control_is_busy(UART_CH))
+    {
+        FURI_LOG_E(HTTP_TAG, "UART control is busy.");
+        return false;
+    }
+
     fhttp.flipper_http_stream = furi_stream_buffer_alloc(RX_BUF_SIZE, 1);
     if (!fhttp.flipper_http_stream)
     {
@@ -369,20 +406,12 @@ bool flipper_http_init(FlipperHTTP_Callback callback, void *context)
     furi_thread_start(fhttp.rx_thread);
     fhttp.rx_thread_id = furi_thread_get_id(fhttp.rx_thread);
 
-    // handle when the UART control is busy to avoid furi_check failed
-    if (furi_hal_serial_control_is_busy(UART_CH))
-    {
-        FURI_LOG_E(HTTP_TAG, "UART control is busy.");
-        return false;
-    }
-
     fhttp.serial_handle = furi_hal_serial_control_acquire(UART_CH);
     if (!fhttp.serial_handle)
     {
         FURI_LOG_E(HTTP_TAG, "Failed to acquire UART control - handle is NULL");
-        // Cleanup resources
-        furi_thread_free(fhttp.rx_thread);
-        furi_stream_buffer_free(fhttp.flipper_http_stream);
+        // Cleanup resources: stop and join the running RX worker before freeing it
+        flipper_http_init_abort();
         return false;
     }
 
@@ -427,6 +456,8 @@ bool flipper_http_init(FlipperHTTP_Callback callback, void *context)
     if (!fhttp.last_response)
     {
         FURI_LOG_E(HTTP_TAG, "Failed to allocate memory for last_response.");
+        // Tear down serial, RX worker, stream buffer and timer so nothing outlives the failed init
+        flipper_http_init_abort();
         return false;
     }
 

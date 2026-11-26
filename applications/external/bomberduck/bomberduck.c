@@ -404,8 +404,10 @@ int32_t bomberduck_app(void* p) {
 
     // Бесконечный цикл обработки очереди событий
     while(1) {
-        if(furi_message_queue_get(event_queue, &event, 100) == FuriStatusOk) {
-            furi_mutex_acquire(bomber_state->mutex, FuriWaitForever);
+        const bool got_event = furi_message_queue_get(event_queue, &event, 100) == FuriStatusOk;
+        // Lock every iteration: the game logic below also runs on timeouts and races the draw callback
+        furi_mutex_acquire(bomber_state->mutex, FuriWaitForever);
+        if(got_event) {
             // Если нажата кнопка "назад", то выходим из цикла, а следовательно и из приложения
 
             if(event.type == InputTypePress) {
@@ -449,6 +451,9 @@ int32_t bomberduck_app(void* p) {
                 }
             } else if(event.type == InputTypeLong) {
                 if(event.key == InputKeyBack) {
+                    // Release before leaving: a pending draw waits on this mutex and
+                    // gui_remove_view_port would then deadlock the GUI (whole device hangs)
+                    furi_mutex_release(bomber_state->mutex);
                     break;
                 }
             }

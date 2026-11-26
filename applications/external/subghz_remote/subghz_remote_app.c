@@ -235,6 +235,9 @@ int32_t subghz_remote_app(void* arg) {
 
     view_dispatcher_run(subghz_remote_app->view_dispatcher);
 
+    // Loader/RPC exit skips scene handlers: run the current scene's on_exit (stops a held TX)
+    scene_manager_stop(subghz_remote_app->scene_manager);
+
     subghz_remote_app_free(subghz_remote_app);
 
     return 0;

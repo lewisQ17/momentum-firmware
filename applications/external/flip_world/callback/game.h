@@ -8,6 +8,9 @@ extern FuriThread *game_thread;
 extern FuriThread *waiting_thread;
 extern bool game_thread_running;
 extern bool waiting_thread_running;
+extern volatile bool waiting_closing; // set while free_all_views joins the waiting thread: it must leave without touching views
+// the game thread waits on the engine's own flags (engine/game_engine.c GameThreadFlagStop = 1 << 1); WorkerEvtStop (1 << 0) would be read as a frame Update
+#define FLIP_WORLD_GAME_STOP_FLAG (1U << 1)
 //
 bool game_start_ws(FlipperHTTP *fhttp, char *lobby_name);
 void game_run(FlipWorldApp *app);

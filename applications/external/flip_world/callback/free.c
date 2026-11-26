@@ -97,25 +97,42 @@ void free_all_views(void *context, bool free_variable_list, bool free_settings_o
 {
     FlipWorldApp *app = (FlipWorldApp *)context;
     furi_check(app);
+
+    // join the threads FIRST, before any view or lobby_list they may use is freed
+    // free waiting thread (polls user_hit_back / waiting_closing; it ignores thread flags)
+    if (waiting_thread_running)
+    {
+        waiting_thread_running = false;
+        if (waiting_thread)
+        {
+            waiting_closing = true;
+            user_hit_back = true;
+            furi_thread_join(waiting_thread);
+            furi_thread_free(waiting_thread);
+            waiting_thread = NULL;
+            waiting_closing = false;
+        }
+    }
+
+    // free game thread (the engine loop only ends on its own stop bit; the waiting thread may have started it, so it is joined second)
+    if (game_thread_running)
+    {
+        game_thread_running = false;
+        if (game_thread)
+        {
+            furi_thread_flags_set(furi_thread_get_id(game_thread), FLIP_WORLD_GAME_STOP_FLAG);
+            furi_thread_join(game_thread);
+            furi_thread_free(game_thread);
+            game_thread = NULL;
+        }
+    }
+
     if (free_variable_list)
     {
         free_variable_item_list(app);
     }
     free_message_view(app);
     free_text_input_view(app);
-
-    // free game thread
-    if (game_thread_running)
-    {
-        game_thread_running = false;
-        if (game_thread)
-        {
-            furi_thread_flags_set(furi_thread_get_id(game_thread), WorkerEvtStop);
-            furi_thread_join(game_thread);
-            furi_thread_free(game_thread);
-            game_thread = NULL;
-        }
-    }
 
     if (free_settings_other)
     {
@@ -128,18 +145,5 @@ void free_all_views(void *context, bool free_variable_list, bool free_settings_o
     if (free_submenu_game)
     {
         free_game_submenu(app);
-    }
-
-    // free waiting thread
-    if (waiting_thread_running)
-    {
-        waiting_thread_running = false;
-        if (waiting_thread)
-        {
-            furi_thread_flags_set(furi_thread_get_id(waiting_thread), WorkerEvtStop);
-            furi_thread_join(waiting_thread);
-            furi_thread_free(waiting_thread);
-            waiting_thread = NULL;
-        }
     }
 }

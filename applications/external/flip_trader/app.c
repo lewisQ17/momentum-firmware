@@ -1,5 +1,6 @@
 #include <flip_trader.h>
 #include <alloc/flip_trader_alloc.h>
+#include <expansion/expansion.h>
 
 // Entry point for the FlipTrader application
 int32_t flip_trader_app(void *p)
@@ -7,17 +8,30 @@ int32_t flip_trader_app(void *p)
     // Suppress unused parameter warning
     UNUSED(p);
 
+    // Free the UART from the expansion service while we use it (restored on every exit path)
+    Expansion *expansion = furi_record_open(RECORD_EXPANSION);
+    expansion_disable(expansion);
+
     // Initialize the FlipTrader application
     app_instance = flip_trader_app_alloc();
     if (!app_instance)
     {
         FURI_LOG_E(TAG, "Failed to allocate FlipTraderApp");
+        // Release the UART/rx thread if init got that far (no-op if it did not)
+        flipper_http_deinit();
+        expansion_enable(expansion);
+        furi_record_close(RECORD_EXPANSION);
         return -1;
     }
 
     if (!flipper_http_ping())
     {
         FURI_LOG_E(TAG, "Failed to ping the device");
+        // App is fully allocated here: free it (also deinits flipper http)
+        flip_trader_app_free(app_instance);
+        app_instance = NULL;
+        expansion_enable(expansion);
+        furi_record_close(RECORD_EXPANSION);
         return -1;
     }
 
@@ -56,6 +70,10 @@ int32_t flip_trader_app(void *p)
 
     // Free the resources used by the FlipTrader application
     flip_trader_app_free(app_instance);
+    app_instance = NULL;
+
+    expansion_enable(expansion);
+    furi_record_close(RECORD_EXPANSION);
 
     // Return 0 to indicate success
     return 0;

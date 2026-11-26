@@ -295,6 +295,7 @@ void ami_tool_info_show_actions_menu(AmiToolApp* app);
 void ami_tool_info_show_action_message(AmiToolApp* app, const char* message);
 bool ami_tool_info_start_emulation(AmiToolApp* app);
 void ami_tool_info_stop_emulation(AmiToolApp* app);
+void ami_tool_scene_bluetooth_stop(AmiToolApp* app);
 bool ami_tool_info_change_uid(AmiToolApp* app);
 bool ami_tool_info_write_to_tag(AmiToolApp* app);
 bool ami_tool_info_save_to_storage(AmiToolApp* app);

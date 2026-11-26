@@ -47,8 +47,12 @@ static bool view_input_callback(InputEvent* event, void* context) {
     UNUSED(instance);
     if(event->type == InputTypePress) {
         if(event->key == InputKeyBack) {
-            uart_set_handle_rx_data_cb(instance->uart, NULL);
-            uart_free(instance->uart);
+            // Release the UART once; link_camera_free skips it when already NULL
+            if(instance->uart) {
+                uart_set_handle_rx_data_cb(instance->uart, NULL);
+                uart_free(instance->uart);
+                instance->uart = NULL;
+            }
 
             furi_hal_power_disable_external_3_3v();
             furi_delay_ms(100);
@@ -62,8 +66,10 @@ static bool view_input_callback(InputEvent* event, void* context) {
 
             with_view_model(
                 instance->view, LinkCameraModel * model, { model->initialized = true; }, true);
-            uart_tx(instance->uart, (uint8_t*)("c"), 1);
-            uart_tx(instance->uart, (uint8_t*)("\n"), 1);
+            if(instance->uart) {
+                uart_tx(instance->uart, (uint8_t*)("c"), 1);
+                uart_tx(instance->uart, (uint8_t*)("\n"), 1);
+            }
         }
     }
     return false;
@@ -81,6 +87,12 @@ static void link_camera_model_set_str(char** slot, const char* value, char* fall
 
 static void link_camera_free(LinkCameraApp* app) {
     furi_assert(app);
+    // Loader/RPC close skips the Back handler: release USART + rx thread/IRQ before the view dies
+    if(app->uart) {
+        uart_set_handle_rx_data_cb(app->uart, NULL);
+        uart_free(app->uart);
+        app->uart = NULL;
+    }
     // Free views
     view_dispatcher_remove_view(app->view_dispatcher, 0);
     // Leak fix: release the strdup'd connection strings before the model goes away

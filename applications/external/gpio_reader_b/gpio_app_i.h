@@ -34,6 +34,9 @@ struct GpioApp {
     UsbUartConfig* usb_uart_cfg;
 };
 
+// Tears down the USB-UART bridge if still running (idempotent, safe after scene on_exit)
+void gpio_scene_usb_uart_force_close(GpioApp* app);
+
 typedef enum {
     GpioAppViewVarItemList,
     GpioAppViewGpioTest,

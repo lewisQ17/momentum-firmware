@@ -332,8 +332,9 @@ void flipboard_enter_callback(void* context) {
  */
 void flipboard_exit_callback(void* context) {
     FlipboardModel* fm = flipboard_get_model((Flipboard*)context);
-    FlipboardBlinkyModel* fbm = flipboard_model_get_custom_data(fm);
-    furi_timer_stop(fbm->timer);
+    FlipboardBlinkyModel* fbm = fm ? flipboard_model_get_custom_data(fm) : NULL;
+    if(!fm || !fbm) return; // already torn down
+    if(fbm->timer) furi_timer_stop(fbm->timer);
     flipboard_model_set_button_monitor(fm, NULL, NULL);
     flipboard_model_set_gui_refresh_speed_ms(fm, 0);
     flipboard_model_set_colors(fm, NULL, 0x0);
@@ -455,6 +456,9 @@ int32_t flipboard_blinky_app(void* _p) {
         flipboard_get_view_dispatcher(app), custom_event_handler);
 
     view_dispatcher_run(flipboard_get_view_dispatcher(app));
+
+    // loader/RPC close leaves the primary view current: leave it now so its exit callback runs while model, fbm and view are alive
+    view_dispatcher_switch_to_view(flipboard_get_view_dispatcher(app), VIEW_NONE);
 
     app_settings_free(settings);
     flipboard_blinky_model_free(fbm);

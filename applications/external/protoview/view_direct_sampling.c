@@ -111,6 +111,8 @@ void view_enter_direct_sampling(ProtoViewApp* app) {
 /* Exit view. Restore the subghz thread. */
 void view_exit_direct_sampling(ProtoViewApp* app) {
     DirectSamplingViewPrivData* privdata = app->view_privdata;
+    /* Idempotent: already exited (or never entered) means nothing to undo. */
+    if(!privdata->captured) return;
     /* Stop the ISR first: it writes into 'captured' while the flag is set. */
     app->direct_sampling_enabled = false;
     direct_sampling_timer_stop(app);

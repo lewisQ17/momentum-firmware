@@ -317,7 +317,7 @@ static uint16_t ami_tool_scene_bluetooth_serial_event_callback(
     return AMI_TOOL_BT_SERIAL_BUFFER_SIZE;
 }
 
-static void ami_tool_scene_bluetooth_stop(AmiToolApp* app) {
+void ami_tool_scene_bluetooth_stop(AmiToolApp* app) {
     furi_assert(app);
 
     if(app->bt_serial_profile) {

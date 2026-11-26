@@ -48,5 +48,7 @@ bool dtmf_dolphin_scene_dialer_on_event(void* context, SceneManagerEvent event) 
 
 void dtmf_dolphin_scene_dialer_on_exit(void* context) {
     DTMFDolphinApp* app = context;
+    // Release speaker/TIM16/DMA1 ISR if OK is held while the app is closed (idempotent)
+    dtmf_dolphin_audio_stop_tones();
     notification_message(app->notification, &sequence_display_backlight_enforce_auto);
 }

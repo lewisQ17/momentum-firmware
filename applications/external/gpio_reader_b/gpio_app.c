@@ -24,6 +24,7 @@ static void gpio_app_tick_event_callback(void* context) {
 
 GpioApp* gpio_app_alloc() {
     GpioApp* app = malloc(sizeof(GpioApp));
+    app->usb_uart_bridge = NULL; // malloc is not zeroed; free path checks this
 
     app->gui = furi_record_open(RECORD_GUI);
 
@@ -76,6 +77,11 @@ GpioApp* gpio_app_alloc() {
 void gpio_app_free(GpioApp* app) {
     furi_assert(app);
 
+    // Loader/RPC close can leave the bridge running (e.g. Config scene on top): stop it first
+    gpio_scene_usb_uart_force_close(app);
+    // Close from Test/Reader/USB-UART scenes must not leave header pins driven
+    gpio_item_configure_all_pins(GpioModeAnalog);
+
     // Views
     view_dispatcher_remove_view(app->view_dispatcher, GpioAppViewVarItemList);
     view_dispatcher_remove_view(app->view_dispatcher, GpioAppViewGpioTest);
@@ -110,6 +116,8 @@ int32_t gpio_app(void* p) {
     GpioApp* gpio_app = gpio_app_alloc();
 
     view_dispatcher_run(gpio_app->view_dispatcher);
+    // Run the active scene's on_exit also when closed via loader/RPC (before views/resources are freed)
+    scene_manager_stop(gpio_app->scene_manager);
 
     gpio_app_free(gpio_app);
 

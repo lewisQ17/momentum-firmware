@@ -603,8 +603,26 @@ void free_all() {
     free(fft_power);
 }
 
+// set when the loader/RPC asks the app to exit; the capture loop below polls it (150 ms queue timeout)
+static volatile bool scope_stop_requested = false;
+
+static bool scope_signal_callback(uint32_t signal, void* arg, void* context) {
+    UNUSED(arg);
+    ScopeApp* app = context;
+    if(signal == FuriSignalExit) {
+        scope_stop_requested = true;
+        // same effect as the event loop's default handler, which this replaces
+        view_dispatcher_stop(app->view_dispatcher);
+        return true;
+    }
+    return false;
+}
+
 void scope_scene_run_on_enter(void* context) {
     ScopeApp* app = context;
+
+    // this scene blocks inside a dispatcher callback: make a remote close end the capture loop
+    furi_thread_set_signal_callback(furi_thread_get_current(), scope_signal_callback, app);
 
     // Find string representation of time period we're using
     for(uint32_t i = 0; i < COUNT_OF(time_list); i++) {
@@ -695,7 +713,7 @@ void scope_scene_run_on_enter(void* context) {
     InputEvent event;
     bool running = true;
     bool save = false;
-    while(running) {
+    while(running && !scope_stop_requested) {
         if(furi_message_queue_get(event_queue, &event, 150) == FuriStatusOk) {
             if((event.type == InputTypePress) || (event.type == InputTypeRepeat)) {
                 switch(event.key) {
@@ -740,6 +758,7 @@ void scope_scene_run_on_enter(void* context) {
     SCB->VTOR = 0;
     __enable_irq();
 
+    if(scope_stop_requested) save = false; // closing: drop the capture, leave the app
     if(!save) {
         view_port_enabled_set(view_port, false);
         gui_remove_view_port(gui, view_port);
@@ -750,8 +769,11 @@ void scope_scene_run_on_enter(void* context) {
 
         // Switch back to original scene
         furi_record_close(RECORD_GUI);
-        scene_manager_previous_scene(app->scene_manager);
-        submenu_set_selected_item(app->submenu, 0);
+        // when closing, the dispatcher is already stopping: scope_main runs the scene's on_exit
+        if(!scope_stop_requested) {
+            scene_manager_previous_scene(app->scene_manager);
+            submenu_set_selected_item(app->submenu, 0);
+        }
     } else {
         view_port_enabled_set(view_port, false);
         gui_remove_view_port(gui, view_port);

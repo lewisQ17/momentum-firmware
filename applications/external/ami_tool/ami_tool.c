@@ -1,6 +1,7 @@
 #include "ami_tool_i.h"
 #include <stdio.h>
 #include <string.h>
+#include <furi_hal_nfc.h>
 
 static void ami_tool_reset_retail_key(AmiToolApp* app) {
     if(!app) return;
@@ -144,6 +145,14 @@ AmiToolApp* ami_tool_alloc(void) {
 /* Free everything */
 void ami_tool_free(AmiToolApp* app) {
     furi_assert(app);
+    /* Loader close skips scene on_exit: release BLE profile + stop NFC read worker here (idempotent) */
+    if(app->bt_serial_profile && app->bt) {
+        ami_tool_scene_bluetooth_stop(app);
+    }
+    app->read_scene_active = false;
+    if(app->read_thread) {
+        furi_hal_nfc_abort();
+    }
     ami_tool_info_stop_emulation(app);
     ami_tool_info_abort_write(app);
     if(app->usage_entries) {
@@ -276,6 +285,9 @@ int32_t ami_tool_app(void* p) {
 
     /* Main loop; returns when scene_manager_stop() called */
     view_dispatcher_run(app->view_dispatcher);
+
+    /* Loader close (FuriSignalExit) skips the Exit menu path: run the active scene's on_exit */
+    scene_manager_stop(app->scene_manager);
 
     ami_tool_free(app);
 

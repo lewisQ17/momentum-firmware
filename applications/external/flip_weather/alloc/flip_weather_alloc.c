@@ -1,9 +1,21 @@
 #include <alloc/flip_weather_alloc.h>
 
+// Tear down a partially built app so serial/thread/timer are released (app is zeroed, free tolerates NULL members)
+static FlipWeatherApp *flip_weather_alloc_abort(FlipWeatherApp *app)
+{
+    flip_weather_app_free(app);
+    return NULL;
+}
+
 // Function to allocate resources for the FlipWeatherApp
 FlipWeatherApp *flip_weather_app_alloc()
 {
     FlipWeatherApp *app = (FlipWeatherApp *)malloc(sizeof(FlipWeatherApp));
+    if (!app)
+    {
+        return NULL;
+    }
+    memset(app, 0, sizeof(FlipWeatherApp)); // free path checks members for NULL
 
     Gui *gui = furi_record_open(RECORD_GUI);
 
@@ -11,6 +23,8 @@ FlipWeatherApp *flip_weather_app_alloc()
     if (!flipper_http_init(flipper_http_rx_callback, app))
     {
         FURI_LOG_E(TAG, "Failed to initialize flipper http");
+        furi_record_close(RECORD_GUI);
+        free(app);
         return NULL;
     }
 
@@ -20,71 +34,71 @@ FlipWeatherApp *flip_weather_app_alloc()
     app->uart_text_input_buffer_size_location = 64;
     if (!easy_flipper_set_buffer(&app->uart_text_input_buffer_ssid, app->uart_text_input_buffer_size_ssid))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     if (!easy_flipper_set_buffer(&app->uart_text_input_temp_buffer_ssid, app->uart_text_input_buffer_size_ssid))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     if (!easy_flipper_set_buffer(&app->uart_text_input_buffer_password, app->uart_text_input_buffer_size_password))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     if (!easy_flipper_set_buffer(&app->uart_text_input_temp_buffer_password, app->uart_text_input_buffer_size_password))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     if (!easy_flipper_set_buffer(&app->uart_text_input_buffer_location, app->uart_text_input_buffer_size_location))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     if (!easy_flipper_set_buffer(&app->uart_text_input_temp_buffer_location, app->uart_text_input_buffer_size_location))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
 
     // Allocate ViewDispatcher
     if (!easy_flipper_set_view_dispatcher(&app->view_dispatcher, gui, app))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     view_dispatcher_set_custom_event_callback(app->view_dispatcher, flip_weather_custom_event_callback);
     // Main view
     if (!easy_flipper_set_view(&app->view_loader, FlipWeatherViewLoader, flip_weather_loader_draw_callback, NULL, callback_to_submenu, &app->view_dispatcher, app))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     flip_weather_loader_init(app->view_loader);
 
     // Widget
     if (!easy_flipper_set_widget(&app->widget, FlipWeatherViewAbout, "FlipWeather v1.4\n-----\nUse WiFi to get GPS and \nWeather information.\n-----\nwww.github.com/jblanked", callback_to_submenu, &app->view_dispatcher))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     if (!easy_flipper_set_widget(&app->widget_result, FlipWeatherViewWidgetResult, "Error, try again.", callback_to_submenu, &app->view_dispatcher))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
 
     // Text Input
     if (!easy_flipper_set_uart_text_input(&app->uart_text_input_ssid, FlipWeatherViewTextInputSSID, "Enter SSID", app->uart_text_input_temp_buffer_ssid, app->uart_text_input_buffer_size_ssid, text_updated_ssid, callback_to_wifi_settings, &app->view_dispatcher, app))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     if (!easy_flipper_set_uart_text_input(&app->uart_text_input_password, FlipWeatherViewTextInputPassword, "Enter Password", app->uart_text_input_temp_buffer_password, app->uart_text_input_buffer_size_password, text_updated_password, callback_to_wifi_settings, &app->view_dispatcher, app))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     if (!easy_flipper_set_uart_text_input(&app->uart_text_input_location, FlipWeatherViewTextInputLocation, "Enter Location", app->uart_text_input_temp_buffer_location, app->uart_text_input_buffer_size_location, text_updated_location, callback_to_wifi_settings, &app->view_dispatcher, app))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     text_input_set_minimum_length(app->uart_text_input_location, 0);
 
     // Variable Item List
     if (!easy_flipper_set_variable_item_list(&app->variable_item_list, FlipWeatherViewSettings, settings_item_selected, callback_to_submenu, &app->view_dispatcher, app))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     app->variable_item_ssid = variable_item_list_add(app->variable_item_list, "SSID", 0, NULL, NULL);
     app->variable_item_password = variable_item_list_add(app->variable_item_list, "Password", 0, NULL, NULL);
@@ -99,7 +113,7 @@ FlipWeatherApp *flip_weather_app_alloc()
     // Submenu
     if (!easy_flipper_set_submenu(&app->submenu, FlipWeatherViewSubmenu, "FlipWeather v1.4", callback_exit_app, &app->view_dispatcher))
     {
-        return NULL;
+        return flip_weather_alloc_abort(app);
     }
     submenu_add_item(app->submenu, "Weather", FlipWeatherSubmenuIndexWeather, callback_submenu_choices, app);
     submenu_add_item(app->submenu, "GPS", FlipWeatherSubmenuIndexGPS, callback_submenu_choices, app);

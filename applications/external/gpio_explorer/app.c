@@ -6,6 +6,7 @@
 
 static struct gpio_explorer_app_struct * gpio_explorer_app_alloc();
 static void gpio_explorer_app_free(struct gpio_explorer_app_struct * app);
+static void gpio_explorer_release_pins(struct gpio_explorer_app_struct * app);
 static uint32_t gpio_explorer_navigation_exit_callback(void* _context);
 static uint32_t gpio_explorer_navigation_submenu_callback(void* _context);
 static void gpio_explorer_submenu_callback(void* context, uint32_t index);
@@ -225,7 +226,29 @@ static struct gpio_explorer_app_struct * gpio_explorer_app_alloc() {
     return app;
 }
 
+// Loader close skips the Back callbacks: drive every used pin low and back to analog (idempotent)
+static void gpio_explorer_release_pins(struct gpio_explorer_app_struct * app) {
+    if(app->configuration_settings) {
+        const uint8_t used[] = {
+            app->configuration_settings->rgb_pin_r_index,
+            app->configuration_settings->rgb_pin_g_index,
+            app->configuration_settings->rgb_pin_b_index,
+            app->configuration_settings->led_pin_index,
+        };
+        for(size_t i = 0; i < COUNT_OF(used); i++) {
+            furi_hal_gpio_write(pins[used[i]], OFF);
+            furi_hal_gpio_init_simple(pins[used[i]], GpioModeAnalog);
+        }
+    }
+    if(app->view_gpio_reader) {
+        struct gpio_explorer_gpio_reader_struct* reader_model =
+            view_get_model(app->view_gpio_reader);
+        furi_hal_gpio_init_simple(pins[reader_model->curr_pin_index], GpioModeAnalog);
+    }
+}
+
 static void gpio_explorer_app_free(struct gpio_explorer_app_struct * app) {
+    gpio_explorer_release_pins(app);
 #ifdef BACKLIGHT_ON
     notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
 #endif
