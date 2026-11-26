@@ -387,6 +387,8 @@ void check_en_power_5V(void) {
     }
 }
 
+static FuriString* settings_path = NULL; // full path of the currently open settings file
+
 static bool select_settings_file() {
     DialogsApp* dialogs = furi_record_open("dialogs");
     bool result = false;
@@ -399,12 +401,24 @@ static bool select_settings_file() {
     bool ret = dialog_file_browser_show(dialogs, path, path, &browser_options);
     furi_record_close("dialogs");
     if(ret) {
+        // Close the old file only after a new one was chosen (cancel keeps it open)
+        file_stream_close(file_stream);
         if(!file_stream_open(
                file_stream, furi_string_get_cstr(path), FSAM_READ_WRITE, FSOM_OPEN_EXISTING)) {
             FURI_LOG_D(TAG, "Cannot open file \"%s\"", furi_string_get_cstr(path));
             file_stream_close(file_stream);
+            // Reopen the previous file so the still-loaded lists keep working
+            if(settings_path && furi_string_size(settings_path)) {
+                file_stream_open(
+                    file_stream,
+                    furi_string_get_cstr(settings_path),
+                    FSAM_READ_WRITE,
+                    FSOM_OPEN_EXISTING);
+            }
         } else {
             FURI_LOG_D(TAG, "Open file \"%s\"", furi_string_get_cstr(path));
+            if(!settings_path) settings_path = furi_string_alloc();
+            furi_string_set(settings_path, path);
             strncpy(
                 file_name,
                 furi_string_get_cstr(path) + sizeof(SCAN_APP_PATH_FOLDER),
@@ -592,6 +606,7 @@ bool nrf24_read_newpacket() {
 // Search in constatnt pull (Const1=n; Const2=n;...)
 // VAR_EMPTY - not found
 int32_t subs_constant(char* p, uint8_t len) {
+    if(Constants == NULL) return VAR_EMPTY; // no constants line in file: report 'No <name>'
     char* c = (char*)furi_string_get_cstr(Constants);
     while((c = strchr(c, *p))) {
         if(strncmp(c, p, len) != 0) {
@@ -632,7 +647,7 @@ bool fill_payload(char* p, uint8_t* idx_i, int32_t var_n) {
                 len = end - p;
             else {
                 len = strlen(p);
-                if(*(p + len - 1) == '#') len--;
+                if(*(p + len - 1) == '#' || *(p + len - 1) == '$') len--; // '$' = decimal marker
             }
             b = subs_constant(p, len);
             if(b == VAR_EMPTY) {
@@ -870,11 +885,15 @@ bool Run_WriteBatch_cmd() {
             send_status = sst_sending;
             NRF_repeat = 0;
             i = 0;
+            bool acked = false; // an ACK on the last allowed attempt counts too
             do {
-                if(nrf24_send_packet()) break;
+                if(nrf24_send_packet()) {
+                    acked = true;
+                    break;
+                }
                 furi_delay_ms(delay_between_pkt);
             } while(i++ < NRF_resend);
-            if(i < NRF_resend || i == 0) { // ok
+            if(acked) { // ok
                 if(cmd_array) { // array
                     for(; arr != NULL;) {
                         if(*arr == ',') break;
@@ -920,6 +939,23 @@ static uint8_t load_settings_file() {
     FURI_LOG_D(TAG, "Loading settings file");
     FuriString* str = furi_string_alloc();
     free_store();
+    // Reset everything a file may omit so nothing leaks over from the previous file
+    memset(view_cmd, 0, sizeof(view_cmd));
+    view_x = 0;
+    view_Batch = 0;
+    addr_len = 0;
+    listen_addr_len = 0;
+    NRF_rate = 0;
+    NRF_channel = 0;
+    NRF_DPL = 0;
+    NRF_CRC = 0;
+    NRF_RETR = ((0b0011 << 4) | 0b1111);
+    NRF_resend = 1;
+    delay_between_pkt = 10;
+    ReadCmdRepeatPeriod = 10;
+    memset(payload_struct, 0, sizeof(payload_struct));
+    payload_fields = 0;
+    payload_size = 0;
     Info[0] = '\0';
     NRF_INITED = false;
     while(stream_read_line(file_stream, str)) {
@@ -1103,6 +1139,7 @@ static void save_batch(void) {
                     stream_write_cstring(file_stream, "={");
                     p = (p2 += 2);
                     do {
+                        if(*p2 == '-') p2++; // keep the sign of negative elements
                         while(is_digit(p2, true) || *p2 == 'x')
                             p2++;
                         stream_write(file_stream, (uint8_t*)p, p2 - p);
@@ -1143,6 +1180,7 @@ void display_remove_asterisk(char* fsp, uint8_t vx) {
     if(p2) { // remove '*' or '*n'
         int pos = p2 - fsp;
         if((pos -= vx) < 0) pos = 0;
+        if(pos >= FONT_5x7_SCREEN_WIDTH + 1 + 2) return; // memmove length would go negative
         char c = *(p2 + 1);
         if(*(screen_buf + pos))
             memmove(
@@ -1374,6 +1412,7 @@ static void render_callback(Canvas* const canvas, void* ctx) {
                 char* p = (char*)furi_string_get_cstr(Log[Log_Total - 1]);
                 uint8_t vx = MIN(view_x, strlen(p));
                 strncpy(screen_buf, p + vx, 30);
+                screen_buf[30] = '\0'; // strncpy does not terminate a 30+ char name
                 display_remove_asterisk(p, vx);
                 canvas_draw_str(canvas, 0, 15 + 10, screen_buf);
             }
@@ -1488,7 +1527,9 @@ void work_timer_callback(void* ctx) {
             for(uint8_t i = 0; i < 3; i++) {
                 if(nrf24_read_newpacket()) {
                     if(rw_type == rwt_listen) {
+                        ListenPrev = ListenLast;
                         ListenLast = furi_hal_rtc_get_timestamp();
+                        furi_hal_rtc_get_datetime(&ListenLastTime);
                         ListenNew = true;
                     } else if(send_status != sst_receiving)
                         break;
@@ -1778,7 +1819,6 @@ int32_t nrf24batch_app(void* p) {
                             Edit_insert_digit('0');
                         } else if(what_doing == 0) {
                             if(setup_cursor == 0) { // open file
-                                file_stream_close(file_stream);
                                 if(select_settings_file()) {
                                     uint8_t err = load_settings_file();
                                     if(err)
@@ -1849,6 +1889,7 @@ int32_t nrf24batch_app(void* p) {
                                     if(!NRF_ERROR) {
                                         nrf24_set_rx_mode(nrf24_HANDLE);
                                         ListenNew = false;
+                                        ListenPrev = 0;
                                         send_status = sst_receiving; // receiving
                                     }
                                     what_doing = 2;
@@ -1972,6 +2013,8 @@ int32_t nrf24batch_app(void* p) {
                                 ask_question = ask_return;
                                 ask_question_answer = 1;
                             } else if(what_doing != 0) {
+                                // Leaving read/listen: power the radio down (it stays in RX otherwise)
+                                if(what_doing == 2) nrf24_set_idle(nrf24_HANDLE);
                                 if(what_doing) what_doing--;
                                 if(what_doing == 0) rw_type = rwt_read_batch;
                                 if(what_doing <= 1) view_x = 0;
@@ -1990,6 +2033,9 @@ int32_t nrf24batch_app(void* p) {
         view_port_update(view_port);
         furi_mutex_release(APP->plugin_state->mutex);
     }
+    // Stop the work timer first: its callback uses SPI, file_stream and the stores freed below
+    furi_timer_stop(work_timer);
+    furi_timer_free(work_timer);
     nrf24_set_idle(nrf24_HANDLE);
     nrf24_deinit();
     if(NRF_BOARD_POWER_5V) furi_hal_power_disable_otg();
@@ -2006,8 +2052,7 @@ int32_t nrf24batch_app(void* p) {
     view_port_free(view_port);
     furi_message_queue_free(event_queue);
     free_store();
-    furi_timer_stop(work_timer);
-    furi_timer_free(work_timer);
+    if(settings_path) furi_string_free(settings_path);
     furi_mutex_free(APP->plugin_state->mutex);
     free(APP->plugin_state);
     free(APP);

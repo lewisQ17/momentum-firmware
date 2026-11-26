@@ -53,17 +53,19 @@ bool itso_parse(const MfDesfireData* data, FuriString* parsed_data) {
 
         const MfDesfireFileData* file_data = mf_desfire_get_file_data(app, &itso_file_id);
         if(file_data == NULL) break;
+        // Truncated/crafted file: data array must really hold the struct
+        if(simple_array_get_count(file_data->data) < sizeof(ItsoFile)) break;
 
         const ItsoFile* itso_file = simple_array_cget_data(file_data->data);
 
         uint64_t x1 = swap_uint64(itso_file->part1);
         uint64_t x2 = swap_uint64(itso_file->part2);
 
-        char cardBuff[32];
+        char cardBuff[40]; // 2 x 16 zero-padded hex digits + NUL
         char dateBuff[18];
 
-        snprintf(cardBuff, sizeof(cardBuff), "%llx%llx", x1, x2);
-        snprintf(dateBuff, sizeof(dateBuff), "%llx", x2);
+        snprintf(cardBuff, sizeof(cardBuff), "%016llx%016llx", x1, x2);
+        snprintf(dateBuff, sizeof(dateBuff), "%016llx", x2);
 
         char* cardp = cardBuff + 4;
         cardp[18] = '\0';
@@ -228,6 +230,7 @@ static void itso_on_exit(Metroflip* app) {
     if(app->poller && !app->data_loaded) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
 }
 

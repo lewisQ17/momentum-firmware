@@ -182,6 +182,7 @@ typedef struct {
 
     ScriptContext* script;
     ScriptContext* commandline;
+    FuriThreadId main_thread; /* only this thread may process UI key events */
 
     uint8_t timeout_overdue;
     uint32_t loop_count;

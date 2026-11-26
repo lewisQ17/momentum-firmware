@@ -421,9 +421,6 @@ static bool renfe_sum10_load_station_file(const char* region) {
         return true;
     }
     
-    // Clear existing cache
-    renfe_sum10_clear_station_cache();
-    
     // Build file path
     FuriString* file_path = furi_string_alloc();
     furi_string_printf(file_path, "/ext/apps_assets/metroflip/renfe/stations/%s.txt", region);
@@ -433,7 +430,11 @@ static bool renfe_sum10_load_station_file(const char* region) {
     
     bool success = false;
     if(storage_file_open(file, furi_string_get_cstr(file_path), FSAM_READ, FSOM_OPEN_EXISTING)) {
+        // Only invalidate the cache once the new file really opened (failed fallback keeps it)
+        renfe_sum10_clear_station_cache();
         char line_buffer[64];
+        char rd_buf[128];
+        size_t rd_len = 0, rd_pos = 0;
         station_cache->count = 0;
         
         // Read file line by line using simple character reading
@@ -443,8 +444,17 @@ static bool renfe_sum10_load_station_file(const char* region) {
             
             // Read line character by character
             while(line_pos < sizeof(line_buffer) - 1) {
-                char c;
-                size_t bytes_read = storage_file_read(file, &c, 1);
+                char c = 0;
+                size_t bytes_read = 0;
+                // Chunked read: one storage call per 128 bytes instead of per byte
+                if(rd_pos >= rd_len) {
+                    rd_len = storage_file_read(file, rd_buf, sizeof(rd_buf));
+                    rd_pos = 0;
+                }
+                if(rd_pos < rd_len) {
+                    c = rd_buf[rd_pos++];
+                    bytes_read = 1;
+                }
                 if(bytes_read == 0) {
                     // End of file
                     end_of_file = true;

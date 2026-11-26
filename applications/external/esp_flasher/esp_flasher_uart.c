@@ -48,7 +48,9 @@ static int32_t uart_worker(void* context) {
         if(events & WorkerEvtRxDone) {
             size_t len = furi_stream_buffer_receive(uart->rx_stream, uart->rx_buf, RX_BUF_SIZE, 0);
             if(len > 0) {
-                if(uart->handle_rx_data_cb) uart->handle_rx_data_cb(uart->rx_buf, len, uart->app);
+                // snapshot: the callback may be set to NULL concurrently on scene exit
+                void (*cb)(uint8_t*, size_t, void*) = uart->handle_rx_data_cb;
+                if(cb) cb(uart->rx_buf, len, uart->app);
             }
         }
     }

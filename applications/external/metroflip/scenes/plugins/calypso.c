@@ -56,6 +56,9 @@ FlipperFormat* load_file(Metroflip* app) {
 
 void close_file(FlipperFormat* ff) {
     flipper_format_file_close(ff);
+    // Pairs with load_file(): release the FlipperFormat and storage record (both were leaked)
+    flipper_format_free(ff);
+    furi_record_close(RECORD_STORAGE);
 }
 
 int select_new_app(
@@ -153,6 +156,13 @@ int check_response(
     size_t* response_length) {
     *response_length = bit_buffer_get_size_bytes(rx_buffer);
     if(!app->data_loaded) { // automatic success
+        // Card-controlled length: need the 2 status bytes before indexing length-2
+        if(*response_length < 2) {
+            *stage = MetroflipPollerEventTypeFail;
+            view_dispatcher_send_custom_event(
+                app->view_dispatcher, MetroflipCustomEventPollerFileNotFound);
+            return 1;
+        }
         if(bit_buffer_get_byte(rx_buffer, *response_length - 2) != apdu_success[0] ||
            bit_buffer_get_byte(rx_buffer, *response_length - 1) != apdu_success[1]) {
             int error_code_1 = bit_buffer_get_byte(rx_buffer, *response_length - 2);
@@ -169,6 +179,31 @@ int check_response(
                 app->view_dispatcher, MetroflipCustomEventPollerFileNotFound);
             return 1;
         }
+    }
+    return 0;
+}
+
+// Page layout: 0 = environment, 1-4 = contracts, then events, then special events.
+// Valid pages are derived from the counts so navigation can never land on an empty slot.
+static bool calypso_page_valid(const CalypsoCardData* card, int page) {
+    int events = card->events_count > 3 ? 3 : card->events_count;
+    int specials = card->special_events_count > 3 ? 3 : card->special_events_count;
+    if(page == 0 || page == 1) return true;
+    if(page <= 4) return page - 1 < card->contracts_count;
+    if(page - 5 < events) return true;
+    return page - 5 - events < specials;
+}
+
+static int calypso_next_page(const CalypsoCardData* card, int page) {
+    for(int p = page + 1; p <= 10; p++) {
+        if(calypso_page_valid(card, p)) return p;
+    }
+    return -1; // no further page: the button acts as Exit
+}
+
+static int calypso_prev_page(const CalypsoCardData* card, int page) {
+    for(int p = page - 1; p > 0; p--) {
+        if(calypso_page_valid(card, p)) return p;
     }
     return 0;
 }
@@ -251,7 +286,7 @@ void update_page_info(void* context, FuriString* parsed_data) {
         }
         }
     } else if(ctx->page_id >= 5) {
-        if(ctx->page_id - 5 < ctx->card->events_count) {
+        if(ctx->page_id - 5 < ctx->card->events_count && ctx->page_id - 5 < 3) {
             furi_string_cat_printf(parsed_data, "\e#Event %d:\n", ctx->page_id - 4);
             switch(ctx->card->card_type) {
             case CALYPSO_CARD_NAVIGO: {
@@ -276,7 +311,9 @@ void update_page_info(void* context, FuriString* parsed_data) {
                 break;
             }
             }
-        } else {
+        } else if(
+            ctx->page_id - ctx->card->events_count - 5 >= 0 &&
+            ctx->page_id - ctx->card->events_count - 5 < 3) { // special_events[] has 3 slots
             furi_string_cat_printf(
                 parsed_data, "\e#Special Event %d:\n", ctx->page_id - ctx->card->events_count - 4);
             switch(ctx->card->card_type) {
@@ -315,7 +352,7 @@ void update_widget_elements(void* context) {
                 widget, GuiButtonTypeCenter, "Delete", metroflip_delete_widget_callback, app);
         }
     }
-    if(ctx->page_id < 10) {
+    if(calypso_next_page(ctx->card, ctx->page_id) >= 0) {
         widget_add_button_element(
             widget, GuiButtonTypeRight, "Next", metroflip_next_button_widget_callback, context);
     } else {
@@ -341,31 +378,7 @@ void metroflip_back_button_widget_callback(GuiButtonType result, InputType type,
         FURI_LOG_I(TAG, "Page ID: %d -> %d", ctx->page_id, ctx->page_id - 1);
 
         if(ctx->page_id > 0) {
-            if(ctx->page_id == 10 && ctx->card->special_events_count < 2) {
-                ctx->page_id -= 1;
-            }
-            if(ctx->page_id == 9 && ctx->card->special_events_count < 1) {
-                ctx->page_id -= 1;
-            }
-            if(ctx->page_id == 8 && ctx->card->events_count < 3) {
-                ctx->page_id -= 1;
-            }
-            if(ctx->page_id == 7 && ctx->card->events_count < 2) {
-                ctx->page_id -= 1;
-            }
-            if(ctx->page_id == 6 && ctx->card->events_count < 1) {
-                ctx->page_id -= 1;
-            }
-            if(ctx->page_id == 5 && ctx->card->contracts_count < 4) {
-                ctx->page_id -= 1;
-            }
-            if(ctx->page_id == 4 && ctx->card->contracts_count < 3) {
-                ctx->page_id -= 1;
-            }
-            if(ctx->page_id == 3 && ctx->card->contracts_count < 2) {
-                ctx->page_id -= 1;
-            }
-            ctx->page_id -= 1;
+            ctx->page_id = calypso_prev_page(ctx->card, ctx->page_id);
         }
 
         FuriString* parsed_data = furi_string_alloc();
@@ -426,40 +439,9 @@ void metroflip_next_button_widget_callback(GuiButtonType result, InputType type,
                 app->scene_manager, MetroflipSceneStart);
             return;
         }
-        if(ctx->page_id < 10) {
-            FURI_LOG_I(TAG, "event count: %d", ctx->card->events_count);
-            if(ctx->page_id == 1 && ctx->card->contracts_count < 2) {
-                ctx->page_id += 1;
-            }
-            if(ctx->page_id == 2 && ctx->card->contracts_count < 3) {
-                ctx->page_id += 1;
-            }
-            if(ctx->page_id == 3 && ctx->card->contracts_count < 4) {
-                ctx->page_id += 1;
-            }
-            if(ctx->page_id == 4 && ctx->card->events_count < 1) {
-                ctx->page_id += 1;
-            }
-            if(ctx->page_id == 5 && ctx->card->events_count < 2) {
-                ctx->page_id += 1;
-            }
-            if(ctx->page_id == 6 && ctx->card->events_count < 3) {
-                ctx->page_id += 1;
-            }
-            if(ctx->page_id == 7 && ctx->card->special_events_count < 1) {
-                ctx->page_id += 1;
-            }
-            if(ctx->page_id == 8 && ctx->card->special_events_count < 2) {
-                ctx->page_id += 1;
-            }
-            if(ctx->page_id == 9 && ctx->card->special_events_count < 3) {
-                ctx->page_id = 0;
-                furi_string_reset(app->calypso_file_data);
-                scene_manager_search_and_switch_to_previous_scene(
-                    app->scene_manager, MetroflipSceneStart);
-                return;
-            }
-            ctx->page_id += 1;
+        int next_page = calypso_next_page(ctx->card, ctx->page_id);
+        if(next_page >= 0) {
+            ctx->page_id = next_page;
         } else {
             ctx->page_id = 0;
             furi_string_reset(app->calypso_file_data);
@@ -1967,6 +1949,7 @@ static NfcCommand calypso_poller_callback(NfcGenericEvent event, void* context) 
                             0x20, 0x2A, tx_buffer, rx_buffer, iso14443_4b_poller, app, &stage);
                         if(error != 0) {
                             FURI_LOG_E(TAG, "Failed to select app for contracts");
+                            free_calypso_structure(RavKavContractStructure); // leaked on early exit
                             break;
                         }
 
@@ -1974,6 +1957,7 @@ static NfcCommand calypso_poller_callback(NfcGenericEvent event, void* context) 
                         if(check_response(rx_buffer, app, &stage, &response_length) != 0) {
                             FURI_LOG_E(
                                 TAG, "Failed to check response after selecting app for counter");
+                            free_calypso_structure(RavKavContractStructure); // leaked on early exit
                             break;
                         }
 
@@ -1983,6 +1967,7 @@ static NfcCommand calypso_poller_callback(NfcGenericEvent event, void* context) 
                             view_dispatcher_send_custom_event(
                                 app->view_dispatcher, MetroflipCustomEventPollerFail);
                             FURI_LOG_E(TAG, "Failed to read counter %d", 1);
+                            free_calypso_structure(RavKavContractStructure); // leaked on early exit
                             break;
                         }
 
@@ -1990,6 +1975,7 @@ static NfcCommand calypso_poller_callback(NfcGenericEvent event, void* context) 
                         if(check_response(rx_buffer, app, &stage, &response_length) != 0) {
                             FURI_LOG_E(
                                 TAG, "Failed to check response after reading counter %d", 1);
+                            free_calypso_structure(RavKavContractStructure); // leaked on early exit
                             break;
                         }
 
@@ -2006,6 +1992,7 @@ static NfcCommand calypso_poller_callback(NfcGenericEvent event, void* context) 
                             0x20, 0x20, tx_buffer, rx_buffer, iso14443_4b_poller, app, &stage);
                         if(error != 0) {
                             FURI_LOG_E(TAG, "Failed to select app for contracts");
+                            free_calypso_structure(RavKavContractStructure); // leaked on early exit
                             break;
                         }
 
@@ -2013,6 +2000,7 @@ static NfcCommand calypso_poller_callback(NfcGenericEvent event, void* context) 
                         if(check_response(rx_buffer, app, &stage, &response_length) != 0) {
                             FURI_LOG_E(
                                 TAG, "Failed to check response after selecting app for contracts");
+                            free_calypso_structure(RavKavContractStructure); // leaked on early exit
                             break;
                         }
 
@@ -2286,12 +2274,14 @@ static NfcCommand calypso_poller_callback(NfcGenericEvent event, void* context) 
                             view_dispatcher_send_custom_event(
                                 app->view_dispatcher, MetroflipCustomEventPollerFail);
                             FURI_LOG_E(TAG, "Failed to read environment");
+                            free_calypso_structure(RavKavEnvStructure); // leaked on early exit
                             break;
                         }
 
                         // Check the response after reading the file
                         if(check_response(rx_buffer, app, &stage, &response_length) != 0) {
                             FURI_LOG_E(TAG, "Failed to check response after reading environment");
+                            free_calypso_structure(RavKavEnvStructure); // leaked on early exit
                             break;
                         }
 
@@ -2660,7 +2650,6 @@ static NfcCommand calypso_poller_callback(NfcGenericEvent event, void* context) 
                 update_widget_elements(app);
                 furi_mutex_release(context->mutex);
 
-                furi_string_free(parsed_data);
                 view_dispatcher_switch_to_view(app->view_dispatcher, MetroflipViewWidget);
                 metroflip_app_blink_stop(app);
                 stage = MetroflipPollerEventTypeSuccess;
@@ -2682,6 +2671,7 @@ static NfcCommand calypso_poller_callback(NfcGenericEvent event, void* context) 
     bit_buffer_free(tx_buffer);
     bit_buffer_free(rx_buffer);
 
+    furi_string_free(parsed_data); // freed once here: every path allocates it
     return next_command;
 }
 
@@ -2738,6 +2728,7 @@ static void calypso_on_exit(Metroflip* app) {
     if(app->poller) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
     metroflip_app_blink_stop(app);
     widget_reset(app->widget);

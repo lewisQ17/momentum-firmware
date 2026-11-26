@@ -182,8 +182,6 @@ static bool trt_on_event(Metroflip* app, SceneManagerEvent event) {
                 widget, GuiButtonTypeLeft, "Exit", metroflip_exit_widget_callback, app);
             widget_add_button_element(
                 widget, GuiButtonTypeRight, "Save", metroflip_save_widget_callback, app);
-            widget_add_button_element(
-                widget, GuiButtonTypeCenter, "Delete", metroflip_delete_widget_callback, app);
             furi_string_free(parsed_data);
             view_dispatcher_switch_to_view(app->view_dispatcher, MetroflipViewWidget);
             metroflip_app_blink_stop(app);
@@ -209,8 +207,6 @@ static bool trt_on_event(Metroflip* app, SceneManagerEvent event) {
                 widget, 0, 0, 128, 64, furi_string_get_cstr(parsed_data));
             widget_add_button_element(
                 widget, GuiButtonTypeRight, "Exit", metroflip_exit_widget_callback, app);
-            widget_add_button_element(
-                widget, GuiButtonTypeCenter, "Delete", metroflip_delete_widget_callback, app);
             furi_string_free(parsed_data);
             view_dispatcher_switch_to_view(app->view_dispatcher, MetroflipViewWidget);
             metroflip_app_blink_stop(app);
@@ -230,6 +226,7 @@ static void trt_on_exit(Metroflip* app) {
     if(app->poller && !app->data_loaded) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
 
     // Clear view

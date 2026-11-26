@@ -167,7 +167,14 @@ TotpBtTypeCodeWorkerContext*
     BleProfileHidParams ble_params = {
         .device_name_prefix = device_prefix, .mac_xor = final_mac_xor};
     context->ble_hid_profile = bt_profile_start(context->bt, ble_profile_hid, &ble_params);
-    furi_check(context->ble_hid_profile);
+    if(context->ble_hid_profile == NULL) {
+        // BLE profile could not start; callers treat a NULL context as "BT automation unavailable"
+        FURI_LOG_E(LOGGING_TAG, "Failed to start BLE HID profile");
+        bt_keys_storage_set_default_path(context->bt);
+        furi_record_close(RECORD_BT);
+        free(context);
+        return NULL;
+    }
 
     furi_hal_bt_start_advertising();
 

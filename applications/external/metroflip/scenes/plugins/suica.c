@@ -67,15 +67,19 @@ static void suica_model_initialize_after_load(SuicaHistoryViewModel* model) {
 
 static void suica_model_free(SuicaHistoryViewModel* model) {
     if(model->travel_history) free(model->travel_history);
-    furi_string_free(model->history.entry_station.name);
-    furi_string_free(model->history.entry_station.jr_header);
-    furi_string_free(model->history.exit_station.name);
-    furi_string_free(model->history.exit_station.jr_header);
+    // Strings are NULL when the model was never initialised (e.g. file failed to open)
+    if(model->history.entry_station.name) furi_string_free(model->history.entry_station.name);
+    if(model->history.entry_station.jr_header)
+        furi_string_free(model->history.entry_station.jr_header);
+    if(model->history.exit_station.name) furi_string_free(model->history.exit_station.name);
+    if(model->history.exit_station.jr_header)
+        furi_string_free(model->history.exit_station.jr_header);
     // no need to free RailwaysList — static
 }
 
 static void suica_add_entry(SuicaHistoryViewModel* model, const uint8_t* entry) {
-    if(model->size <= 0) {
+    // Initialise only a never-initialised model; re-initialising leaked the buffer and strings
+    if(!model->travel_history) {
         suica_model_initialize(model, 3);
     }
     // Check if resizing is needed
@@ -224,6 +228,8 @@ static void suica_parse_train_code(
 }
 
 static void suica_parse(SuicaHistoryViewModel* my_model) {
+    // No history block was read: nothing to decode
+    if(!my_model->travel_history || my_model->entry < 1 || my_model->entry > my_model->size) return;
     uint8_t current_block[FELICA_DATA_BLOCK_SIZE];
     // Parse the current block/entry
     for(size_t i = 0; i < FELICA_DATA_BLOCK_SIZE; i++) {
@@ -458,7 +464,7 @@ static NfcCommand suica_poller_callback(NfcGenericEvent event, void* context) {
 
         widget_add_text_scroll_element(widget, 0, 0, 128, 64, furi_string_get_cstr(parsed_data));
 
-        if(suica_found) {
+        if(suica_found && model->size > 0) {
             widget_add_button_element(
                 widget, GuiButtonTypeCenter, "Parse", suica_parse_detail_callback, app);
         }
@@ -549,6 +555,9 @@ static void suica_on_enter(Metroflip* app) {
             app->suica_context->view_history,
             ViewModelTypeLockFree,
             sizeof(SuicaHistoryViewModel));
+        // Init once up front so suica_model_free is safe even if no history block is read
+        suica_model_initialize(
+            view_get_model(app->suica_context->view_history), 3);
     }
 
     view_set_input_callback(app->suica_context->view_history, suica_history_input_callback);
@@ -642,7 +651,7 @@ static void suica_on_enter(Metroflip* app) {
             widget_add_button_element(
                 widget, GuiButtonTypeRight, "Exit", metroflip_exit_widget_callback, app);
 
-            if(suica_found) {
+            if(suica_found && model->size > 0) {
                 widget_add_button_element(
                     widget, GuiButtonTypeCenter, "Parse", suica_parse_detail_callback, app);
             }
@@ -690,6 +699,7 @@ static bool suica_on_event(Metroflip* app, SceneManagerEvent event) {
 
 static void suica_on_exit(Metroflip* app) {
     widget_reset(app->widget);
+    metroflip_app_blink_stop(app); // Back before the read completes left the blink running
     with_view_model(
         app->suica_context->view_history,
         SuicaHistoryViewModel * model,
@@ -702,6 +712,7 @@ static void suica_on_exit(Metroflip* app) {
     if(app->poller && !app->data_loaded) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
 }
 

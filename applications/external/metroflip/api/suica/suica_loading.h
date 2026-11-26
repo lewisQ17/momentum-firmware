@@ -10,7 +10,8 @@ static void suica_model_initialize(SuicaHistoryViewModel* model, size_t initial_
 }
 
 static void suica_add_entry(SuicaHistoryViewModel* model, const uint8_t* entry) {
-    if(model->size <= 0) {
+    // suica_model_initialize() already allocated the buffer; a second malloc leaked it
+    if(!model->travel_history) {
         model->travel_history =
             (uint8_t*)malloc(20 * FELICA_DATA_BLOCK_SIZE); // Each entry is 16 bytes
         model->size = 0;

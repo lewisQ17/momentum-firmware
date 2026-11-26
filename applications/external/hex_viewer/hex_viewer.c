@@ -6,12 +6,6 @@ bool hex_viewer_custom_event_callback(void* context, uint32_t event) {
     return scene_manager_handle_custom_event(app->scene_manager, event);
 }
 
-void hex_viewer_tick_event_callback(void* context) {
-    furi_assert(context);
-    HexViewer* app = context;
-    scene_manager_handle_tick_event(app->scene_manager);
-}
-
 //leave app if back button pressed
 bool hex_viewer_navigation_event_callback(void* context) {
     furi_assert(context);
@@ -39,8 +33,6 @@ HexViewer* hex_viewer_app_alloc() {
     view_dispatcher_set_event_callback_context(app->view_dispatcher, app);
     view_dispatcher_set_navigation_event_callback(
         app->view_dispatcher, hex_viewer_navigation_event_callback);
-    view_dispatcher_set_tick_event_callback(
-        app->view_dispatcher, hex_viewer_tick_event_callback, 100);
     view_dispatcher_set_custom_event_callback(
         app->view_dispatcher, hex_viewer_custom_event_callback);
 
@@ -106,6 +98,7 @@ void hex_viewer_app_free(HexViewer* app) {
     view_dispatcher_free(app->view_dispatcher);
     furi_record_close(RECORD_STORAGE);
     furi_record_close(RECORD_GUI);
+    furi_record_close(RECORD_NOTIFICATION);
 
     app->storage = NULL;
     app->gui = NULL;
@@ -135,13 +128,10 @@ int32_t hex_viewer_app(void* p) {
         scene_manager_next_scene(app->scene_manager, HexViewerSceneOpen);
     }
 
-    furi_hal_power_suppress_charge_enter();
-
     view_dispatcher_run(app->view_dispatcher);
 
     hex_viewer_save_settings(app);
 
-    furi_hal_power_suppress_charge_exit();
     hex_viewer_app_free(app);
 
     return 0;

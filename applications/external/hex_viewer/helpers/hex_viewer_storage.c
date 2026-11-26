@@ -123,28 +123,25 @@ bool hex_viewer_open_file(void* context, const char* file_path) {
     furi_assert(hex_viewer);
     furi_assert(file_path);
 
-    // TODO Separate function?
+    // Open into a fresh stream first so a failed open leaves the previous file fully intact
+    Stream* new_stream = buffered_file_stream_alloc(hex_viewer->storage);
+    if(!buffered_file_stream_open(new_stream, file_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
+        FURI_LOG_E(TAG, "Unable to open stream: %s", file_path);
+        buffered_file_stream_close(new_stream);
+        stream_free(new_stream);
+        return false;
+    }
+
     if(hex_viewer->model->stream) {
         buffered_file_stream_close(hex_viewer->model->stream);
         stream_free(hex_viewer->model->stream);
-        hex_viewer->model->file_offset = 0;
     }
 
-    hex_viewer->model->stream = buffered_file_stream_alloc(hex_viewer->storage);
-    bool isOk = true;
+    hex_viewer->model->stream = new_stream;
+    hex_viewer->model->file_offset = 0;
+    hex_viewer->model->file_size = stream_size(hex_viewer->model->stream);
 
-    do {
-        if(!buffered_file_stream_open(
-               hex_viewer->model->stream, file_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
-            FURI_LOG_E(TAG, "Unable to open stream: %s", file_path);
-            isOk = false;
-            break;
-        };
-
-        hex_viewer->model->file_size = stream_size(hex_viewer->model->stream);
-    } while(false);
-
-    return isOk;
+    return true;
 }
 
 bool hex_viewer_read_file(void* context) {

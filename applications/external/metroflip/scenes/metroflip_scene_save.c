@@ -44,6 +44,10 @@ bool metroflip_scene_save_on_event(void* context, SceneManagerEvent event) {
         default:
             break;
         }
+    } else if(event.type == SceneManagerEventTypeBack) {
+        // Parse on_exit already tore the plugin down; going back would restart a live poll
+        scene_manager_search_and_switch_to_previous_scene(app->scene_manager, MetroflipSceneStart);
+        consumed = true;
     }
 
     return consumed;
@@ -51,5 +55,8 @@ bool metroflip_scene_save_on_event(void* context, SceneManagerEvent event) {
 
 void metroflip_scene_save_on_exit(void* context) {
     Metroflip* app = context;
+    // Read the validator context before reset clears it, then free it (was leaked per entry)
+    ValidatorIsFile* validator_is_file = text_input_get_validator_callback_context(app->text_input);
     text_input_reset(app->text_input);
+    if(validator_is_file) validator_is_file_free(validator_is_file);
 }

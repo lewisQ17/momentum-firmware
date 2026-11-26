@@ -20,7 +20,7 @@ const char* jep106_table_manufacturer(unsigned int bank, unsigned int id) {
     /* index is zero based */
     id--;
 
-    if(bank >= 14 || jep106[bank][id] == 0) return "<unknown>";
+    if(bank >= sizeof(jep106) / sizeof(jep106[0]) || jep106[bank][id] == 0) return "<unknown>";
 
     return jep106[bank][id];
 }

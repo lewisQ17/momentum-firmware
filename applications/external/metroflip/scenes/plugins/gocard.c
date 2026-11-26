@@ -151,7 +151,8 @@ static bool gocard_parse(FuriString* parsed_data, const MfClassicData* data) {
         if(data->block[balance_slot].data[13] <= data->block[balance_slot + 1].data[13])
             balance_slot++;
 
-        unsigned short balancecents = byteArrayToIntReversed(
+        // Signed: unsigned short wrapped negative balances to a large positive amount
+        int32_t balancecents = byteArrayToIntReversed(
             data->block[balance_slot].data[2], data->block[balance_slot].data[3]);
 
         // Check if the sign flag is set in 'balance'
@@ -262,10 +263,7 @@ static bool gocard_on_event(Metroflip* app, SceneManagerEvent event) {
 static void gocard_on_exit(Metroflip* app) {
     widget_reset(app->widget);
 
-    if(app->poller && !app->data_loaded) {
-        nfc_poller_stop(app->poller);
-        nfc_poller_free(app->poller);
-    }
+    // No poller is allocated by this plugin; freeing app->poller here double-freed the ATR poller
 
     // Clear view
     popup_reset(app->popup);

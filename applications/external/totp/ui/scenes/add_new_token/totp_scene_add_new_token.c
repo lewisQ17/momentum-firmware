@@ -43,6 +43,8 @@ typedef struct {
     size_t initial_counter_length;
     FuriString* duration_text;
     TokenType type;
+    bool name_edited; // false while the "Name" placeholder is still there
+    bool secret_edited; // false while the "Secret" placeholder is still there
 } SceneState;
 
 struct TotpAddContext {
@@ -87,7 +89,7 @@ static TotpIteratorUpdateTokenResult add_token_handler(TokenInfo* tokenInfo, con
     return TotpIteratorUpdateTokenResultSuccess;
 }
 
-static void ask_user_input(
+static bool ask_user_input(
     const PluginState* plugin_state,
     const char* header,
     char** user_input,
@@ -112,6 +114,8 @@ static void ask_user_input(
         *user_input = strdup(input_result.user_input);
         *user_input_length = input_result.user_input_length;
     }
+
+    return input_result.success;
 }
 
 static void update_screen_y_offset(SceneState* scene_state) {
@@ -151,6 +155,8 @@ void totp_scene_add_new_token_activate(PluginState* plugin_state) {
     scene_state->token_secret = strdup("Secret");
     furi_check(scene_state->token_secret != NULL);
     scene_state->token_secret_length = strlen(scene_state->token_secret);
+    scene_state->name_edited = false;
+    scene_state->secret_edited = false;
     scene_state->initial_counter = strdup("Counter");
     furi_check(scene_state->initial_counter != NULL);
     scene_state->initial_counter_length = strlen(scene_state->initial_counter);
@@ -327,18 +333,22 @@ bool totp_scene_add_new_token_handle_event(
         case InputKeyOk: {
             switch(scene_state->selected_control) {
             case TokenNameTextBox:
-                ask_user_input(
-                    plugin_state,
-                    "Token name",
-                    &scene_state->token_name,
-                    &scene_state->token_name_length);
+                if(ask_user_input(
+                       plugin_state,
+                       "Token name",
+                       &scene_state->token_name,
+                       &scene_state->token_name_length)) {
+                    scene_state->name_edited = true;
+                }
                 break;
             case TokenSecretTextBox:
-                ask_user_input(
-                    plugin_state,
-                    "Token secret",
-                    &scene_state->token_secret,
-                    &scene_state->token_secret_length);
+                if(ask_user_input(
+                       plugin_state,
+                       "Token secret",
+                       &scene_state->token_secret,
+                       &scene_state->token_secret_length)) {
+                    scene_state->secret_edited = true;
+                }
                 break;
             case TokenAlgoSelect:
                 break;
@@ -354,6 +364,19 @@ bool totp_scene_add_new_token_handle_event(
                 }
                 break;
             case ConfirmButton: {
+                // Placeholders must not be saved as a real token
+                if(!scene_state->secret_edited) {
+                    show_invalid_field_message(
+                        plugin_state, TokenSecretTextBox, "Token secret is invalid");
+                    break;
+                }
+
+                if(!scene_state->name_edited) {
+                    show_invalid_field_message(
+                        plugin_state, TokenNameTextBox, "Token name is empty");
+                    break;
+                }
+
                 struct TotpAddContext add_context = {
                     .scene_state = scene_state, .crypto_settings = &plugin_state->crypto_settings};
                 TokenInfoIteratorContext* iterator_context =

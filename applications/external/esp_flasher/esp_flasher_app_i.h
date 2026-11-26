@@ -77,13 +77,13 @@ struct EspFlasherApp {
 
     bool selected_flash_options[NUM_FLASH_OPTIONS];
     int num_selected_flash_options;
-    char bin_file_path_boot[100];
-    char bin_file_path_part[100];
-    char bin_file_path_nvs[100];
-    char bin_file_path_boot_app0[100];
-    char bin_file_path_app_a[100];
-    char bin_file_path_app_b[100];
-    char bin_file_path_custom[100];
+    char bin_file_path_boot[256];
+    char bin_file_path_part[256];
+    char bin_file_path_nvs[256];
+    char bin_file_path_boot_app0[256];
+    char bin_file_path_app_a[256];
+    char bin_file_path_app_b[256];
+    char bin_file_path_custom[256];
 
     // Per-slot flash addresses (initialized to defaults, overridable by user)
     uint32_t custom_slot_addrs[NUM_FLASH_OPTIONS];

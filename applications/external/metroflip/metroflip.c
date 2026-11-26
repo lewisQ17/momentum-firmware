@@ -310,6 +310,16 @@ KeyfileManager manage_keyfiles(
         } else {
             size_t dest_file_length = storage_file_size(dest);
 
+            // Empty keys file (e.g. power loss while the NFC app wrote it): malloc(0) would crash
+            if(dest_file_length == 0) {
+                storage_file_close(source);
+                storage_file_close(dest);
+                storage_file_free(source);
+                storage_file_free(dest);
+                furi_record_close(RECORD_STORAGE);
+                return MISSING_KEYFILE;
+            }
+
             FURI_LOG_I(
                 "TAG", "assets exist, but cache doesnt, proceeding to copy assets to cache");
             // Close, then open both files
@@ -322,8 +332,9 @@ KeyfileManager manage_keyfiles(
             FURI_LOG_I("TAG", "creating cache file at %s from %s", source_path, dest_path);
             /*-----Clone keyfile from assets to cache (creates temporary buffer)----*/
             uint8_t* cloned_buffer = malloc(dest_file_length);
-            storage_file_read(dest, cloned_buffer, dest_file_length);
-            storage_file_write(source, cloned_buffer, dest_file_length);
+            if(storage_file_read(dest, cloned_buffer, dest_file_length) == dest_file_length) {
+                storage_file_write(source, cloned_buffer, dest_file_length);
+            }
             free(cloned_buffer);
             storage_file_close(source);
             storage_file_close(dest);
@@ -335,6 +346,16 @@ KeyfileManager manage_keyfiles(
         }
     } else {
         size_t source_file_length = storage_file_size(source);
+
+        // Empty cache file: nothing usable, and malloc(0) would crash below
+        if(source_file_length == 0) {
+            storage_file_close(source);
+            storage_file_close(dest);
+            storage_file_free(source);
+            storage_file_free(dest);
+            furi_record_close(RECORD_STORAGE);
+            return INCOMPLETE_KEYFILE;
+        }
 
         storage_file_close(source);
         mf_classic_key_cache_load(instance, uid, uid_len);
@@ -349,8 +370,9 @@ KeyfileManager manage_keyfiles(
             FURI_LOG_I("TAG", "creating assets cache");
             /*-----Clone keyfile from assets to cache (creates temporary buffer)----*/
             uint8_t* cloned_buffer = malloc(source_file_length);
-            storage_file_read(source, cloned_buffer, source_file_length);
-            storage_file_write(dest, cloned_buffer, source_file_length);
+            if(storage_file_read(source, cloned_buffer, source_file_length) == source_file_length) {
+                storage_file_write(dest, cloned_buffer, source_file_length);
+            }
             free(cloned_buffer);
             storage_file_close(source);
             storage_file_close(dest);

@@ -40,6 +40,7 @@ static bool totp_cli_read_pin(PipeSide* pipe, uint8_t* pin, uint8_t* pin_length)
     TOTP_CLI_PRINTF("Enter new PIN (use arrow keys on your keyboard): ");
     fflush(stdout);
     uint8_t c;
+    bool done = false; // only an explicit Enter completes the entry, not a broken pipe
     *pin_length = 0;
     while(pipe_receive(pipe, &c, 1) == 1) {
         if(c == CliKeyEsc) {
@@ -68,8 +69,13 @@ static bool totp_cli_read_pin(PipeSide* pipe, uint8_t* pin, uint8_t* pin_length)
             }
         } else if(c == CliKeyCR) {
             TOTP_CLI_NL();
+            done = true;
             break;
         }
+    }
+
+    if(!done) {
+        return false;
     }
 
     TOTP_CLI_DELETE_LAST_LINE();

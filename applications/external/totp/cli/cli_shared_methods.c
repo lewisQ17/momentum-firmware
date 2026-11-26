@@ -35,6 +35,7 @@ void totp_cli_force_close_app(void* ctx) {
 
 bool totp_cli_read_line(PipeSide* pipe, FuriString* out_str, bool mask_user_input) {
     uint8_t c;
+    bool done = false; // a broken pipe must not count as a completed line
     while(pipe_receive(pipe, &c, 1) == 1) {
         if(c == CliKeyEsc) {
             // Some keys generating escape-sequences
@@ -63,11 +64,12 @@ bool totp_cli_read_line(PipeSide* pipe, FuriString* out_str, bool mask_user_inpu
             }
         } else if(c == CliKeyCR) {
             TOTP_CLI_NL();
+            done = true;
             break;
         }
     }
 
-    return true;
+    return done;
 }
 
 bool args_read_uint8_and_trim(FuriString* args, uint8_t* value) {

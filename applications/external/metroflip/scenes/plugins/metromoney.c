@@ -58,7 +58,10 @@ static bool metromoney_parse(FuriString* parsed_data, const MfClassicData* data)
         const uint8_t* block_start_ptr =
             &data->block[start_block_num + ticket_block_number].data[0];
 
-        uint32_t balance = bit_lib_bytes_to_num_le(block_start_ptr, 4) - 100;
+        // Raw value below 100 would wrap the unsigned subtraction to ~4.29e9: show it signed
+        uint32_t raw_balance = bit_lib_bytes_to_num_le(block_start_ptr, 4);
+        bool balance_negative = raw_balance < 100;
+        uint32_t balance = balance_negative ? (100 - raw_balance) : (raw_balance - 100);
 
         uint32_t balance_lari = balance / 100;
         uint8_t balance_tetri = balance % 100;
@@ -68,8 +71,9 @@ static bool metromoney_parse(FuriString* parsed_data, const MfClassicData* data)
         uint32_t card_number = bit_lib_bytes_to_num_le(uid, 4);
         furi_string_printf(
             parsed_data,
-            "\e#Metromoney\nCard number: %lu\nBalance: %lu.%02u GEL",
+            "\e#Metromoney\nCard number: %lu\nBalance: %s%lu.%02u GEL",
             card_number,
+            balance_negative ? "-" : "",
             balance_lari,
             balance_tetri);
         parsed = true;
@@ -223,6 +227,7 @@ static void metromoney_on_exit(Metroflip* app) {
     if(app->poller && !app->data_loaded) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
 
     // Clear view

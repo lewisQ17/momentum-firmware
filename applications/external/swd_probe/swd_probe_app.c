@@ -493,21 +493,31 @@ static uint8_t swd_read_memory_block(
     uint32_t data = 0;
     uint32_t csw = 0x23000012;
 
-    ret |= swd_write_ap(ctx, ap, MEMAP_CSW, csw);
-    ret |= swd_write_ap(ctx, ap, MEMAP_TAR, address);
-    ret |= swd_read_ap_single(ctx, ap, MEMAP_DRW, &data);
-
-    for(size_t pos = 0; pos < len; pos += 4) {
-        data = 0xDEADBEEF;
-        ret |= swd_read_ap_single(ctx, ap, MEMAP_DRW, &data);
-        DBG("read %lX", data);
-
-        memcpy(&buf[pos], &data, 4);
-
-        if(ret != 1) {
-            swd_abort(ctx);
-            return ret;
+    /* MEM-AP TAR auto-increment is only guaranteed within 1KB: rewrite TAR per 1KB window */
+    for(size_t done = 0; done < len;) {
+        uint32_t cur = address + done;
+        size_t chunk = (0x400 - (cur & 0x3FF) + 3) & ~(size_t)3;
+        if(chunk > len - done) {
+            chunk = len - done;
         }
+
+        ret |= swd_write_ap(ctx, ap, MEMAP_CSW, csw);
+        ret |= swd_write_ap(ctx, ap, MEMAP_TAR, cur);
+        ret |= swd_read_ap_single(ctx, ap, MEMAP_DRW, &data);
+
+        for(size_t pos = 0; pos < chunk; pos += 4) {
+            data = 0xDEADBEEF;
+            ret |= swd_read_ap_single(ctx, ap, MEMAP_DRW, &data);
+            DBG("read %lX", data);
+
+            memcpy(&buf[done + pos], &data, 4);
+
+            if(ret != 1) {
+                swd_abort(ctx);
+                return ret;
+            }
+        }
+        done += chunk;
     }
     return ret;
 }
@@ -669,7 +679,7 @@ static bool swd_apscan_test(AppFSM* const ctx, uint32_t ap) {
     DBG("AP%lu detected", ap);
     ctx->apidr_info[ap].ok = true;
     ctx->apidr_info[ap].revision = (data >> 24) & 0x0F;
-    ctx->apidr_info[ap].designer = (data >> 17) & 0x3FF;
+    ctx->apidr_info[ap].designer = (data >> 17) & 0x7FF; /* JEP106: 11 bits */
     ctx->apidr_info[ap].class = (data >> 13) & 0x0F;
     ctx->apidr_info[ap].variant = (data >> 4) & 0x0F;
     ctx->apidr_info[ap].type = (data >> 0) & 0x0F;
@@ -800,7 +810,11 @@ static bool swd_script_get_string(ScriptContext* ctx, char* str, size_t max_leng
 
             if(storage_file_read(ctx->script_file, &ch, 1) != 1) {
                 DBGS("end reached");
-                return false;
+                /* EOF ends the token: last line may lack a trailing newline */
+                if(pos == 0) {
+                    return false;
+                }
+                break;
             }
         } else {
             start_pos = ctx->line_pos;
@@ -808,7 +822,10 @@ static bool swd_script_get_string(ScriptContext* ctx, char* str, size_t max_leng
 
             if(ch == 0) {
                 DBGS("end reached");
-                return false;
+                if(pos == 0) {
+                    return false;
+                }
+                break;
             }
             ctx->line_pos++;
         }
@@ -854,6 +871,11 @@ static bool swd_script_get_number(ScriptContext* ctx, uint32_t* number) {
     size_t pos = 0;
     *number = 0;
 
+    /* empty token or bare "0x": missing argument, not a zero */
+    if(str[0] == '\0' || !strcmp(str, "0x")) {
+        return false;
+    }
+
     /* hex number? */
     if(!strncmp(str, "0x", 2)) {
         pos += 2;
@@ -892,7 +914,9 @@ static bool swd_script_get_number(ScriptContext* ctx, uint32_t* number) {
 }
 
 static void swd_script_gui_refresh(ScriptContext* ctx) {
-    if(furi_message_queue_get_count(ctx->app->event_queue) > 0) {
+    /* UI key handlers must only run on the main thread (USB worker also runs commands) */
+    if(furi_thread_get_current_id() == ctx->app->main_thread &&
+       furi_message_queue_get_count(ctx->app->event_queue) > 0) {
         swd_message_process(ctx->app);
     }
     if(!ctx->status_ignore) {
@@ -1215,7 +1239,12 @@ static bool swd_scriptfunc_apselect(ScriptContext* ctx) {
         return false;
     }
 
-    if(!swd_apscan_test(ctx->app, ap)) {
+    /* bit-banging must not interleave with the main loop / other threads */
+    furi_mutex_acquire(ctx->app->swd_mutex, FuriWaitForever);
+    bool ap_found = swd_apscan_test(ctx->app, ap);
+    furi_mutex_release(ctx->app->swd_mutex);
+
+    if(!ap_found) {
         swd_script_log(ctx, FuriLogLevelError, "no selected AP");
         return false;
     }
@@ -1230,9 +1259,18 @@ static bool swd_scriptfunc_apselect(ScriptContext* ctx) {
 static bool swd_scriptfunc_apscan(ScriptContext* ctx) {
     DBGS("Scanning APs");
     for(uint32_t ap = 0; ap < 255; ap++) {
+        if(ctx->abort) {
+            DBGS("aborting");
+            break;
+        }
         snprintf(ctx->app->state_string, sizeof(ctx->app->state_string), "Scan AP %lu", ap);
         swd_script_gui_refresh(ctx);
-        if(swd_apscan_test(ctx->app, ap)) {
+
+        furi_mutex_acquire(ctx->app->swd_mutex, FuriWaitForever);
+        bool ap_found = swd_apscan_test(ctx->app, ap);
+        furi_mutex_release(ctx->app->swd_mutex);
+
+        if(ap_found) {
             DBG("  AP%lu detected", ap);
         }
     }
@@ -1243,7 +1281,9 @@ static bool swd_scriptfunc_apscan(ScriptContext* ctx) {
 
 static bool swd_scriptfunc_abort(ScriptContext* ctx) {
     DBGS("Aborting");
+    furi_mutex_acquire(ctx->app->swd_mutex, FuriWaitForever);
     swd_abort(ctx->app);
+    furi_mutex_release(ctx->app->swd_mutex);
     swd_script_seek_newline(ctx);
 
     return true;
@@ -1320,6 +1360,10 @@ static bool swd_scriptfunc_mem_dump(ScriptContext* ctx) {
 
         bool read_ok = false;
 
+        /* never read/write past the requested range; reads are whole words */
+        uint32_t chunk = (length - pos < ctx->block_size) ? (length - pos) : ctx->block_size;
+        uint32_t chunk_rd = (chunk + 3) & ~3U;
+
         for(uint32_t tries = 0; tries < ctx->max_tries; tries++) {
             if(ctx->abort) {
                 DBGS("aborting read");
@@ -1327,9 +1371,9 @@ static bool swd_scriptfunc_mem_dump(ScriptContext* ctx) {
             }
             uint32_t ret = 0;
 
-            if(ctx->block_size > 4) {
+            if(chunk_rd > 4) {
                 ret = swd_read_memory_block(
-                    ctx->app, ctx->selected_ap, address + pos, buffer, ctx->block_size);
+                    ctx->app, ctx->selected_ap, address + pos, buffer, chunk_rd);
             } else {
                 ret =
                     swd_read_memory(ctx->app, ctx->selected_ap, address + pos, (uint32_t*)buffer);
@@ -1358,7 +1402,7 @@ static bool swd_scriptfunc_mem_dump(ScriptContext* ctx) {
             /* flags == 2: "its okay if cannot dump fully" */
             if(flags & 1) {
                 /* set all content to a known value as indication */
-                for(size_t fill_pos = 0; fill_pos < ctx->block_size; fill_pos += 4) {
+                for(size_t fill_pos = 0; fill_pos < chunk_rd; fill_pos += 4) {
                     *((uint32_t*)&buffer[fill_pos]) = 0xDEADFACE;
                 }
             } else if(flags & 2) {
@@ -1370,7 +1414,12 @@ static bool swd_scriptfunc_mem_dump(ScriptContext* ctx) {
                 break;
             }
         }
-        storage_file_write(dump, buffer, ctx->block_size);
+        if(storage_file_write(dump, buffer, chunk) != chunk) {
+            snprintf(ctx->app->state_string, sizeof(ctx->app->state_string), "Write failed");
+            notification_message_block(ctx->app->notification, &seq_error);
+            success = false;
+            break;
+        }
     }
 
     furi_mutex_release(ctx->app->swd_mutex);
@@ -1417,10 +1466,12 @@ static bool swd_scriptfunc_mem_write(ScriptContext* ctx) {
         furi_mutex_acquire(ctx->app->swd_mutex, FuriWaitForever);
         access_ok = swd_write_memory(ctx->app, ctx->selected_ap, address, data) == 1;
         access_ok |= ctx->errors_ignore;
-        swd_read_memory(ctx->app, ctx->selected_ap, address, &data);
+        /* read back into a separate variable: retries must write the requested data */
+        uint32_t readback = 0;
+        swd_read_memory(ctx->app, ctx->selected_ap, address, &readback);
         furi_mutex_release(ctx->app->swd_mutex);
 
-        DBG("read %08lX from %08lX", data, address);
+        DBG("read %08lX from %08lX", readback, address);
 
         if(!access_ok) {
             snprintf(
@@ -1530,7 +1581,6 @@ static bool swd_scriptfunc_mem_ldmst(ScriptContext* ctx) {
     LOG("write %08lX to %08lX, mask %08lX", data, address, mask);
 
     bool access_ok = false;
-    uint32_t modified = 0;
     for(uint32_t tries = 0; tries < ctx->max_tries; tries++) {
         if(ctx->abort) {
             DBGS("aborting");
@@ -1538,9 +1588,13 @@ static bool swd_scriptfunc_mem_ldmst(ScriptContext* ctx) {
         }
         furi_mutex_acquire(ctx->app->swd_mutex, FuriWaitForever);
 
+        /* fresh value per try; never write back when the read failed */
+        uint32_t modified = 0;
         access_ok = swd_read_memory(ctx->app, ctx->selected_ap, address, &modified) == 1;
-        modified = (modified & mask) | data;
-        access_ok &= swd_write_memory(ctx->app, ctx->selected_ap, address, modified) == 1;
+        if(access_ok) {
+            modified = (modified & mask) | data;
+            access_ok = swd_write_memory(ctx->app, ctx->selected_ap, address, modified) == 1;
+        }
 
         furi_mutex_release(ctx->app->swd_mutex);
         access_ok |= ctx->errors_ignore;
@@ -2039,6 +2093,8 @@ static bool swd_execute_script_line(ScriptContext* const ctx) {
         storage_file_seek(ctx->script_file, start_pos, true);
 
         if(ret < 2) {
+            /* consume a lone trailing byte, else the caller never reaches EOF */
+            storage_file_seek(ctx->script_file, start_pos + ret, true);
             return true;
         }
     } else {
@@ -2193,7 +2249,7 @@ static bool swd_execute_script(AppFSM* const ctx, const char* filename) {
             DBGS("Finished");
         }
 
-        if(line >= SCRIPT_MAX_LINES) {
+        if(line >= SCRIPT_MAX_LINES && !storage_file_eof(ctx->script->script_file)) {
             success = true;
             char text_buf[128];
 
@@ -2203,6 +2259,7 @@ static bool swd_execute_script(AppFSM* const ctx, const char* filename) {
             dialog_message_set_icon(message, &I_app, 3, 2);
             dialog_message_set_text(message, text_buf, 3, 16, AlignLeft, AlignTop);
             dialog_message_set_buttons(message, "Back", NULL, NULL);
+            dialog_message_show(ctx->dialogs, message);
             dialog_message_free(message);
 
             ctx->script->restart = false;
@@ -2328,7 +2385,9 @@ static void render_callback(Canvas* const canvas, void* ctx_in) {
     canvas_draw_frame(canvas, 0, 0, 128, 64);
     canvas_set_font(canvas, FontPrimary);
 
-    if(!ctx->detected_device) {
+    if(ctx->script) {
+        /* a running script owns the page: keep Back-to-abort reachable */
+    } else if(!ctx->detected_device) {
         ctx->mode_page = ModePageScan;
     } else if(ctx->mode_page == ModePageScan) {
         ctx->mode_page = ModePageFound;
@@ -2772,7 +2831,7 @@ static void swd_main_loop(AppFSM* ctx) {
             ctx->dpidr_info.revision = (ctx->dp_regs.dpidr >> 28) & 0x0F;
             ctx->dpidr_info.partno = (ctx->dp_regs.dpidr >> 20) & 0xFF;
             ctx->dpidr_info.version = (ctx->dp_regs.dpidr >> 12) & 0x0F;
-            ctx->dpidr_info.designer = (ctx->dp_regs.dpidr >> 1) & 0x3FF;
+            ctx->dpidr_info.designer = (ctx->dp_regs.dpidr >> 1) & 0x7FF; /* JEP106: 11 bits */
 
             if(!has_multiple_bits(ctx->io_swc)) {
                 DBGS(" - Detected pins");
@@ -2831,7 +2890,7 @@ static void swd_main_loop(AppFSM* ctx) {
                 if(ctx->dp_regs.targetid_ok) {
                     ctx->targetid_info.revision = (ctx->dp_regs.targetid >> 28) & 0x0F;
                     ctx->targetid_info.partno = (ctx->dp_regs.targetid >> 12) & 0xFFFF;
-                    ctx->targetid_info.designer = (ctx->dp_regs.targetid >> 1) & 0x3FF;
+                    ctx->targetid_info.designer = (ctx->dp_regs.targetid >> 1) & 0x7FF; /* JEP106: 11 bits */
                 }
 
                 /* script handlers lock swd_mutex per command (non-recursive): release first */
@@ -2921,7 +2980,14 @@ static bool swd_message_process(AppFSM* ctx) {
     }
 
     if(event.type == EventKeyPress) {
-        if(event.input.type == InputTypePress) {
+        if(event.input.type == InputTypePress && ctx->script) {
+            /* script running: only Back (abort the whole script chain) is accepted */
+            if(event.input.key == InputKeyBack) {
+                for(ScriptContext* cur = ctx->script; cur; cur = cur->parent) {
+                    cur->abort = true;
+                }
+            }
+        } else if(event.input.type == InputTypePress) {
             switch(event.input.key) {
             case InputKeyUp:
                 switch(ctx->mode_page) {
@@ -3066,8 +3132,25 @@ static bool swd_message_process(AppFSM* ctx) {
                         break;
                     }
 
+                    /* arrays hold COUNT() levels: never descend past the last one */
+                    if(ctx->coresight_level + 1U >= COUNT(ctx->coresight_pos)) {
+                        break;
+                    }
+
                     uint32_t cur_pos = ctx->coresight_pos[ctx->coresight_level];
                     uint32_t base_next = adi_romtable_get(ctx, base, cur_pos);
+
+                    /* cyclic/aliasing ROM table: refuse to descend into an already visited base */
+                    bool visited = false;
+                    for(uint32_t lvl = 0; lvl <= ctx->coresight_level; lvl++) {
+                        if(ctx->coresight_bases[lvl] == base_next) {
+                            visited = true;
+                        }
+                    }
+                    if(visited) {
+                        break;
+                    }
+
                     uint32_t new_count = adi_romtable_entry_count(ctx, base_next);
 
                     ctx->coresight_level++;
@@ -3080,8 +3163,6 @@ static bool swd_message_process(AppFSM* ctx) {
             case InputKeyBack:
                 if(ctx->mode_page == ModePageHexDump) {
                     ctx->mode_page = ModePageAPID;
-                } else if(ctx->mode_page == ModePageScript) {
-                    ctx->script->abort = true;
                 } else if(ctx->mode_page > ModePageFound) {
                     ctx->mode_page = ModePageScan;
                 } else if(ctx->mode_page == ModePageScan) {
@@ -3118,6 +3199,10 @@ size_t data_received(void* ctx, uint8_t* data, size_t length) {
             app->commandline->line_data[pos] = 0;
             LOG("direct command '%s'", app->commandline->line_data);
             swd_execute_script_line(app->commandline);
+            /* swallow the '\n' of a CRLF pair so it is not run as an empty line */
+            if(ch == '\r' && pos < length && data[pos] == '\n') {
+                pos++;
+            }
             return pos;
         }
     }
@@ -3145,16 +3230,19 @@ int32_t swd_probe_app_main(void* p) {
     app->gui_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     app->event_queue = furi_message_queue_alloc(QUEUE_SIZE, sizeof(AppEvent));
 
+    app->main_thread = furi_thread_get_current_id();
+
+    /* allocated before the USB worker starts: data_received() dereferences it */
+    app->commandline = malloc(sizeof(ScriptContext));
+    app->commandline->max_tries = 1;
+    app->commandline->app = app;
+
     DBGS("usb_uart_enable");
     UsbUartConfig uart_config;
     uart_config.vcp_ch = 1;
     uart_config.rx_data = &data_received;
     uart_config.rx_data_ctx = app;
     app->uart = usb_uart_enable(&uart_config);
-
-    app->commandline = malloc(sizeof(ScriptContext));
-    app->commandline->max_tries = 1;
-    app->commandline->app = app;
 
     DBGS("view_port_alloc");
     app->view_port = view_port_alloc();
@@ -3193,13 +3281,16 @@ int32_t swd_probe_app_main(void* p) {
 
     view_port_enabled_set(app->view_port, false);
     gui_remove_view_port(app->gui, app->view_port);
+
+    /* stop the USB worker first: a running command still calls view_port_update() */
+    app->commandline->abort = true;
+    usb_uart_disable(app->uart);
+
     view_port_free(app->view_port);
 
     app_deinit(app);
 
     notification_message(app->notification, &sequence_display_backlight_enforce_auto);
-
-    usb_uart_disable(app->uart);
 
     furi_message_queue_free(app->event_queue);
     furi_mutex_free(app->gui_mutex);
@@ -3209,7 +3300,7 @@ int32_t swd_probe_app_main(void* p) {
     for(int io = 0; io < 8; io++) {
         furi_hal_gpio_init(gpios[io], GpioModeAnalog, GpioPullNo, GpioSpeedLow);
     }
-    free(app->commandline); // Leak fix: ScriptContext was never freed (uart rx cb stopped above)
+    free(app->commandline); // Leak fix: ScriptContext was never freed (USB worker joined above)
     free(app);
 
     furi_record_close(RECORD_GUI);

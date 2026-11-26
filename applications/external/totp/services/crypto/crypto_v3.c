@@ -150,10 +150,6 @@ CryptoSeedIVResult totp_crypto_seed_iv_v3(
             const uint8_t* crypto_vkey = get_crypto_verify_key();
             uint8_t crypto_vkey_length = get_crypto_verify_key_length();
             FURI_LOG_I(LOGGING_TAG, "Generating crypto verify data");
-            crypto_settings->crypto_verify_data = malloc(crypto_vkey_length);
-            furi_check(crypto_settings->crypto_verify_data != NULL);
-            crypto_settings->crypto_verify_data_length = crypto_vkey_length;
-
             crypto_settings->crypto_verify_data = totp_crypto_encrypt_v3(
                 crypto_vkey,
                 crypto_vkey_length,

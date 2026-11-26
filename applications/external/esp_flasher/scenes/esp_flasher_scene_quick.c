@@ -288,19 +288,19 @@ bool esp_flasher_scene_quick_on_event(void* context, SceneManagerEvent event) {
 
         if(boot) {
             app->selected_flash_options[SelectedFlashBoot] = true;
-            strncpy(app->bin_file_path_boot, boot, sizeof(app->bin_file_path_boot));
+            strlcpy(app->bin_file_path_boot, boot, sizeof(app->bin_file_path_boot));
         }
         if(part) {
             app->selected_flash_options[SelectedFlashPart] = true;
-            strncpy(app->bin_file_path_part, part, sizeof(app->bin_file_path_part));
+            strlcpy(app->bin_file_path_part, part, sizeof(app->bin_file_path_part));
         }
         if(app0) {
             app->selected_flash_options[SelectedFlashBootApp0] = true;
-            strncpy(app->bin_file_path_boot_app0, app0, sizeof(app->bin_file_path_boot_app0));
+            strlcpy(app->bin_file_path_boot_app0, app0, sizeof(app->bin_file_path_boot_app0));
         }
         if(firm) {
             app->selected_flash_options[SelectedFlashAppA] = true;
-            strncpy(app->bin_file_path_app_a, firm, sizeof(app->bin_file_path_app_a));
+            strlcpy(app->bin_file_path_app_a, firm, sizeof(app->bin_file_path_app_a));
         }
 
         app->reset = false;

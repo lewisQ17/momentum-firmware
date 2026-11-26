@@ -47,6 +47,12 @@ void metroflip_scene_parse_on_enter(void* context) {
         // Try loading the plugin
         if(plugin_manager_load_single(app->plugin_manager, path) != PluginManagerErrorNone) {
             FURI_LOG_E(TAG, "Failed to load parse plugin");
+            // Release the empty manager so exit/event never touch a plugin-less manager
+            plugin_manager_free(app->plugin_manager);
+            composite_api_resolver_free(app->resolver);
+            app->plugin_manager = NULL;
+            app->resolver = NULL;
+            view_dispatcher_send_custom_event(app->view_dispatcher, MetroflipCustomEventWrongCard);
             return;
         }
 
@@ -70,6 +76,9 @@ bool metroflip_scene_parse_on_event(void* context, SceneManagerEvent event) {
         return true;
     }
 
+    // No plugin loaded (bad card or load failure): nothing can handle this event
+    if(!app->plugin_manager || plugin_manager_get_count(app->plugin_manager) == 0) return false;
+
     // Get and run the plugin's on_event function
     const MetroflipPlugin* plugin = plugin_manager_get_ep(app->plugin_manager, 0);
     return plugin->plugin_on_event(app, event);
@@ -82,12 +91,18 @@ void metroflip_scene_parse_on_exit(void* context) {
    (strcmp(app->card_type, "unknown") == 0) ||
    (strcmp(app->card_type, "Unknown Card") == 0) ||
    (app->is_desfire && is_desfire_locked(app->card_type)))) {
-        // Get and run the plugin's on_exit function
-        const MetroflipPlugin* plugin = plugin_manager_get_ep(app->plugin_manager, 0);
-        plugin->plugin_on_exit(app);
+        if(app->plugin_manager) {
+            // Get and run the plugin's on_exit function
+            if(plugin_manager_get_count(app->plugin_manager) > 0) {
+                const MetroflipPlugin* plugin = plugin_manager_get_ep(app->plugin_manager, 0);
+                plugin->plugin_on_exit(app);
+            }
 
-        plugin_manager_free(app->plugin_manager);
-        composite_api_resolver_free(app->resolver);
+            plugin_manager_free(app->plugin_manager);
+            composite_api_resolver_free(app->resolver);
+            app->plugin_manager = NULL;
+            app->resolver = NULL;
+        }
         app->is_desfire = false;
     }
     

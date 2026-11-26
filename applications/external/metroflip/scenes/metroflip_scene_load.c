@@ -66,11 +66,16 @@ void metroflip_scene_load_on_enter(void* context) {
                     }
 
                     CardType card_type = determine_card_type(app->nfc, mfc_data, true);
+                    // Plugins reload the file themselves; release the local copy (was leaked)
+                    mf_classic_free(mfc_data);
                     app->mfc_card_type = card_type;
                     app->data_loaded = true;
                     app->is_desfire = false;
 
                     switch(card_type) {
+                    case CARD_TYPE_BIP:
+                        app->card_type = "bip";
+                        break;
                     case CARD_TYPE_METROMONEY:
                         app->card_type = "metromoney";
                         FURI_LOG_I(TAG, "Detected: Metromoney");
@@ -152,14 +157,14 @@ void metroflip_scene_load_on_enter(void* context) {
                            ul_data->page[4].data[1] == 4 && ul_data->page[4].data[2] == 0 &&
                            ul_data->page[6].data[0] == 0 && ul_data->page[6].data[1] == 0 &&
                            ul_data->page[6].data[2] == 0) {
-                            app->card_type = "ventra";
+                            app->card_type = "trt"; // no ventra plugin exists; trt shows "Unknown card" for non-TRT data
                             app->is_desfire = false;
                             app->data_loaded = true;
                             FURI_LOG_I(TAG, "Detected: Ventra Ultralight");
                         } else {
                             // Load as generic Ultralight even if not Ventra signature
                             // This allows loading any Ultralight card saved by Metroflip
-                            app->card_type = "ventra";
+                            app->card_type = "trt"; // no ventra plugin exists; trt shows "Unknown card" for non-TRT data
                             app->is_desfire = false;
                             app->data_loaded = true;
                             FURI_LOG_I(TAG, "Loaded: Ultralight card (generic)");
@@ -192,6 +197,7 @@ void metroflip_scene_load_on_enter(void* context) {
                         break;
                     }
 
+                    mf_classic_free(mfc_data); // plugin reloads the file itself
                     app->card_type = "renfe_sum10";
                     app->mfc_card_type = CARD_TYPE_RENFE_SUM10;
                     app->data_loaded = true;

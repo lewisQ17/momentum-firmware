@@ -309,6 +309,10 @@ bool totp_token_info_iterator_remove_current_token_info(TokenInfoIteratorContext
         return false;
     }
 
+    // Seek cache points into the pre-delete layout; invalidate it so next seek rescans from start
+    context->last_seek_offset = 0;
+    context->last_seek_index = 0;
+
     if(!stream_seek(stream, begin_offset, StreamOffsetFromStart) ||
        !stream_delete(stream, end_offset - begin_offset)) {
         return false;
@@ -551,7 +555,16 @@ bool totp_token_info_iterator_go_to(TokenInfoIteratorContext* context, size_t to
         furi_string_free(temp_str);
     } else { // encrypted
         tokenInfo->token_length = secret_bytes_count;
-        if(secret_bytes_count > 0) {
+        if(secret_bytes_count % 16 != 0) {
+            // AES needs whole blocks; a misaligned file-supplied length would crash the crypto HAL
+            FURI_LOG_W(
+                LOGGING_TAG,
+                "Token \"%s\" has secret of invalid length",
+                furi_string_get_cstr(tokenInfo->name));
+            tokenInfo->token = NULL;
+            tokenInfo->token_length = 0;
+            tokenInfo->token_plain_length = 0;
+        } else if(secret_bytes_count > 0) {
             tokenInfo->token = malloc(tokenInfo->token_length);
             furi_check(tokenInfo->token != NULL);
             if(!flipper_format_read_hex(
@@ -604,7 +617,8 @@ bool totp_token_info_iterator_go_to(TokenInfoIteratorContext* context, size_t to
 
     if(flipper_format_read_uint32(
            context->config_file, TOTP_CONFIG_KEY_TOKEN_TYPE, &temp_data32, 1)) {
-        tokenInfo->type = temp_data32;
+        // File-supplied; unknown types would hit furi_crash in the code generator
+        tokenInfo->type = (temp_data32 <= TokenTypeHOTP) ? (TokenType)temp_data32 : TokenTypeTOTP;
     } else {
         tokenInfo->type = TokenTypeTOTP;
     }

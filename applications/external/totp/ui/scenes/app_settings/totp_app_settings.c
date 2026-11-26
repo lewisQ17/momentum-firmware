@@ -52,6 +52,7 @@ typedef enum {
 typedef struct {
     int8_t tz_offset_hours;
     uint8_t tz_offset_minutes;
+    bool tz_offset_negative; // sign for offsets in (-1, 0) where hours alone (0) can't carry it
     bool notification_sound;
     bool notification_vibro;
     AutomationMethod automation_method;
@@ -107,8 +108,10 @@ void totp_scene_app_settings_activate(PluginState* plugin_state) {
 
     float off_int;
     float off_dec = modff(plugin_state->timezone_offset, &off_int);
-    scene_state->tz_offset_hours = off_int;
-    scene_state->tz_offset_minutes = 60.0f * off_dec;
+    scene_state->tz_offset_hours = (int8_t)off_int;
+    // Minutes are a magnitude; sign comes from hours (or tz_offset_negative when hours is 0)
+    scene_state->tz_offset_minutes = (uint8_t)roundf(fabsf(60.0f * off_dec));
+    scene_state->tz_offset_negative = plugin_state->timezone_offset < 0.0f;
     scene_state->notification_sound = plugin_state->notification_method & NotificationMethodSound;
     scene_state->notification_vibro = plugin_state->notification_method & NotificationMethodVibro;
     scene_state->automation_method =
@@ -523,8 +526,15 @@ bool totp_scene_app_settings_handle_event(
             break;
         case InputKeyOk:
             if(scene_state->selected_control == ConfirmButton) {
-                plugin_state->timezone_offset = (float)scene_state->tz_offset_hours +
-                                                (float)scene_state->tz_offset_minutes / 60.0f;
+                const float tz_minutes_part = (float)scene_state->tz_offset_minutes / 60.0f;
+                const bool tz_negative =
+                    scene_state->tz_offset_hours < 0 ||
+                    (scene_state->tz_offset_hours == 0 && scene_state->tz_offset_negative);
+                plugin_state->timezone_offset = tz_negative ?
+                                                    (float)scene_state->tz_offset_hours -
+                                                        tz_minutes_part :
+                                                    (float)scene_state->tz_offset_hours +
+                                                        tz_minutes_part;
 
                 plugin_state->notification_method =
                     (scene_state->notification_sound ? NotificationMethodSound :

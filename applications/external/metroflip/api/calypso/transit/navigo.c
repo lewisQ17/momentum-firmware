@@ -472,7 +472,10 @@ void show_navigo_event_info(
                 parsed_data,
                 "Contract: %d - %s\n",
                 event->used_contract,
-                get_navigo_tariff(contracts[event->used_contract - 1].tariff));
+                // contracts[] has 4 entries; used_contract is a 5-bit card field
+                (event->used_contract >= 1 && event->used_contract <= 4) ?
+                    get_navigo_tariff(contracts[event->used_contract - 1].tariff) :
+                    "Unknown");
         }
         locale_format_datetime_cat(parsed_data, &event->date, true);
         furi_string_cat_printf(parsed_data, "\n");
@@ -516,7 +519,10 @@ void show_navigo_event_info(
                 parsed_data,
                 "Contract: %d - %s\n",
                 event->used_contract,
-                get_navigo_tariff(contracts[event->used_contract - 1].tariff));
+                // contracts[] has 4 entries; used_contract is a 5-bit card field
+                (event->used_contract >= 1 && event->used_contract <= 4) ?
+                    get_navigo_tariff(contracts[event->used_contract - 1].tariff) :
+                    "Unknown");
         }
         locale_format_datetime_cat(parsed_data, &event->date, true);
         furi_string_cat_printf(parsed_data, "\n");
@@ -548,7 +554,10 @@ void show_navigo_event_info(
                 parsed_data,
                 "Contract: %d - %s\n",
                 event->used_contract,
-                get_navigo_tariff(contracts[event->used_contract - 1].tariff));
+                // contracts[] has 4 entries; used_contract is a 5-bit card field
+                (event->used_contract >= 1 && event->used_contract <= 4) ?
+                    get_navigo_tariff(contracts[event->used_contract - 1].tariff) :
+                    "Unknown");
         }
         locale_format_datetime_cat(parsed_data, &event->date, true);
         furi_string_cat_printf(parsed_data, "\n");

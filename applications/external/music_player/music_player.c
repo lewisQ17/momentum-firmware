@@ -341,7 +341,21 @@ int32_t music_player_app(void* p) {
 
         if(!music_worker_load(music_player->worker, furi_string_get_cstr(file_path))) {
             FURI_LOG_E(TAG, "Unable to load file");
-            break;
+            if(p && strlen(p)) break; // Launched with arg: nothing to go back to, exit
+
+            DialogsApp* dialogs = furi_record_open(RECORD_DIALOGS);
+            DialogMessage* message = dialog_message_alloc();
+            dialog_message_set_header(
+                message, "Cannot load file", 64, 20, AlignCenter, AlignCenter);
+            dialog_message_set_text(
+                message, "Invalid or too large", 64, 36, AlignCenter, AlignCenter);
+            dialog_message_set_buttons(message, NULL, "OK", NULL);
+            dialog_message_show(dialogs, message);
+            dialog_message_free(message);
+            furi_record_close(RECORD_DIALOGS);
+
+            music_player_clear(music_player); // back to the file browser
+            continue;
         }
 
         music_worker_start(music_player->worker);

@@ -24,6 +24,7 @@ static void esp_flasher_scene_browse_callback(void* context, uint32_t index) {
     EspFlasherApp* app = context;
 
     scene_manager_set_scene_state(app->scene_manager, EspFlasherSceneBrowse, index);
+    app->pending_addr_slot = -1; // set again below only when a slot was just selected
 
     // browse for files
     FuriString* predefined_filepath = furi_string_alloc_set_str(ESP_APP_FOLDER);
@@ -84,7 +85,7 @@ static void esp_flasher_scene_browse_callback(void* context, uint32_t index) {
         if(app->selected_flash_options[SelectedFlashBoot]) {
             if(dialog_file_browser_show(
                    app->dialogs, selected_filepath, predefined_filepath, &browser_options)) {
-                strncpy(
+                strlcpy(
                     app->bin_file_path_boot,
                     furi_string_get_cstr(selected_filepath),
                     sizeof(app->bin_file_path_boot));
@@ -119,7 +120,7 @@ static void esp_flasher_scene_browse_callback(void* context, uint32_t index) {
         if(app->selected_flash_options[SelectedFlashPart]) {
             if(dialog_file_browser_show(
                    app->dialogs, selected_filepath, predefined_filepath, &browser_options)) {
-                strncpy(
+                strlcpy(
                     app->bin_file_path_part,
                     furi_string_get_cstr(selected_filepath),
                     sizeof(app->bin_file_path_part));
@@ -167,7 +168,7 @@ static void esp_flasher_scene_browse_callback(void* context, uint32_t index) {
         if(app->selected_flash_options[SelectedFlashNvs]) {
             if(dialog_file_browser_show(
                    app->dialogs, selected_filepath, predefined_filepath, &browser_options)) {
-                strncpy(
+                strlcpy(
                     app->bin_file_path_nvs,
                     furi_string_get_cstr(selected_filepath),
                     sizeof(app->bin_file_path_nvs));
@@ -200,7 +201,7 @@ static void esp_flasher_scene_browse_callback(void* context, uint32_t index) {
         if(app->selected_flash_options[SelectedFlashBootApp0]) {
             if(dialog_file_browser_show(
                    app->dialogs, selected_filepath, predefined_filepath, &browser_options)) {
-                strncpy(
+                strlcpy(
                     app->bin_file_path_boot_app0,
                     furi_string_get_cstr(selected_filepath),
                     sizeof(app->bin_file_path_boot_app0));
@@ -233,7 +234,7 @@ static void esp_flasher_scene_browse_callback(void* context, uint32_t index) {
         if(app->selected_flash_options[SelectedFlashAppA]) {
             if(dialog_file_browser_show(
                    app->dialogs, selected_filepath, predefined_filepath, &browser_options)) {
-                strncpy(
+                strlcpy(
                     app->bin_file_path_app_a,
                     furi_string_get_cstr(selected_filepath),
                     sizeof(app->bin_file_path_app_a));
@@ -266,7 +267,7 @@ static void esp_flasher_scene_browse_callback(void* context, uint32_t index) {
         if(app->selected_flash_options[SelectedFlashAppB]) {
             if(dialog_file_browser_show(
                    app->dialogs, selected_filepath, predefined_filepath, &browser_options)) {
-                strncpy(
+                strlcpy(
                     app->bin_file_path_app_b,
                     furi_string_get_cstr(selected_filepath),
                     sizeof(app->bin_file_path_app_b));
@@ -300,7 +301,7 @@ static void esp_flasher_scene_browse_callback(void* context, uint32_t index) {
         if(app->selected_flash_options[SelectedFlashCustom]) {
             if(dialog_file_browser_show(
                    app->dialogs, selected_filepath, predefined_filepath, &browser_options)) {
-                strncpy(
+                strlcpy(
                     app->bin_file_path_custom,
                     furi_string_get_cstr(selected_filepath),
                     sizeof(app->bin_file_path_custom));
@@ -379,7 +380,9 @@ static void _parse_partition_file(EspFlasherApp* app, const char* filepath) {
     pos += snprintf(
         app->part_confirm_text + pos, sizeof(app->part_confirm_text) - pos, "Partition file:\n");
 
-    while(storage_file_read(f, entry, PART_ENTRY_SIZE) == PART_ENTRY_SIZE) {
+    // a partition table holds at most 96 entries (3 KiB / 32 B); never scan further
+    int entries_read = 0;
+    while(entries_read++ < 96 && storage_file_read(f, entry, PART_ENTRY_SIZE) == PART_ENTRY_SIZE) {
         if(entry[0] == 0xFF) break;                                    // end of table padding
         if(entry[0] == PART_MD5_MAGIC0 && entry[1] == PART_MD5_MAGIC0) continue; // MD5 entry
         if(entry[0] != PART_MAGIC_BYTE0 || entry[1] != PART_MAGIC_BYTE1) continue;
@@ -433,16 +436,25 @@ static void _parse_partition_file(EspFlasherApp* app, const char* filepath) {
             }
             matched++;
         } else {
-            pos += snprintf(
-                app->part_confirm_text + pos,
-                sizeof(app->part_confirm_text) - pos,
-                "%s: 0x%lx [-]\n",
-                name,
-                offset);
+            // same clamp as the matched branch: snprintf returns the would-be length
+            if(pos < sizeof(app->part_confirm_text)) {
+                int n = snprintf(
+                    app->part_confirm_text + pos,
+                    sizeof(app->part_confirm_text) - pos,
+                    "%s: 0x%lx [-]\n",
+                    name,
+                    offset);
+                if(n < 0 || (size_t)n >= sizeof(app->part_confirm_text) - pos) {
+                    pos = sizeof(app->part_confirm_text) - 1;
+                } else {
+                    pos += n;
+                }
+            }
             unmatched++;
         }
     }
 
+    if(pos >= sizeof(app->part_confirm_text)) pos = sizeof(app->part_confirm_text) - 1;
     snprintf(
         app->part_confirm_text + pos,
         sizeof(app->part_confirm_text) - pos,
@@ -479,12 +491,16 @@ static void _addr_input_callback(void* context) {
 
     // parse hex string; strtoul with base-0 accepts "0x..." and plain decimal
     uint32_t addr = (uint32_t)strtoul(app->addr_input_str, NULL, 0);
-    app->custom_slot_addrs[app->pending_addr_slot] = addr;
+    // guard: pending slot is -1 when no slot is awaiting an address
+    if(app->pending_addr_slot >= 0 && app->pending_addr_slot < NUM_FLASH_OPTIONS) {
+        app->custom_slot_addrs[app->pending_addr_slot] = addr;
 
-    // if user explicitly changed the bootloader address, stop auto-updating it
-    if(app->pending_addr_slot == SelectedFlashBoot) {
-        app->boot_addr_manually_set = true;
+        // if user explicitly changed the bootloader address, stop auto-updating it
+        if(app->pending_addr_slot == SelectedFlashBoot) {
+            app->boot_addr_manually_set = true;
+        }
     }
+    app->pending_addr_slot = -1;
 
     view_dispatcher_send_custom_event(app->view_dispatcher, EspFlasherEventAddrInputDone);
 }
@@ -732,6 +748,11 @@ bool esp_flasher_scene_browse_on_event(void* context, SceneManagerEvent event) {
             _refresh_submenu(app);
             consumed = true;
         } else if(event.event == EspFlasherEventShowAddressInput) {
+            if(app->pending_addr_slot < 0 || app->pending_addr_slot >= NUM_FLASH_OPTIONS) {
+                // no slot awaiting an address (e.g. slot was just deselected): skip the prompt
+                _refresh_submenu(app);
+                return true;
+            }
             // show text input so user can confirm or override the default address
             static const char* slot_header[] = {
                 [SelectedFlashS3Mode]   = NULL,

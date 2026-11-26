@@ -97,6 +97,12 @@ typedef struct {
     FuriMessageQueue* event_queue;
 
     /**
+     * @brief Mutex guarding scene state; held by main loop while handling events and by any
+     * foreign thread (idle timer, CLI) that switches scenes
+     */
+    FuriMutex* main_loop_mutex;
+
+    /**
      * @brief Crypto settings
      */
     CryptoSettings crypto_settings;

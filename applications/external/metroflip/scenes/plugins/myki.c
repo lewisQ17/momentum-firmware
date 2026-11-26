@@ -59,6 +59,8 @@ bool myki_parse(const MfDesfireData* data, FuriString* parsed_data) {
 
         const MfDesfireFileData* file_data = mf_desfire_get_file_data(app, &myki_file_id);
         if(file_data == NULL) break;
+        // Truncated/crafted file: data array must really hold the struct
+        if(simple_array_get_count(file_data->data) < sizeof(mykiFile)) break;
 
         const mykiFile* myki_file = simple_array_cget_data(file_data->data);
 
@@ -211,6 +213,7 @@ static void myki_on_exit(Metroflip* app) {
     if(app->poller && !app->data_loaded) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
 }
 

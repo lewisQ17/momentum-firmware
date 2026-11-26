@@ -35,6 +35,8 @@ bool nol_parse(const MfDesfireData* data, FuriString* parsed_data) {
 
         const MfDesfireFileData* file_data = mf_desfire_get_file_data(app, &nol_file_id);
         if(file_data == NULL) break;
+        // Truncated/crafted file: data array must really hold NOL_FILE_SIZE bytes
+        if(simple_array_get_count(file_data->data) < NOL_FILE_SIZE) break;
 
         uint8_t* nol_file = simple_array_get_data(file_data->data);
         uint32_t nol_serial_number = bit_lib_get_bits_32(nol_file, 61, 32);
@@ -170,6 +172,7 @@ static void nol_on_exit(Metroflip* app) {
     if(app->poller && !app->data_loaded) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
 }
 

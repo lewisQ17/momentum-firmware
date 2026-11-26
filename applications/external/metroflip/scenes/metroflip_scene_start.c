@@ -16,6 +16,9 @@ void metroflip_scene_start_on_enter(void* context) {
         app->mfc_data = NULL;
     }
 
+    // A stale path from a previously viewed saved card must never be deletable from a fresh scan
+    app->delete_file_path[0] = '\0';
+
     submenu_set_header(submenu, "Metroflip");
 
     submenu_add_item(

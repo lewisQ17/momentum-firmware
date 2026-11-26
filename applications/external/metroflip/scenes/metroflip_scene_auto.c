@@ -82,8 +82,9 @@ void metroflip_scene_detect_scan_callback(NfcScannerEvent event, void* context) 
             view_dispatcher_send_custom_event(
                 app->view_dispatcher, MetroflipCustomEventPollerDetect);
         }else {
-            const NfcProtocol* invalid_protocol = (const NfcProtocol*)NfcProtocolInvalid;
-            nfc_detected_protocols_set(app->detected_protocols, invalid_protocol, 0);
+            // Real local + count 1 so a stale protocol from the previous scan is never reused
+            const NfcProtocol invalid_protocol = NfcProtocolInvalid;
+            nfc_detected_protocols_set(app->detected_protocols, &invalid_protocol, 1);
             view_dispatcher_send_custom_event(
                 app->view_dispatcher, MetroflipCustomEventPollerDetect);
         }
@@ -95,6 +96,10 @@ void metroflip_scene_auto_on_enter(void* context) {
     dolphin_deed(DolphinDeedNfcRead);
 
     app->sec_num = 0;
+    // Fresh scan: drop stale state from a previous card / plugin (nothing owns app->poller yet)
+    app->poller = NULL;
+    app->hist_bytes_count = 0;
+    nfc_detected_protocols_reset(app->detected_protocols);
 
     // Setup view
     Popup* popup = app->popup;
@@ -119,8 +124,11 @@ bool metroflip_scene_auto_on_event(void* context, SceneManagerEvent event) {
             popup_set_header(popup, "DON'T\nMOVE", 68, 30, AlignLeft, AlignTop);
             consumed = true;
         } else if(event.event == MetroflipCustomEventPollerSuccess) {
-            nfc_poller_stop(app->poller);
-            nfc_poller_free(app->poller);
+            if(app->poller) {
+                nfc_poller_stop(app->poller);
+                nfc_poller_free(app->poller);
+                app->poller = NULL; // on_exit must not free it again
+            }
             scene_manager_next_scene(app->scene_manager, MetroflipSceneParse);
             consumed = true;
         } else if(event.event == MetroflipCustomEventCardLost) {
@@ -151,6 +159,14 @@ bool metroflip_scene_auto_on_event(void* context, SceneManagerEvent event) {
                 Popup* popup = app->popup;
                 UNUSED(popup);
                 switch(card_type) {
+                case CARD_TYPE_BIP:
+                    app->card_type = "bip";
+                    FURI_LOG_I(TAG, "Detected: Bip!\n");
+                    break;
+                case CARD_TYPE_TWO_CITIES:
+                    app->card_type = "two_cities";
+                    FURI_LOG_I(TAG, "Detected: Two Cities\n");
+                    break;
                 case CARD_TYPE_METROMONEY:
                     app->card_type = "metromoney";
                     FURI_LOG_I(TAG, "Detected: Metromoney\n");
@@ -264,6 +280,13 @@ void metroflip_scene_auto_on_exit(void* context) {
     }
     app->auto_mode = false;
     popup_reset(app->popup);
+
+    // Back during the DESFire read: stop and free the poller this scene started
+    if(app->poller) {
+        nfc_poller_stop(app->poller);
+        nfc_poller_free(app->poller);
+        app->poller = NULL;
+    }
 
     metroflip_app_blink_stop(app);
 }

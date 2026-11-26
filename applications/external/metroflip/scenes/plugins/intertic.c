@@ -149,9 +149,9 @@ bool parse_timestamp(uint64_t days_since_1997, FuriString* parsed_data) {
 }
 
 void Describe_Usage_1(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriString* parsed_data) {
-    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 20, 0, 10);
-    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 20, 10, 11);
-    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 20, 86, 11);
+    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 19, 0, 10);
+    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 19, 10, 11);
+    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 19, 86, 11);
 
     furi_string_cat_printf(parsed_data, "\n  EventDateStamp: ");
     parse_timestamp(ContractMediumEndDate - EventDateStamp, parsed_data);
@@ -162,15 +162,15 @@ void Describe_Usage_1(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriStri
 }
 
 void Describe_Usage_1_1(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriString* parsed_data) {
-    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 20, 0, 10);
-    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 20, 10, 11);
-    uint64_t EventCode_Nature = extract_bits(UsageAB, 0, 20, 29, 5);
-    uint64_t EventCode_Type = extract_bits(UsageAB, 0, 20, 34, 5);
-    uint64_t EventGeoVehicleId = extract_bits(UsageAB, 0, 20, 50, 16);
-    uint64_t EventGeoRouteId = extract_bits(UsageAB, 0, 20, 66, 14);
-    uint64_t EventGeoRoute_Direction = extract_bits(UsageAB, 0, 20, 80, 2);
-    uint64_t EventCountPassengers_mb = extract_bits(UsageAB, 0, 20, 82, 4);
-    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 20, 86, 11);
+    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 19, 0, 10);
+    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 19, 10, 11);
+    uint64_t EventCode_Nature = extract_bits(UsageAB, 0, 19, 29, 5);
+    uint64_t EventCode_Type = extract_bits(UsageAB, 0, 19, 34, 5);
+    uint64_t EventGeoVehicleId = extract_bits(UsageAB, 0, 19, 50, 16);
+    uint64_t EventGeoRouteId = extract_bits(UsageAB, 0, 19, 66, 14);
+    uint64_t EventGeoRoute_Direction = extract_bits(UsageAB, 0, 19, 80, 2);
+    uint64_t EventCountPassengers_mb = extract_bits(UsageAB, 0, 19, 82, 4);
+    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 19, 86, 11);
 
     furi_string_cat_printf(parsed_data, "\n  DateStamp: ");
     parse_timestamp(ContractMediumEndDate - EventDateStamp, parsed_data);
@@ -187,14 +187,14 @@ void Describe_Usage_1_1(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriSt
 }
 
 void Describe_Usage_2(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriString* parsed_data) {
-    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 20, 0, 10);
-    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 20, 10, 11);
-    uint64_t EventCode_Nature = extract_bits(UsageAB, 0, 20, 29, 5);
-    uint64_t EventCode_Type = extract_bits(UsageAB, 0, 20, 34, 5);
-    uint64_t EventGeoRouteId = extract_bits(UsageAB, 0, 20, 50, 14);
-    uint64_t EventGeoRoute_Direction = extract_bits(UsageAB, 0, 20, 64, 2);
-    uint64_t EventCountPassengers_mb = extract_bits(UsageAB, 0, 20, 66, 4);
-    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 20, 70, 11);
+    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 19, 0, 10);
+    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 19, 10, 11);
+    uint64_t EventCode_Nature = extract_bits(UsageAB, 0, 19, 29, 5);
+    uint64_t EventCode_Type = extract_bits(UsageAB, 0, 19, 34, 5);
+    uint64_t EventGeoRouteId = extract_bits(UsageAB, 0, 19, 50, 14);
+    uint64_t EventGeoRoute_Direction = extract_bits(UsageAB, 0, 19, 64, 2);
+    uint64_t EventCountPassengers_mb = extract_bits(UsageAB, 0, 19, 66, 4);
+    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 19, 70, 11);
 
     furi_string_cat_printf(parsed_data, "\n  DateStamp: ");
     parse_timestamp(ContractMediumEndDate - EventDateStamp, parsed_data);
@@ -210,16 +210,16 @@ void Describe_Usage_2(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriStri
 }
 
 void Describe_Usage_1_2(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriString* parsed_data) {
-    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 20, 0, 10);
-    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 20, 10, 11);
-    uint64_t EventCount_mb = extract_bits(UsageAB, 0, 20, 21, 6);
-    uint64_t EventCode_Nature_mb = extract_bits(UsageAB, 0, 20, 30, 4);
-    uint64_t EventCode_Type_mb = extract_bits(UsageAB, 0, 20, 34, 4);
-    uint64_t EventGeoVehicleId = extract_bits(UsageAB, 0, 20, 49, 16);
-    uint64_t EventGeoRouteId = extract_bits(UsageAB, 0, 20, 65, 14);
-    uint64_t EventGeoRoute_Direction = extract_bits(UsageAB, 0, 20, 79, 2);
-    uint64_t EventCountPassengers_mb = extract_bits(UsageAB, 0, 20, 81, 4);
-    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 20, 85, 11);
+    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 19, 0, 10);
+    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 19, 10, 11);
+    uint64_t EventCount_mb = extract_bits(UsageAB, 0, 19, 21, 6);
+    uint64_t EventCode_Nature_mb = extract_bits(UsageAB, 0, 19, 30, 4);
+    uint64_t EventCode_Type_mb = extract_bits(UsageAB, 0, 19, 34, 4);
+    uint64_t EventGeoVehicleId = extract_bits(UsageAB, 0, 19, 49, 16);
+    uint64_t EventGeoRouteId = extract_bits(UsageAB, 0, 19, 65, 14);
+    uint64_t EventGeoRoute_Direction = extract_bits(UsageAB, 0, 19, 79, 2);
+    uint64_t EventCountPassengers_mb = extract_bits(UsageAB, 0, 19, 81, 4);
+    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 19, 85, 11);
 
     furi_string_cat_printf(parsed_data, "\n  DateStamp: ");
     parse_timestamp(ContractMediumEndDate - EventDateStamp, parsed_data);
@@ -243,9 +243,9 @@ void Describe_Usage_1_2(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriSt
 }
 
 void Describe_Usage_3(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriString* parsed_data) {
-    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 20, 0, 10);
-    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 20, 10, 11);
-    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 20, 48, 11);
+    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 19, 0, 10);
+    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 19, 10, 11);
+    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 19, 48, 11);
 
     furi_string_cat_printf(parsed_data, "\n  EventDateStamp: ");
     parse_timestamp(ContractMediumEndDate - EventDateStamp, parsed_data);
@@ -256,9 +256,9 @@ void Describe_Usage_3(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriStri
 }
 
 void Describe_Usage_4(uint8_t* UsageAB, uint64_t ContractMediumEndDate, FuriString* parsed_data) {
-    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 20, 0, 10);
-    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 20, 10, 11);
-    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 20, 84, 11);
+    uint64_t EventDateStamp = extract_bits(UsageAB, 0, 19, 0, 10);
+    uint64_t EventTimeStamp = extract_bits(UsageAB, 0, 19, 10, 11);
+    uint64_t EventValidityTimeFirstStamp = extract_bits(UsageAB, 0, 19, 84, 11);
 
     furi_string_cat_printf(parsed_data, "\n  EventDateStamp: ");
     parse_timestamp(ContractMediumEndDate - EventDateStamp, parsed_data);
@@ -288,17 +288,17 @@ static bool intertic_parse(FuriString* parsed_data, const St25tbData* data) {
         big_endian_version(big_endian_file_buffer, data, ST25TB_TOTAL_BYTES);
         uint64_t PID = extract_bits(big_endian_file_buffer, DISTRIBUTION_DATA_START, DISTRIBUTION_DATA_END, 27, 5);
 
-        uint8_t distributionData[20];
+        uint8_t distributionData[20] = {0};
         size_t distributionData_size = 0;
-        uint8_t usageA[20];
+        uint8_t usageA[20] = {0};
         size_t usageA_size = 0;
-        uint8_t reloading1[1];
+        uint8_t reloading1[1] = {0};
         size_t reloading1_size = 0;
-        uint8_t counter1[3];
+        uint8_t counter1[3] = {0};
         size_t counter1_size = 0;
-        uint8_t SWAP[4];
+        uint8_t SWAP[4] = {0};
         size_t SWAP_size = 0;
-        uint8_t usageB[20];
+        uint8_t usageB[20] = {0};
         size_t usageB_size = 0;
 
         switch(PID) {
@@ -313,7 +313,8 @@ static bool intertic_parse(FuriString* parsed_data, const St25tbData* data) {
                 append_bytes(usageA, &usageA_size, sizeof(usageA), big_endian_file_buffer, sizeof(big_endian_file_buffer), 28, 12);
                 append_bytes(usageB, &usageB_size, sizeof(usageB), big_endian_file_buffer, sizeof(big_endian_file_buffer), 40, 20);
                 break;
-            case 0x11 | 0x19:
+            case 0x11:
+            case 0x19:
                 FURI_LOG_I(TAG, "PID 0x11|0x19");
                 append_bytes(distributionData, &distributionData_size, sizeof(distributionData), big_endian_file_buffer, sizeof(big_endian_file_buffer), 4, 16);
                 append_bytes(distributionData, &distributionData_size, sizeof(distributionData), big_endian_file_buffer, sizeof(big_endian_file_buffer), 0, 3);
@@ -330,12 +331,12 @@ static bool intertic_parse(FuriString* parsed_data, const St25tbData* data) {
                 continue;
 
         }
-        uint64_t countryISOCode = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData), 0, 12);
+        uint64_t countryISOCode = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData) - 1, 0, 12);
         if (countryISOCode != 0x250) break; // FRANCE
-        uint64_t organizationalAuthority = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData), 12, 12);
-        uint64_t contractApplicationVersionNumber = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData), 24, 6);
-        uint64_t contractProvider = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData), 30, 8);
-        uint64_t ContractMediumEndDate = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData), 54, 14);
+        uint64_t organizationalAuthority = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData) - 1, 12, 12);
+        uint64_t contractApplicationVersionNumber = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData) - 1, 24, 6);
+        uint64_t contractProvider = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData) - 1, 30, 8);
+        uint64_t ContractMediumEndDate = extract_bits(distributionData, DISTRIBUTION_DATA_START, sizeof(distributionData) - 1, 54, 14);
 
         furi_string_cat_printf(
             parsed_data,
@@ -519,8 +520,6 @@ static bool intertic_on_event(Metroflip* app, SceneManagerEvent event) {
                 widget, GuiButtonTypeLeft, "Exit", metroflip_exit_widget_callback, app);
             widget_add_button_element(
                 widget, GuiButtonTypeRight, "Save", metroflip_save_widget_callback, app);
-            widget_add_button_element(
-                widget, GuiButtonTypeCenter, "Delete", metroflip_delete_widget_callback, app);
             furi_string_free(parsed_data);
             view_dispatcher_switch_to_view(app->view_dispatcher, MetroflipViewWidget);
             metroflip_app_blink_stop(app);
@@ -552,6 +551,7 @@ static void intertic_on_exit(Metroflip* app) {
     if(app->poller && !app->data_loaded) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
 
     // Clear view

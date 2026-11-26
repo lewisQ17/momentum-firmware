@@ -117,9 +117,12 @@ static bool ovc_parse(FuriString* parsed_data, const MfClassicData* data) {
         furi_string_cat_printf(parsed_data, "Credit: %f", (double)credit);
         // birthdate
         OvcBcdDate* date = ovc_bcd_date_new(bit_slice_to_dec(bit_representation, 78, 92));
-        if(card_type == 2) {
-            furi_string_cat_printf(
-                parsed_data, "Date: %04d-%02d-%02d\n", date->year, date->month, date->day);
+        if(date) { // NULL when the decoded year is invalid
+            if(card_type == 2) {
+                furi_string_cat_printf(
+                    parsed_data, "Date: %04d-%02d-%02d\n", date->year, date->month, date->day);
+            }
+            free(date);
         }
         for(int sector = 32; sector < 35; sector++) {
             memset(bit_representation, 0, sizeof(bit_representation));
@@ -226,7 +229,6 @@ static NfcCommand metroflip_scene_ovc_poller_callback(NfcGenericEvent event, voi
         widget_add_button_element(
             widget, GuiButtonTypeRight, "Exit", metroflip_exit_widget_callback, app);
 
-        furi_string_free(parsed_data);
         view_dispatcher_switch_to_view(app->view_dispatcher, MetroflipViewWidget);
         metroflip_app_blink_stop(app);
         UNUSED(ovc_parse);
@@ -236,6 +238,7 @@ static NfcCommand metroflip_scene_ovc_poller_callback(NfcGenericEvent event, voi
         command = NfcCommandStop;
     }
 
+    furi_string_free(parsed_data); // freed once here: every path allocates it
     return command;
 }
 
@@ -252,7 +255,6 @@ void metroflip_scene_ovc_on_enter(void* context) {
 
     // Start worker
     view_dispatcher_switch_to_view(app->view_dispatcher, MetroflipViewPopup);
-    nfc_scanner_alloc(app->nfc);
     app->poller = nfc_poller_alloc(app->nfc, NfcProtocolMfClassic);
     nfc_poller_start(app->poller, metroflip_scene_ovc_poller_callback, app);
 
@@ -296,6 +298,7 @@ void metroflip_scene_ovc_on_exit(void* context) {
     if(app->poller) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
 
     // Clear view

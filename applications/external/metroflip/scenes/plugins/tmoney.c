@@ -81,6 +81,13 @@ static int check_response(
     size_t* response_length) {
     *response_length = bit_buffer_get_size_bytes(rx_buffer);
     if(!app->data_loaded) { // automatic success
+        // Card-controlled length: need the 2 status bytes before indexing length-2
+        if(*response_length < 2) {
+            *stage = MetroflipPollerEventTypeFail;
+            view_dispatcher_send_custom_event(
+                app->view_dispatcher, MetroflipCustomEventPollerFileNotFound);
+            return 1;
+        }
         if(bit_buffer_get_byte(rx_buffer, *response_length - 2) != STATUS_OK ||
            bit_buffer_get_byte(rx_buffer, *response_length - 1) != STATUS_OK_2) {
             int error_code_1 = bit_buffer_get_byte(rx_buffer, *response_length - 2);
@@ -215,7 +222,6 @@ static NfcCommand tmoney_poller_callback(NfcGenericEvent event, void* context) {
                 widget_add_button_element(
                     widget, GuiButtonTypeRight, "Exit", metroflip_exit_widget_callback, app);
 
-                furi_string_free(parsed_data);
                 view_dispatcher_switch_to_view(app->view_dispatcher, MetroflipViewWidget);
                 metroflip_app_blink_stop(app);
                 stage = MetroflipPollerEventTypeSuccess;
@@ -231,6 +237,7 @@ static NfcCommand tmoney_poller_callback(NfcGenericEvent event, void* context) {
     bit_buffer_free(tx_buffer);
     bit_buffer_free(rx_buffer);
 
+    furi_string_free(parsed_data); // freed once here: every path allocates it
     return next_command;
 }
 
@@ -290,6 +297,7 @@ static void tmoney_on_exit(Metroflip* app) {
     if(app->poller && !app->data_loaded) {
         nfc_poller_stop(app->poller);
         nfc_poller_free(app->poller);
+        app->poller = NULL;
     }
 }
 

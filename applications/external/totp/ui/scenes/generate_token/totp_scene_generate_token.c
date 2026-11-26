@@ -113,7 +113,15 @@ static void update_totp_params(PluginState* const plugin_state, size_t token_ind
     SceneState* scene_state = (SceneState*)plugin_state->current_scene_state;
     TokenInfoIteratorContext* iterator_context =
         totp_config_get_token_iterator_context(plugin_state);
-    if(totp_token_info_iterator_go_to(iterator_context, token_index)) {
+    // Worker decrypts the shared token under this mutex; go_to() frees/reallocs it, so exclude it
+    bool locked = furi_mutex_acquire(scene_state->last_code_update_sync, FuriWaitForever) ==
+                  FuriStatusOk;
+    bool moved = totp_token_info_iterator_go_to(iterator_context, token_index);
+    if(locked) {
+        furi_mutex_release(scene_state->last_code_update_sync);
+    }
+
+    if(moved) {
         totp_generate_code_worker_notify(
             scene_state->generate_code_worker_context, TotpGenerateCodeWorkerEventForceUpdate);
     }
@@ -240,13 +248,15 @@ void totp_scene_generate_token_activate(PluginState* plugin_state) {
                 *((uint16_t*)plugin_state->crypto_settings.crypto_verify_data),
                 plugin_state->bt_type_code_worker_profile_index);
         }
-        totp_bt_type_code_worker_start(
-            plugin_state->bt_type_code_worker_context,
-            scene_state->last_code,
-            TokenDigitsCountMax + 1,
-            scene_state->last_code_update_sync,
-            plugin_state->automation_kb_layout,
-            plugin_state->automation_initial_delay);
+        if(plugin_state->bt_type_code_worker_context != NULL) {
+            totp_bt_type_code_worker_start(
+                plugin_state->bt_type_code_worker_context,
+                scene_state->last_code,
+                TokenDigitsCountMax + 1,
+                scene_state->last_code_update_sync,
+                plugin_state->automation_kb_layout,
+                plugin_state->automation_initial_delay);
+        }
     }
 #endif
     const TokenInfoIteratorContext* iterator_context =
@@ -399,13 +409,17 @@ bool totp_scene_generate_token_handle_event(
             scene_state = (SceneState*)plugin_state->current_scene_state;
             const TokenInfoIteratorContext* iterator_context =
                 totp_config_get_token_iterator_context(plugin_state);
-            totp_bt_type_code_worker_notify(
-                plugin_state->bt_type_code_worker_context,
-                TotpBtTypeCodeWorkerEventType,
-                totp_token_info_iterator_get_current_token(iterator_context)->automation_features);
-            notification_message(
-                scene_state->notification_app,
-                get_notification_sequence_automation(plugin_state, scene_state));
+            // Context is NULL when the BLE profile failed to start; nothing to type then
+            if(plugin_state->bt_type_code_worker_context != NULL) {
+                totp_bt_type_code_worker_notify(
+                    plugin_state->bt_type_code_worker_context,
+                    TotpBtTypeCodeWorkerEventType,
+                    totp_token_info_iterator_get_current_token(iterator_context)
+                        ->automation_features);
+                notification_message(
+                    scene_state->notification_app,
+                    get_notification_sequence_automation(plugin_state, scene_state));
+            }
             return true;
         }
 #endif
@@ -487,7 +501,8 @@ void totp_scene_generate_token_deactivate(PluginState* plugin_state) {
         totp_usb_type_code_worker_stop(scene_state->usb_type_code_worker_context);
     }
 #ifdef TOTP_BADBT_AUTOMATION_ENABLED
-    if(plugin_state->automation_method & AutomationMethodBadBt) {
+    if(plugin_state->automation_method & AutomationMethodBadBt &&
+       plugin_state->bt_type_code_worker_context != NULL) {
         totp_bt_type_code_worker_stop(plugin_state->bt_type_code_worker_context);
     }
 #endif

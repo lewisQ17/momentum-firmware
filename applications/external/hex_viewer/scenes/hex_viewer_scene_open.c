@@ -4,6 +4,9 @@ void hex_viewer_scene_open_on_enter(void* context) {
     furi_assert(context);
     HexViewer* app = context;
 
+    // Browser overwrites app->file_path; keep the previous one for a failed open
+    FuriString* previous_path = furi_string_alloc_set(app->file_path);
+
     FuriString* initial_path;
     initial_path = furi_string_alloc();
     furi_string_set(initial_path, HEX_VIEWER_APP_PATH_FOLDER);
@@ -20,6 +23,11 @@ void hex_viewer_scene_open_on_enter(void* context) {
         success = hex_viewer_open_file(app, furi_string_get_cstr(app->file_path));
         if(success) hex_viewer_read_file(app);
     }
+
+    if(!success) {
+        furi_string_set(app->file_path, previous_path);
+    }
+    furi_string_free(previous_path);
 
     if(success) {
         scene_manager_search_and_switch_to_previous_scene(

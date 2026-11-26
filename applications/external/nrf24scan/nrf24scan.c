@@ -96,6 +96,7 @@ uint16_t log_arr_idx;
 uint16_t view_log_arr_idx = 0;
 uint16_t view_log_arr_x = 0;
 bool save_to_new_log = true;
+char log_file_path[64] = ""; // actual file of the current session (log.txt or log-NN.txt)
 uint16_t last_packet_send = -1;
 uint8_t last_packet_send_st = 0;
 int16_t find_channel_period = 0; // sec
@@ -128,7 +129,10 @@ static uint8_t ConvertHexToArray(char* hex, uint8_t* array, uint8_t maxlen) {
         uint8_t ch = *hex++;
         if(ch == 0) break;
         if(ch < '0') continue;
-        *array++ = (GetHexVal(ch) << 4) + GetHexVal(*hex++);
+        uint8_t ch2 = *hex;
+        if(ch2 == 0) break; // odd digit count: do not consume the NUL / half a byte
+        hex++;
+        *array++ = (GetHexVal(ch) << 4) + GetHexVal(ch2);
         len++;
         maxlen--;
     }
@@ -172,13 +176,20 @@ void clear_log() {
 
 void write_to_log_file(Storage* storage, bool f_settings) {
     if(log_arr_idx == 0 && !f_settings) return;
+    // Settings save in SNIFF mode goes to sniff.txt with the sniff prefixes
+    bool sniff_save = f_settings && what_to_do == 1;
+    struct ADDRS* sa = sniff_save ? &addrs_sniff : &addrs;
+    if(f_settings && sa->addr_count == 0) { // would write an unloadable file and wipe the old one
+        notification_message(APP->notification, &sequence_blink_red_100);
+        return;
+    }
     Stream* file_stream = file_stream_alloc(storage);
     FuriString* str = furi_string_alloc();
     furi_string_set(str, SCAN_APP_PATH_FOLDER);
     furi_string_cat(str, "/");
     bool fl;
     if(f_settings) {
-        furi_string_cat(str, SETTINGS_FILENAME);
+        furi_string_cat(str, sniff_save ? SNIFF_FILENAME : SETTINGS_FILENAME);
         fl = file_stream_open(
             file_stream, furi_string_get_cstr(str), FSAM_READ_WRITE, FSOM_CREATE_ALWAYS);
         if(!fl) file_stream_close(file_stream);
@@ -187,6 +198,7 @@ void write_to_log_file(Storage* storage, bool f_settings) {
         furi_string_cat(str, LOG_FILEEXT);
         if(save_to_new_log) {
             int cnt = 1;
+            log_file_path[0] = '\0';
             do {
                 fl = file_stream_open(
                     file_stream, furi_string_get_cstr(str), FSAM_READ_WRITE, FSOM_CREATE_NEW);
@@ -201,8 +213,10 @@ void write_to_log_file(Storage* storage, bool f_settings) {
             if(!fl) {
                 FURI_LOG_E(TAG, "Failed to create new log file");
                 notification_message(APP->notification, &sequence_blink_red_100);
-            }
+            } else // remember the real name so later blocks append to this session's file
+                snprintf(log_file_path, sizeof(log_file_path), "%s", furi_string_get_cstr(str));
         } else {
+            if(log_file_path[0]) furi_string_set_str(str, log_file_path);
             fl = file_stream_open(
                 file_stream, furi_string_get_cstr(str), FSAM_READ_WRITE, FSOM_OPEN_APPEND);
             if(fl) {
@@ -236,31 +250,31 @@ void write_to_log_file(Storage* storage, bool f_settings) {
                 NRF_CRC,
                 SettingsFld_Payload,
                 what_to_do == 1 ? NRF_Payload_sniff_min : NRF_Payload);
-            if(addrs.addr_count > 0) {
+            if(sa->addr_count > 0) {
                 furi_string_cat_printf(str, "P0: ");
-                add_to_furi_str_hex_bytes(str, (char*)addrs.addr_P0, addrs.addr_len);
+                add_to_furi_str_hex_bytes(str, (char*)sa->addr_P0, sa->addr_len);
                 furi_string_cat(str, "\n");
             }
-            if(addrs.addr_count > 1) {
+            if(sa->addr_count > 1) {
                 furi_string_cat_printf(str, "P1: ");
-                add_to_furi_str_hex_bytes(str, (char*)addrs.addr_P1, addrs.addr_len);
+                add_to_furi_str_hex_bytes(str, (char*)sa->addr_P1, sa->addr_len);
                 furi_string_cat(str, "\n");
             }
-            if(addrs.addr_count > 2) {
+            if(sa->addr_count > 2) {
                 furi_string_cat_printf(str, "P2: ");
-                furi_string_cat_printf(str, "%02X\n", addrs.addr_P2);
+                furi_string_cat_printf(str, "%02X\n", sa->addr_P2);
             }
-            if(addrs.addr_count > 3) {
+            if(sa->addr_count > 3) {
                 furi_string_cat_printf(str, "P3: ");
-                furi_string_cat_printf(str, "%02X\n", addrs.addr_P3);
+                furi_string_cat_printf(str, "%02X\n", sa->addr_P3);
             }
-            if(addrs.addr_count > 4) {
+            if(sa->addr_count > 4) {
                 furi_string_cat_printf(str, "P4: ");
-                furi_string_cat_printf(str, "%02X\n", addrs.addr_P4);
+                furi_string_cat_printf(str, "%02X\n", sa->addr_P4);
             }
-            if(addrs.addr_count > 5) {
+            if(sa->addr_count > 5) {
                 furi_string_cat_printf(str, "P5: ");
-                furi_string_cat_printf(str, "%02X\n", addrs.addr_P5);
+                furi_string_cat_printf(str, "%02X\n", sa->addr_P5);
             }
             if(!(fl = stream_write_string(file_stream, str) == furi_string_size(str))) {
                 FURI_LOG_E(TAG, "Failed to write header to file!");
@@ -270,7 +284,8 @@ void write_to_log_file(Storage* storage, bool f_settings) {
         if(fl) {
             if(f_settings) {
                 save_settings = 0;
-                if(strcmp(addr_file_name, "NONE") == 0) strcpy(addr_file_name, SETTINGS_FILENAME);
+                if(strcmp(addr_file_name, "NONE") == 0)
+                    strcpy(addr_file_name, sniff_save ? SNIFF_FILENAME : SETTINGS_FILENAME);
             } else {
                 int i = 0;
                 for(; i < log_arr_idx; i++) {
@@ -332,6 +347,7 @@ static bool select_settings_file(Stream* stream) {
                 addr_file_name,
                 furi_string_get_cstr(path) + sizeof(SCAN_APP_PATH_FOLDER),
                 sizeof(addr_file_name));
+            addr_file_name[sizeof(addr_file_name) - 1] = '\0'; // strncpy may not terminate
             result = true;
         }
     }
@@ -402,7 +418,7 @@ static uint8_t load_settings_file(Stream* file_stream) {
             } else if(strncmp(line_ptr, SettingsFld_Sniff, sizeof(SettingsFld_Sniff) - 1) == 0) {
                 what_to_do = 1;
                 sniff_loaded = 1;
-            } else if(*line_ptr == SettingsFld_Addr) {
+            } else if(*line_ptr == SettingsFld_Addr && line_len >= 4) { // 'Pn: ' needs 4 chars
                 char a = *(++line_ptr);
                 struct ADDRS* adr = sniff_loaded ? &addrs_sniff : &addrs;
                 line_ptr += 3;
@@ -535,6 +551,7 @@ static void prepare_nrf24(bool fsend_packet) {
                 REG_FEATURE,
                 0); // Enables the W_TX_PAYLOAD_NOACK command, Disable Payload with ACK, set Dynamic Payload
             // EN_DYN_ACK(0x01)  for W_TX_PAYLOAD_NOACK cmd broke AA on some fake nRF24l01+ modules
+            nrf24_write_reg(nrf24_HANDLE, REG_RF_CH, NRF_channel); // listen on the shown channel
         } else if(setup_from_log) { // Scan
             nrf24_write_reg(
                 nrf24_HANDLE,
@@ -966,7 +983,10 @@ static void render_callback(Canvas* const canvas, void* ctx) {
         canvas_set_font(canvas, FontSecondary); // 8x10 font, 6 lines
         if(save_settings)
             snprintf(
-                screen_buf, sizeof(screen_buf), "Save: %s", SETTINGS_FILENAME); // menu_selected = 0
+                screen_buf,
+                sizeof(screen_buf),
+                "Save: %s",
+                what_to_do == 1 ? SNIFF_FILENAME : SETTINGS_FILENAME); // menu_selected = 0
         else
             snprintf(screen_buf, sizeof(screen_buf), "Load: %s", addr_file_name);
         canvas_draw_str(canvas, 10, 10, screen_buf);
@@ -1070,6 +1090,9 @@ static void render_callback(Canvas* const canvas, void* ctx) {
         if(log_arr_idx) {
             if(view_log_arr_idx >= log_arr_idx) view_log_arr_idx = log_arr_idx - 1;
             uint16_t page = view_log_arr_idx & ~7;
+            // CRC seed cache is per frame: CRC length/addresses may change between frames
+            uint16_t prev_addr_CRC = 0;
+            int8_t prev_pipe = -1;
             for(uint8_t i = 0; i < 8 && page + i < log_arr_idx; i++) {
                 screen_buf[0] = (view_log_arr_idx & 7) != i          ? ' ' :
                                 last_packet_send != view_log_arr_idx ? '>' :
@@ -1138,8 +1161,6 @@ static void render_callback(Canvas* const canvas, void* ctx) {
                     if(count > max_width) count = max_width;
                     if(count > 0) {
                         if(view_log_decode_CRC) {
-                            static uint16_t prev_addr_CRC;
-                            static int8_t prev_pipe = -1;
                             uint8_t* pcrc = ptr;
                             uint32_t crc;
                             if(prev_pipe == pipe) {
@@ -1396,10 +1417,10 @@ int32_t nrf24scan_app(void* p) {
     } else {
         strcpy(addr_file_name, "NONE");
         if(what_to_do == 1) {
-            addrs.addr_P0[0] = 0;
-            addrs.addr_P0[1] = 0x55;
-            addrs.addr_len = 2;
-            addrs.addr_count = 1;
+            addrs_sniff.addr_P0[0] = 0; // SNIFF mode reads its prefix from addrs_sniff
+            addrs_sniff.addr_P0[1] = 0x55;
+            addrs_sniff.addr_len = 2;
+            addrs_sniff.addr_count = 1;
             view_log_decode_CRC = NRF_CRC = 2;
             NRF_Payload_sniff_min = 0; // Min
         }
@@ -1409,8 +1430,11 @@ int32_t nrf24scan_app(void* p) {
     furi_string_free(path);
 
     PluginEvent event;
+    uint32_t last_redraw = 0;
     for(bool processing = true; processing;) {
-        FuriStatus event_status = furi_message_queue_get(APP->event_queue, &event, 100);
+        // Poll the radio often while scanning (3-deep RX FIFO); idle menus keep 100 ms
+        FuriStatus event_status =
+            furi_message_queue_get(APP->event_queue, &event, (what_doing && what_to_do) ? 10 : 100);
         furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
 
         if(event_status == FuriStatusOk) {
@@ -1634,7 +1658,8 @@ int32_t nrf24scan_app(void* p) {
             }
         }
         if(what_doing && what_to_do) {
-            nrf24_read_newpacket();
+            for(uint8_t i = 0; i < 3; i++) // drain up to a full RX FIFO per pass
+                nrf24_read_newpacket();
             if(find_channel_period &&
                furi_get_tick() - start_time >= (uint32_t)find_channel_period * 1000UL) {
                 if(++NRF_channel > MAX_CHANNEL) NRF_channel = 0;
@@ -1643,7 +1668,11 @@ int32_t nrf24scan_app(void* p) {
         }
 
         furi_mutex_release(plugin_state->mutex);
-        view_port_update(APP->view_port);
+        // Keep the redraw rate at ~10 Hz even with the faster poll
+        if(event_status == FuriStatusOk || furi_get_tick() - last_redraw >= 100) {
+            view_port_update(APP->view_port);
+            last_redraw = furi_get_tick();
+        }
     }
     nrf24_set_idle(nrf24_HANDLE);
     if(log_arr_idx && (log_to_file == 1 || log_to_file == 2)) {

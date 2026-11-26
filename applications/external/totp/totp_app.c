@@ -142,19 +142,31 @@ static bool totp_activate_initial_scene(PluginState* const plugin_state) {
 
 static bool on_user_idle(void* context) {
     PluginState* plugin_state = context;
+    // Short timeout: main loop may sit in a modal dialog; then simply retry on next idle tick
+    if(furi_mutex_acquire(plugin_state->main_loop_mutex, 100) != FuriStatusOk) {
+        return false;
+    }
+
+    bool locked = false;
     if(plugin_state->current_scene != TotpSceneAuthentication &&
        plugin_state->current_scene != TotpSceneStandby) {
         totp_scene_director_activate_scene(plugin_state, TotpSceneAuthentication);
-        totp_scene_director_force_redraw(plugin_state);
-        return true;
+        locked = true;
     }
 
-    return false;
+    furi_mutex_release(plugin_state->main_loop_mutex);
+    if(locked) {
+        // Posted outside the mutex: queue put may block while main loop waits for the mutex
+        totp_scene_director_force_redraw(plugin_state);
+    }
+
+    return locked;
 }
 
 static bool totp_plugin_state_init(PluginState* const plugin_state) {
     plugin_state->gui = furi_record_open(RECORD_GUI);
     plugin_state->dialogs_app = furi_record_open(RECORD_DIALOGS);
+    plugin_state->main_loop_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     memset(&plugin_state->crypto_settings.iv[0], 0, CRYPTO_IV_LENGTH);
 
     if(!totp_config_file_load(plugin_state)) {
@@ -211,6 +223,11 @@ static void totp_plugin_state_free(PluginState* plugin_state) {
         furi_message_queue_free(plugin_state->event_queue);
     }
 
+    // Freed after the idle timer is gone, as the timer callback takes this mutex
+    if(plugin_state->main_loop_mutex != NULL) {
+        furi_mutex_free(plugin_state->main_loop_mutex);
+    }
+
     free(plugin_state);
 }
 
@@ -243,7 +260,7 @@ int32_t totp_app() {
     // Affecting dolphin level
     dolphin_deed(DolphinDeedPluginStart);
 
-    FuriMutex* main_loop_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    FuriMutex* main_loop_mutex = plugin_state->main_loop_mutex;
     struct TotpRenderCallbackContext render_context = {
         .plugin_state = plugin_state, .mutex = main_loop_mutex};
 
@@ -284,7 +301,6 @@ int32_t totp_app() {
     view_port_enabled_set(view_port, false);
     gui_remove_view_port(plugin_state->gui, view_port);
     view_port_free(view_port);
-    furi_mutex_free(main_loop_mutex);
     totp_plugin_state_free(plugin_state);
     return 0;
 }

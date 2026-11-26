@@ -137,6 +137,7 @@ static bool totp_open_config_file(Storage* storage, FlipperFormat** file) {
                     LOGGING_TAG,
                     "Error creating config file directory %s",
                     CONFIG_FILE_DIRECTORY_PATH);
+                totp_close_config_file(fff_data_file);
                 return false;
             }
         }
@@ -441,6 +442,22 @@ bool totp_config_file_load(PluginState* const plugin_state) {
             break;
         }
 
+        // Unsupported versions would furi_crash later; fail loading instead (file stays untouched)
+        if(!(tmp_uint32 == 3
+#ifdef TOTP_OBSOLETE_CRYPTO_V2_COMPATIBILITY_ENABLED
+             || tmp_uint32 == 2
+#endif
+#ifdef TOTP_OBSOLETE_CRYPTO_V1_COMPATIBILITY_ENABLED
+             || tmp_uint32 == 1
+#endif
+             )) {
+            FURI_LOG_E(
+                LOGGING_TAG,
+                "Unsupported " TOTP_CONFIG_KEY_CRYPTO_VERSION " %" PRIu32,
+                tmp_uint32);
+            break;
+        }
+
         plugin_state->crypto_settings.crypto_version = tmp_uint32;
 
         if(!flipper_format_rewind(fff_data_file)) {
@@ -475,7 +492,7 @@ bool totp_config_file_load(PluginState* const plugin_state) {
         uint32_t crypto_size;
         if(flipper_format_get_value_count(
                fff_data_file, TOTP_CONFIG_KEY_CRYPTO_VERIFY, &crypto_size) &&
-           crypto_size > 0) {
+           crypto_size > 0 && crypto_size % 16 == 0) { // AES block aligned
             plugin_state->crypto_settings.crypto_verify_data =
                 malloc(sizeof(uint8_t) * crypto_size);
             furi_check(plugin_state->crypto_settings.crypto_verify_data != NULL);

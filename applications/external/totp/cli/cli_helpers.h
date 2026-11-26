@@ -35,13 +35,18 @@ extern "C" {
 
 #define TOTP_CLI_NL() TOTP_CLI_PRINTF("\r\n")
 
-#define TOTP_CLI_LOCK_UI(plugin_state)                                  \
-    Scene __previous_scene = plugin_state->current_scene;               \
-    totp_scene_director_activate_scene(plugin_state, TotpSceneStandby); \
+// Scene switches take the main-loop mutex so render/event handling never sees a half-freed scene
+#define TOTP_CLI_LOCK_UI(plugin_state)                                      \
+    furi_mutex_acquire(plugin_state->main_loop_mutex, FuriWaitForever);     \
+    Scene __previous_scene = plugin_state->current_scene;                   \
+    totp_scene_director_activate_scene(plugin_state, TotpSceneStandby);     \
+    furi_mutex_release(plugin_state->main_loop_mutex);                      \
     totp_scene_director_force_redraw(plugin_state)
 
-#define TOTP_CLI_UNLOCK_UI(plugin_state)                                \
-    totp_scene_director_activate_scene(plugin_state, __previous_scene); \
+#define TOTP_CLI_UNLOCK_UI(plugin_state)                                    \
+    furi_mutex_acquire(plugin_state->main_loop_mutex, FuriWaitForever);     \
+    totp_scene_director_activate_scene(plugin_state, __previous_scene);     \
+    furi_mutex_release(plugin_state->main_loop_mutex);                      \
     totp_scene_director_force_redraw(plugin_state)
 
 #define TOTP_CLI_PRINT_INVALID_ARGUMENTS() \

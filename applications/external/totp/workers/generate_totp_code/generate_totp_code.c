@@ -86,7 +86,7 @@ static void generate_totp_code(
             otp_code = hotp_at(
                 get_totp_algo_impl(token_info->algo), key, plain_key_length, token_info->counter);
         } else {
-            furi_crash("Unknown token type");
+            otp_code = 0; // unknown type: show zero code instead of crashing
         }
 
         int_token_to_str(otp_code, context->code_buffer, token_info->digits, token_info->algo);
@@ -95,6 +95,16 @@ static void generate_totp_code(
     } else {
         int_token_to_str(0, context->code_buffer, token_info->digits, token_info->algo);
     }
+}
+
+// Same shift totp_at applies, so rollover/progress follow the period boundaries of the generated code
+static uint64_t apply_timezone_offset(uint64_t ts, float timezone_offset) {
+    int32_t offset = (int32_t)(timezone_offset * 3600.0f);
+    if(offset > 0) {
+        return ts > (uint64_t)offset ? ts - (uint64_t)offset : 0;
+    }
+
+    return ts + (uint64_t)(-(int64_t)offset);
 }
 
 static int32_t totp_generate_worker_callback(void* context) {
@@ -131,6 +141,7 @@ static int32_t totp_generate_worker_callback(void* context) {
         const bool is_time_based = token_info->type == TokenTypeTOTP;
 
         uint32_t curr_ts = is_time_based ? furi_hal_rtc_get_timestamp() : 0;
+        uint64_t shifted_ts = apply_timezone_offset(curr_ts, t_context->timezone_offset);
 
         // why: read once so a concurrent token switch cannot give inconsistent values
         const uint32_t duration = token_info->duration;
@@ -142,7 +153,7 @@ static int32_t totp_generate_worker_callback(void* context) {
         }
 
         const bool force_update = (flags & TotpGenerateCodeWorkerEventForceUpdate) != 0;
-        const uint32_t period = is_time_based ? (curr_ts / duration) : 0;
+        const uint32_t period = is_time_based ? (uint32_t)(shifted_ts / duration) : 0;
         const bool period_changed = is_time_based && (period != last_period);
         // Notify "new code" only on a genuine rollover, not on forced/first generation
         const bool time_left = !force_update && period_changed && last_period != UINT32_MAX;
@@ -155,6 +166,7 @@ static int32_t totp_generate_worker_callback(void* context) {
                 }
                 if(is_time_based) {
                     curr_ts = furi_hal_rtc_get_timestamp();
+                    shifted_ts = apply_timezone_offset(curr_ts, t_context->timezone_offset);
                 }
                 furi_mutex_release(t_context->code_buffer_sync);
                 if(t_context->on_new_code_generated_handler != NULL) {
@@ -167,7 +179,7 @@ static int32_t totp_generate_worker_callback(void* context) {
         if(t_context->on_code_lifetime_changed_handler != NULL &&
            token_info->type == TokenTypeTOTP) {
             (*(t_context->on_code_lifetime_changed_handler))(
-                (float)(duration - curr_ts % duration) / (float)duration,
+                (float)(duration - (uint32_t)(shifted_ts % duration)) / (float)duration,
                 t_context->on_code_lifetime_changed_handler_context);
         }
     }

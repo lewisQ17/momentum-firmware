@@ -138,10 +138,14 @@ static int32_t usb_uart_worker(void* context) {
                 usb_uart->st.rx_cnt += len;
                 remain += len;
 
-                size_t handled = usb_uart->cfg.rx_data(usb_uart->cfg.rx_data_ctx, data, remain);
-
-                memmove(data, &data[handled], remain - handled);
-                remain -= handled;
+                /* drain every complete line: one packet may carry several commands */
+                size_t handled = 0;
+                while(remain > 0 &&
+                      (handled = usb_uart->cfg.rx_data(usb_uart->cfg.rx_data_ctx, data, remain)) >
+                          0) {
+                    memmove(data, &data[handled], remain - handled);
+                    remain -= handled;
+                }
             }
         }
 

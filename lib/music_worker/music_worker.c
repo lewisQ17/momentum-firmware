@@ -13,6 +13,7 @@
 
 #define MUSIC_PLAYER_FILETYPE "Flipper Music Format"
 #define MUSIC_PLAYER_VERSION  0
+#define MUSIC_WORKER_MAX_FILE_SIZE (32U * 1024U)
 
 #define SEMITONE_PAUSE 0xFF
 
@@ -344,6 +345,13 @@ bool music_worker_load_fmf_from_file(MusicWorker* instance, const char* file_pat
     FlipperFormat* file = flipper_format_file_alloc(storage);
 
     do {
+        FileInfo file_info;
+        if(storage_common_stat(storage, file_path, &file_info) == FSE_OK &&
+           file_info.size > MUSIC_WORKER_MAX_FILE_SIZE) {
+            FURI_LOG_E(TAG, "File is too large");
+            break;
+        }
+
         if(!flipper_format_file_open_existing(file, file_path)) break;
 
         uint32_t version = 0;
@@ -399,6 +407,12 @@ bool music_worker_load_rtttl_from_file(MusicWorker* instance, const char* file_p
     do {
         if(!storage_file_open(file, file_path, FSAM_READ, FSOM_OPEN_EXISTING)) {
             FURI_LOG_E(TAG, "Unable to open file");
+            break;
+        }
+
+        // Whole file is read into RAM; real songs are a few KB, so refuse anything huge
+        if(storage_file_size(file) > MUSIC_WORKER_MAX_FILE_SIZE) {
+            FURI_LOG_E(TAG, "File is too large");
             break;
         }
 

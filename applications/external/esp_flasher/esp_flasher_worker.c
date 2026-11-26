@@ -2,15 +2,10 @@
 
 FuriStreamBuffer* flash_rx_stream; // TODO make safe
 EspFlasherApp* global_app; // TODO make safe
-FuriTimer* timer; // TODO make
 
-static uint32_t _remaining_time = 0;
-static void _timer_callback(void* context) {
-    UNUSED(context);
-    if(_remaining_time > 0) {
-        _remaining_time--;
-    }
-}
+// deadline from furi_get_tick() instead of a 1 ms periodic timer (no daemon wakeups)
+static uint32_t _timeout_start_tick = 0;
+static uint32_t _timeout_ms = 0;
 
 static esp_loader_error_t _flash_file(EspFlasherApp* app, char* filepath, uint32_t addr) {
     // TODO cleanup
@@ -31,11 +26,18 @@ static esp_loader_error_t _flash_file(EspFlasherApp* app, char* filepath, uint32
     uint64_t size = storage_file_size(bin_file);
 
     loader_port_debug_print("Erasing flash...this may take a while\n");
-    err = esp_loader_flash_start(addr, size, sizeof(payload));
+    // esp_loader_flash_start needs a 4-byte aligned size; the last block is 0xFF-padded on write anyway
+    err = esp_loader_flash_start(addr, (uint32_t)((size + 3) & ~3ULL), sizeof(payload));
     if(err != ESP_LOADER_SUCCESS) {
         storage_file_close(bin_file);
         storage_file_free(bin_file);
-        snprintf(user_msg, sizeof(user_msg), "Erasing flash failed with error %d\n", err);
+        snprintf(
+            user_msg,
+            sizeof(user_msg),
+            "%s with error %d\n",
+            (err == ESP_LOADER_ERROR_INVALID_PARAM) ? "Cannot start flash (invalid size or address)" :
+                                                      "Erasing flash failed",
+            err);
         loader_port_debug_print(user_msg);
         return err;
     }
@@ -97,12 +99,14 @@ const uint8_t magic_payload_app_b_set[MAGIC_PAYLOAD_SIZE] = {
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x74, 0x37, 0xf6, 0x55};
 
-// return true if "switching" fw selected instead of flashing new fw
-// (this does not indicate success)
-static bool _switch_fw(EspFlasherApp* app) {
+// sets *handled = true if "switching" fw selected instead of flashing new fw
+// returns the first error encountered (ESP_LOADER_SUCCESS otherwise)
+static esp_loader_error_t _switch_fw(EspFlasherApp* app, bool* handled) {
+    *handled = false;
     if(app->switch_fw == SwitchNotSet) {
-        return false;
+        return ESP_LOADER_SUCCESS;
     }
+    *handled = true;
 
     esp_loader_error_t err;
     char user_msg[256];
@@ -115,7 +119,7 @@ static bool _switch_fw(EspFlasherApp* app) {
     if(err != ESP_LOADER_SUCCESS) {
         snprintf(user_msg, sizeof(user_msg), "Erasing flash failed with error %d\n", err);
         loader_port_debug_print(user_msg);
-        return true;
+        return err;
     }
 
     loader_port_debug_print("Setting flags for firmware A\n");
@@ -124,7 +128,7 @@ static bool _switch_fw(EspFlasherApp* app) {
     if(err != ESP_LOADER_SUCCESS) {
         snprintf(user_msg, sizeof(user_msg), "Packet could not be written! Error: %u\n", err);
         loader_port_debug_print(user_msg);
-        return true;
+        return err;
     }
 
     loader_port_debug_print("Preparing to set flags for firmware B\n");
@@ -135,7 +139,7 @@ static bool _switch_fw(EspFlasherApp* app) {
     if(err != ESP_LOADER_SUCCESS) {
         snprintf(user_msg, sizeof(user_msg), "Erasing flash failed with error %d\n", err);
         loader_port_debug_print(user_msg);
-        return true;
+        return err;
     }
 
     loader_port_debug_print("Setting flags for firmware B\n");
@@ -146,11 +150,11 @@ static bool _switch_fw(EspFlasherApp* app) {
     if(err != ESP_LOADER_SUCCESS) {
         snprintf(user_msg, sizeof(user_msg), "Packet could not be written! Error: %u\n", err);
         loader_port_debug_print(user_msg);
-        return true;
+        return err;
     }
 
     loader_port_debug_print("Finished programming\n");
-    return true;
+    return ESP_LOADER_SUCCESS;
 }
 
 typedef struct {
@@ -160,8 +164,8 @@ typedef struct {
     uint32_t addr;
 } FlashItem;
 
-static void _flash_all_files(EspFlasherApp* app) {
-    esp_loader_error_t err;
+static esp_loader_error_t _flash_all_files(EspFlasherApp* app) {
+    esp_loader_error_t err = ESP_LOADER_SUCCESS;
     const int num_steps = app->num_selected_flash_options;
 
 #define NUM_FLASH_ITEMS 7
@@ -196,6 +200,7 @@ static void _flash_all_files(EspFlasherApp* app) {
             }
         }
     }
+    return err;
 }
 
 static int32_t esp_flasher_flash_bin(void* context) {
@@ -206,7 +211,6 @@ static int32_t esp_flasher_flash_bin(void* context) {
 
     // alloc global objects
     flash_rx_stream = furi_stream_buffer_alloc(RX_BUF_SIZE, 1);
-    timer = furi_timer_alloc(_timer_callback, FuriTimerTypePeriodic, app);
 
     // turn on flipper blue LED for duration of flash
     notification_message(app->notification, &sequence_set_only_blue_255);
@@ -224,7 +228,8 @@ static int32_t esp_flasher_flash_bin(void* context) {
         loader_port_debug_print(err_msg);
     }
 
-    // higher BR
+    // higher BR (only switch the Flipper UART if the target accepted the new rate)
+    bool fast_applied = false;
     if(!err && app->turbospeed) {
         loader_port_debug_print("Increasing speed for faster flash\n");
         err = esp_loader_change_transmission_rate(FAST_BAUDRATE);
@@ -233,40 +238,58 @@ static int32_t esp_flasher_flash_bin(void* context) {
             snprintf(
                 err_msg, sizeof(err_msg), "Cannot change transmission rate. Error: %u\n", err);
             loader_port_debug_print(err_msg);
+        } else {
+            esp_flasher_uart_set_br(app->uart, FAST_BAUDRATE);
+            fast_applied = true;
         }
-        esp_flasher_uart_set_br(app->uart, FAST_BAUDRATE);
     }
 
     if(!err) {
         loader_port_debug_print("Connected\n");
         uint32_t start_time = furi_get_tick();
 
-        if(!_switch_fw(app)) {
-            _flash_all_files(app);
+        bool switch_handled = false;
+        esp_loader_error_t flash_err = _switch_fw(app, &switch_handled);
+        if(!switch_handled) {
+            flash_err = _flash_all_files(app);
         }
-        app->switch_fw = SwitchNotSet;
 
         FuriString* flash_time =
             furi_string_alloc_printf("Flash took: %lds\n", (furi_get_tick() - start_time) / 1000);
         loader_port_debug_print(furi_string_get_cstr(flash_time));
         furi_string_free(flash_time);
 
-        if(app->turbospeed) {
+        if(fast_applied) {
             loader_port_debug_print("Restoring transmission rate\n");
             esp_flasher_uart_set_br(app->uart, BAUDRATE);
+            fast_applied = false;
         }
 
-        loader_port_debug_print(
-            "Done flashing. Please reset the board manually if it doesn't auto-reset.\n");
+        if(flash_err == ESP_LOADER_SUCCESS) {
+            loader_port_debug_print(
+                "Done flashing. Please reset the board manually if it doesn't auto-reset.\n");
 
-        // auto-reset for supported boards
-        loader_port_reset_target();
+            // auto-reset for supported boards
+            loader_port_reset_target();
 
-        // short buzz to alert user
-        notification_message(app->notification, &sequence_set_vibro_on);
-        loader_port_delay_ms(50);
-        notification_message(app->notification, &sequence_reset_vibro);
+            // short buzz to alert user
+            notification_message(app->notification, &sequence_set_vibro_on);
+            loader_port_delay_ms(50);
+            notification_message(app->notification, &sequence_reset_vibro);
+        } else {
+            char err_msg[64];
+            snprintf(err_msg, sizeof(err_msg), "Flashing FAILED (error %d)\n", flash_err);
+            loader_port_debug_print(err_msg);
+        }
     }
+
+    // restore UART speed on every path (e.g. rate change accepted but connect/flash failed later)
+    if(fast_applied) {
+        esp_flasher_uart_set_br(app->uart, BAUDRATE);
+    }
+
+    // a failed connect must not leave a stale firmware-switch request for the next run
+    app->switch_fw = SwitchNotSet;
 
     // turn off flipper blue LED
     notification_message(app->notification, &sequence_reset_blue);
@@ -276,9 +299,11 @@ static int32_t esp_flasher_flash_bin(void* context) {
     app->quickflash = false;
 
     // cleanup
-    furi_stream_buffer_free(flash_rx_stream);
+    // unpublish first, then give an in-flight RX callback time to finish its send before freeing
+    FuriStreamBuffer* old_stream = flash_rx_stream;
     flash_rx_stream = NULL;
-    furi_timer_free(timer);
+    furi_delay_ms(20);
+    furi_stream_buffer_free(old_stream);
     return 0;
 }
 
@@ -350,6 +375,8 @@ static int32_t esp_flasher_reset(void* context) {
 
     _deinitDTR();
     _deinitRTS();
+    // release SWCLK (PA14) again, it was driven high above
+    furi_hal_gpio_init_simple(&gpio_swclk, GpioModeAnalog);
     return 0;
 }
 
@@ -422,12 +449,13 @@ void loader_port_delay_ms(uint32_t ms) {
 }
 
 void loader_port_start_timer(uint32_t ms) {
-    _remaining_time = ms;
-    furi_timer_start(timer, 1);
+    _timeout_ms = ms;
+    _timeout_start_tick = furi_get_tick();
 }
 
 uint32_t loader_port_remaining_time(void) {
-    return _remaining_time;
+    uint32_t elapsed = furi_get_tick() - _timeout_start_tick;
+    return (elapsed >= _timeout_ms) ? 0 : (_timeout_ms - elapsed);
 }
 
 extern void esp_flasher_console_output_handle_rx_data_cb(
@@ -446,8 +474,9 @@ void loader_port_spi_set_cs(uint32_t level) {
 
 void esp_flasher_worker_handle_rx_data_cb(uint8_t* buf, size_t len, void* context) {
     UNUSED(context);
-    if(flash_rx_stream) {
-        furi_stream_buffer_send(flash_rx_stream, buf, len, 0);
+    FuriStreamBuffer* stream = flash_rx_stream; // snapshot: worker may NULL it concurrently
+    if(stream) {
+        furi_stream_buffer_send(stream, buf, len, 0);
     } else {
         // done flashing
         if(global_app) esp_flasher_console_output_handle_rx_data_cb(buf, len, global_app);
