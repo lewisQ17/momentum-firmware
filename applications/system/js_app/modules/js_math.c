@@ -76,7 +76,7 @@ void js_math_acosh(struct mjs* mjs) {
         return;
     }
 
-    mjs_return(mjs, mjs_mk_number(mjs, log(x + sqrt(x * x - (double)1.))));
+    mjs_return(mjs, mjs_mk_number(mjs, acosh(x)));
 }
 
 void js_math_asin(struct mjs* mjs) {
@@ -96,7 +96,7 @@ void js_math_asinh(struct mjs* mjs) {
 
     double x = mjs_get_double(mjs, mjs_arg(mjs, 0));
 
-    mjs_return(mjs, mjs_mk_number(mjs, log(x + sqrt(x * x + (double)1.))));
+    mjs_return(mjs, mjs_mk_number(mjs, asinh(x)));
 }
 
 void js_math_atan(struct mjs* mjs) {
@@ -253,7 +253,8 @@ void js_math_random(struct mjs* mjs) {
     // double clearly provides more bits for entropy then we pack
     // 32bit should be enough for now, but fix it maybe
     const uint32_t random_val = furi_hal_random_get();
-    double rnd = (double)random_val / (double)FURI_HAL_RANDOM_MAX;
+    // +1 so the result is in [0, 1) as Math.random requires
+    double rnd = (double)random_val / ((double)FURI_HAL_RANDOM_MAX + (double)1.);
 
     mjs_return(mjs, mjs_mk_number(mjs, rnd));
 }

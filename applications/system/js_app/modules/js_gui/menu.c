@@ -21,7 +21,7 @@ static mjs_val_t choose_transformer(struct mjs* mjs, FuriMessageQueue* queue, vo
 
 static void choose_callback(void* context, uint32_t index) {
     JsMenuCtx* ctx = context;
-    furi_check(furi_message_queue_put(ctx->queue, &index, 0) == FuriStatusOk);
+    (void)furi_message_queue_put(ctx->queue, &index, 0); // drop on full instead of rebooting the device
 }
 
 static bool

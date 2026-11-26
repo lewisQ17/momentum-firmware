@@ -204,6 +204,12 @@ static void js_subghz_get_frequency(struct mjs* mjs) {
     mjs_return(mjs, mjs_mk_number(mjs, (double)js_subghz->frequency));
 }
 
+// Non-clearing poll of the JS thread's stop flag (does not call mjs_exit)
+static bool js_subghz_stop_requested(void) {
+    uint32_t flags = furi_thread_flags_wait(ThreadEventStop, FuriFlagWaitAny | FuriFlagNoClear, 0);
+    return !(flags & FuriFlagError) && (flags & ThreadEventStop);
+}
+
 static void js_subghz_transmit_file(struct mjs* mjs) {
     mjs_val_t obj_inst = mjs_get(mjs, mjs_get_this(mjs), INST_PROP_NAME, ~0);
     JsSubghzInst* js_subghz = mjs_get_ptr(mjs, obj_inst);
@@ -243,6 +249,8 @@ static void js_subghz_transmit_file(struct mjs* mjs) {
     if(mjs_is_number(repeat_arg)) {
         int32_t repeat_val = mjs_get_int32(mjs, repeat_arg);
         repeat = MAX(repeat_val, 0);
+        // Why: transmission can't be interrupted by Back, so bound how long a script can hold it
+        repeat = MIN(repeat, (uint32_t)100);
     }
 
     Storage* storage = furi_record_open(RECORD_STORAGE);
@@ -275,6 +283,7 @@ static void js_subghz_transmit_file(struct mjs* mjs) {
     uint32_t temp_data32 = 0;
     uint32_t frequency = 0;
     bool is_sent = false;
+    bool stop_requested = false;
 
     do {
         if(!flipper_format_read_header(fff_file, temp_str, &temp_data32)) {
@@ -404,12 +413,21 @@ static void js_subghz_transmit_file(struct mjs* mjs) {
                 break;
             }
             while(!subghz_devices_is_async_complete_tx(js_subghz->radio_device)) {
+                // Why: let Back/stop abort a long TX; cleanup below still runs
+                if(js_subghz_stop_requested()) {
+                    stop_requested = true;
+                    break;
+                }
                 furi_delay_ms(100);
             }
             subghz_devices_stop_async_tx(js_subghz->radio_device);
             subghz_transmitter_stop(transmitter);
             is_sent = true;
             repeat--;
+            if(stop_requested || js_subghz_stop_requested()) {
+                stop_requested = true;
+                break;
+            }
 
             // Only RAW is repeated with this loop, check comments above
             if(!is_raw) {
@@ -448,6 +466,11 @@ static void js_subghz_transmit_file(struct mjs* mjs) {
     } else {
         // Broke out of do...while with an mJS error
         mjs_return(mjs, MJS_UNDEFINED);
+    }
+
+    // Stop was requested: exit only after the radio/files are cleaned up
+    if(stop_requested) {
+        mjs_exit(mjs);
     }
 }
 

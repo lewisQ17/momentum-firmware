@@ -195,13 +195,40 @@ static mjs_val_t do_op(struct mjs* mjs, mjs_val_t a, mjs_val_t b, int op) {
     return ret;
 }
 
+/*
+ * Native objects keep their C instance in "_" and their destructor in "__d".
+ * A script must never write "__d", nor replace "_" on an object that has a
+ * destructor: copying both onto another object gave a double free / free of
+ * an arbitrary pointer at GC. Native code sets them via mjs_set(), not here.
+ */
+static int mjs_script_set_v(struct mjs* mjs, mjs_val_t obj, mjs_val_t key, mjs_val_t val) {
+    if(mjs_is_string(key)) {
+        size_t key_len = 0;
+        const char* key_str = mjs_get_string(mjs, &key, &key_len);
+        bool is_dtor = key_len == strlen(MJS_DESTRUCTOR_PROP_NAME) &&
+                       memcmp(key_str, MJS_DESTRUCTOR_PROP_NAME, key_len) == 0;
+        bool is_inst = key_len == 1 && key_str[0] == '_' &&
+                       mjs_get_own_property(
+                           mjs,
+                           obj,
+                           MJS_DESTRUCTOR_PROP_NAME,
+                           strlen(MJS_DESTRUCTOR_PROP_NAME)) != NULL;
+        if(is_dtor || is_inst) {
+            mjs_set_errorf(mjs, MJS_TYPE_ERROR, "property is read-only");
+            return 0;
+        }
+    }
+    mjs_set_v(mjs, obj, key, val);
+    return 1;
+}
+
 static void op_assign(struct mjs* mjs, int op) {
     mjs_val_t val = mjs_pop(mjs);
     mjs_val_t obj = mjs_pop(mjs);
     mjs_val_t key = mjs_pop(mjs);
     if(mjs_is_object(obj) && mjs_is_string(key)) {
         mjs_val_t v = mjs_get_v(mjs, obj, key);
-        mjs_set_v(mjs, obj, key, do_op(mjs, v, val, op));
+        mjs_script_set_v(mjs, obj, key, do_op(mjs, v, val, op));
         mjs_push(mjs, v);
     } else {
         mjs_set_errorf(mjs, MJS_TYPE_ERROR, "invalid operand");
@@ -316,7 +343,7 @@ static void exec_expr(struct mjs* mjs, int op) {
         mjs_val_t obj = mjs_pop(mjs);
         mjs_val_t key = mjs_pop(mjs);
         if(mjs_is_object(obj)) {
-            mjs_set_v(mjs, obj, key, val);
+            mjs_script_set_v(mjs, obj, key, val);
         } else if(mjs_is_data_view(obj)) {
             mjs_err_t err = mjs_dataview_set_prop(mjs, obj, key, val);
             if(err != MJS_OK) {
@@ -354,7 +381,7 @@ static void exec_expr(struct mjs* mjs, int op) {
         if(mjs_is_object(obj) && mjs_is_string(key)) {
             mjs_val_t v = mjs_get_v(mjs, obj, key);
             mjs_val_t v1 = do_op(mjs, v, mjs_mk_number(mjs, 1), TOK_PLUS);
-            mjs_set_v(mjs, obj, key, v1);
+            mjs_script_set_v(mjs, obj, key, v1);
             mjs_push(mjs, v);
         } else {
             mjs_set_errorf(mjs, MJS_TYPE_ERROR, "invalid operand for ++");
@@ -367,7 +394,7 @@ static void exec_expr(struct mjs* mjs, int op) {
         if(mjs_is_object(obj) && mjs_is_string(key)) {
             mjs_val_t v = mjs_get_v(mjs, obj, key);
             mjs_val_t v1 = do_op(mjs, v, mjs_mk_number(mjs, 1), TOK_MINUS);
-            mjs_set_v(mjs, obj, key, v1);
+            mjs_script_set_v(mjs, obj, key, v1);
             mjs_push(mjs, v);
         } else {
             mjs_set_errorf(mjs, MJS_TYPE_ERROR, "invalid operand for --");
@@ -380,7 +407,7 @@ static void exec_expr(struct mjs* mjs, int op) {
         if(mjs_is_object(obj) && mjs_is_string(key)) {
             mjs_val_t v = mjs_get_v(mjs, obj, key);
             v = do_op(mjs, v, mjs_mk_number(mjs, 1), TOK_MINUS);
-            mjs_set_v(mjs, obj, key, v);
+            mjs_script_set_v(mjs, obj, key, v);
             mjs_push(mjs, v);
         } else {
             mjs_set_errorf(mjs, MJS_TYPE_ERROR, "invalid operand for --");
@@ -393,7 +420,7 @@ static void exec_expr(struct mjs* mjs, int op) {
         if(mjs_is_object(obj) && mjs_is_string(key)) {
             mjs_val_t v = mjs_get_v(mjs, obj, key);
             v = do_op(mjs, v, mjs_mk_number(mjs, 1), TOK_PLUS);
-            mjs_set_v(mjs, obj, key, v);
+            mjs_script_set_v(mjs, obj, key, v);
             mjs_push(mjs, v);
         } else {
             mjs_set_errorf(mjs, MJS_TYPE_ERROR, "invalid operand for ++");
@@ -944,7 +971,7 @@ MJS_PRIVATE mjs_err_t mjs_execute(struct mjs* mjs, size_t off, mjs_val_t* res) {
             key = mjs_mk_string(mjs, (char*)code + i + 1 + llen1 + llen2, n, 1);
             obj = vtop(&mjs->scopes);
             v = mjs_arg(mjs, arg_no);
-            mjs_set_v(mjs, obj, key, v);
+            mjs_script_set_v(mjs, obj, key, v);
             i += llen1 + llen2 + n;
             break;
         }

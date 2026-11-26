@@ -55,7 +55,7 @@ static void input_callback(void* ctx, int32_t index, InputType type) {
         .index = index,
         .input_type = type,
     };
-    furi_check(furi_message_queue_put(context->input_queue, &event, 0) == FuriStatusOk);
+    (void)furi_message_queue_put(context->input_queue, &event, 0); // drop on full instead of rebooting the device
 }
 
 static bool matrix_header_assign(

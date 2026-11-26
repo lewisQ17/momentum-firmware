@@ -45,13 +45,15 @@ static void js_vi_list_change_callback(VariableItem* item) {
     // type safety ensured in add_child
     mjs_val_t variants = mjs_array_get(mjs, context->children, item_index);
     mjs_val_t variant = mjs_array_get(mjs, variants, value_index);
-    variable_item_set_current_value_text(item, mjs_get_string(mjs, &variant, NULL));
+    const char* variant_text = mjs_get_string(mjs, &variant, NULL);
+    // Script may have mutated the variants array since addChild; keep previous text then
+    if(variant_text) variable_item_set_current_value_text(item, variant_text);
 
     JsViListEvent event = {
         .item_index = item_index,
         .value_index = value_index,
     };
-    furi_check(furi_message_queue_put(context->input_queue, &event, 0) == FuriStatusOk);
+    (void)furi_message_queue_put(context->input_queue, &event, 0); // drop on full instead of rebooting the device
 }
 
 static bool js_vi_list_add_child(
@@ -90,6 +92,9 @@ static bool js_vi_list_add_child(
     size_t variants_cnt = mjs_array_length(mjs, variants);
     for(size_t i = 0; i < variants_cnt; i++)
         if(!mjs_is_string(mjs_array_get(mjs, variants, i))) return false;
+    // Item value count is uint8_t and the default must index an existing variant
+    if(variants_cnt < 1 || variants_cnt > 255) return false;
+    if(default_selected < 0 || (size_t)default_selected >= variants_cnt) return false;
 
     VariableItem* item = variable_item_list_add(
         list,
@@ -99,7 +104,8 @@ static bool js_vi_list_add_child(
         context);
     variable_item_set_current_value_index(item, default_selected);
     mjs_val_t default_variant = mjs_array_get(mjs, variants, default_selected);
-    variable_item_set_current_value_text(item, mjs_get_string(mjs, &default_variant, NULL));
+    const char* default_text = mjs_get_string(mjs, &default_variant, NULL);
+    if(default_text) variable_item_set_current_value_text(item, default_text);
 
     mjs_array_push(context->mjs, context->children, variants);
 

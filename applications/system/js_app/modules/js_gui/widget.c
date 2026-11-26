@@ -8,7 +8,7 @@ typedef struct {
     JsEventLoopContract contract;
 } JsWidgetCtx;
 
-#define QUEUE_LEN 2
+#define QUEUE_LEN 8
 
 typedef struct {
     GuiButtonType key;
@@ -110,7 +110,7 @@ static void js_widget_button_callback(GuiButtonType result, InputType type, JsWi
         .key = result,
         .type = type,
     };
-    furi_check(furi_message_queue_put(context->queue, &event, 0) == FuriStatusOk);
+    (void)furi_message_queue_put(context->queue, &event, 0); // drop on full instead of rebooting the device
 }
 
 #define DESTRUCTURE_OR_RETURN(mjs, child_obj, part, ...) \

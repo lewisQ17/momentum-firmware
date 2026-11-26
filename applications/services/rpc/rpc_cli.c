@@ -73,8 +73,8 @@ void rpc_cli_command_start_session(PipeSide* pipe, FuriString* args, void* conte
 
         if(size_received) {
             size_t fed_bytes = rpc_session_feed(rpc_session, buffer, size_received, 3000);
-            (void)fed_bytes;
-            furi_assert(fed_bytes == size_received);
+            // Short feed would drop bytes and desync the protobuf stream: close cleanly
+            if(fed_bytes != size_received) break;
         }
     }
 

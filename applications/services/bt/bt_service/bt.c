@@ -512,7 +512,10 @@ static void bt_load_keys(Bt* bt) {
         bt_close_rpc_connection(bt);
         bt_keys_storage_load(bt->keys_storage);
 
+        // Same lock as bt_change_profile: GAP-thread open/close reads current_profile
+        furi_mutex_acquire(bt_rpc_mutex, FuriWaitForever);
         bt->current_profile = NULL;
+        furi_mutex_release(bt_rpc_mutex);
     } else {
         FURI_LOG_I(TAG, "Keys unchanged");
     }
@@ -550,6 +553,13 @@ static void bt_handle_set_settings(Bt* bt, BtMessage* message) {
 }
 
 static void bt_handle_reload_keys_settings(Bt* bt) {
+    // A running non-serial app (HID/BadKB) holds its profile pointer; restarting would free it
+    if(bt->current_profile &&
+       !furi_hal_bt_check_profile_type(bt->current_profile, ble_profile_serial)) {
+        FURI_LOG_I(TAG, "Non-serial profile active, skipping keys reload");
+        bt_load_settings(bt);
+        return;
+    }
     bt_load_keys(bt);
     bt_start_application(bt);
     bt_load_settings(bt);

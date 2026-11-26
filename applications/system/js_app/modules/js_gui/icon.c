@@ -68,7 +68,14 @@ static void js_gui_icon_load_fxbm(struct mjs* mjs) {
             break;
         }
 
-        size_t frame_size = fxbm_header.size - sizeof(uint32_t) * 2;
+        // Reject bad header (size underflow / oversize / dims not matching data) before allocating
+        if(fxbm_header.size < sizeof(uint32_t) * 2) break;
+        uint64_t frame_size_64 = (uint64_t)fxbm_header.size - sizeof(uint32_t) * 2;
+        if(frame_size_64 > 1024 || fxbm_header.width > 128 || fxbm_header.height > 64 ||
+           frame_size_64 < (uint64_t)((fxbm_header.width + 7) / 8) * fxbm_header.height) {
+            break;
+        }
+        size_t frame_size = (size_t)frame_size_64;
         fxbm = malloc(sizeof(FxbmIconWrapper) + frame_size);
         if(storage_file_read(file, fxbm->frame.uncompressed_data, frame_size) != frame_size) {
             free(fxbm);
@@ -92,7 +99,12 @@ static void js_gui_icon_load_fxbm(struct mjs* mjs) {
         JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "could not load .fxbm icon");
     }
 
-    JsGuiIconInst* js_icon = JS_GET_CONTEXT(mjs);
+    // RAW: the NULL case below must free fxbm before raising the error
+    JsGuiIconInst* js_icon = JS_GET_CONTEXT_RAW(mjs);
+    if(!js_icon) {
+        free(fxbm); // Don't leak the icon if the module context is gone
+        JS_ERROR_AND_RETURN(mjs, MJS_INTERNAL_ERROR, "icon module context missing");
+    }
     FxbmIconWrapperList_push_back(js_icon->fxbm_list, fxbm);
     mjs_return(mjs, mjs_mk_foreign(mjs, (void*)&fxbm->icon));
 }

@@ -389,6 +389,8 @@ RpcSession* rpc_session_open(Rpc* rpc, RpcOwner owner) {
     if(furi_hal_rtc_is_flag_set(FuriHalRtcFlagLock)) {
         if(owner == RpcOwnerUsb && !momentum_settings.allow_locked_rpc_usb) return NULL;
         if(owner == RpcOwnerBle && !momentum_settings.allow_locked_rpc_ble) return NULL;
+        // Expansion UART follows the USB setting: a wired client must not bypass the PIN lock
+        if(owner == RpcOwnerUart && !momentum_settings.allow_locked_rpc_usb) return NULL;
     }
 
     furi_check(rpc);

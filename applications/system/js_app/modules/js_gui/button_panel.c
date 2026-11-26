@@ -12,6 +12,7 @@ typedef struct {
     // occupied cells, fixed stride so it stays valid when matrixSizeX/Y change
     uint8_t occupied[JS_BTN_PANEL_MAX_MATRIX * JS_BTN_PANEL_MAX_MATRIX / 8];
     int32_t next_index;
+    bool has_children; // reserve() re-inits the label list, so it must not run over added children
     StrBuffer str_buffer;
 
     FuriMessageQueue* input_queue;
@@ -61,7 +62,18 @@ static void input_callback(void* ctx, int32_t index, InputType type) {
         .index = index,
         .input_type = type,
     };
-    furi_check(furi_message_queue_put(context->input_queue, &event, 0) == FuriStatusOk);
+    (void)furi_message_queue_put(context->input_queue, &event, 0); // drop on full instead of rebooting the device
+}
+
+static void js_button_panel_reset_children(ButtonPanel* panel, JsBtnPanelContext* context);
+
+static void js_button_panel_resize(ButtonPanel* panel, JsBtnPanelContext* context) {
+    if(context->has_children) {
+        // Drops existing children (script must re-add them) instead of leaking their label nodes
+        js_button_panel_reset_children(panel, context);
+    } else {
+        button_panel_reserve(panel, context->matrix_x, context->matrix_y);
+    }
 }
 
 static bool matrix_size_x_assign(
@@ -74,7 +86,7 @@ static bool matrix_size_x_assign(
         return false;
     }
     context->matrix_x = value.number;
-    button_panel_reserve(panel, context->matrix_x, context->matrix_y);
+    js_button_panel_resize(panel, context);
     return true;
 }
 
@@ -88,7 +100,7 @@ static bool matrix_size_y_assign(
         return false;
     }
     context->matrix_y = value.number;
-    button_panel_reserve(panel, context->matrix_x, context->matrix_y);
+    js_button_panel_resize(panel, context);
     return true;
 }
 
@@ -185,6 +197,7 @@ static bool js_button_panel_add_child(
             return false;
         }
         context->occupied[cell / 8] |= 1 << (cell % 8);
+        context->has_children = true;
         button_panel_add_item(
             panel,
             context->next_index++,
@@ -213,6 +226,7 @@ static bool js_button_panel_add_child(
         if(status != JsValueParseStatusOk) return false;
         button_panel_add_label(
             panel, x, y, font, str_buffer_make_owned_clone(&context->str_buffer, text));
+        context->has_children = true;
         break;
     }
 
@@ -227,6 +241,7 @@ static bool js_button_panel_add_child(
             &icon);
         if(status != JsValueParseStatusOk) return false;
         button_panel_add_icon(panel, x, y, icon);
+        context->has_children = true;
         break;
     }
     }
@@ -236,6 +251,7 @@ static bool js_button_panel_add_child(
 
 static void js_button_panel_reset_children(ButtonPanel* panel, JsBtnPanelContext* context) {
     context->next_index = 0;
+    context->has_children = false;
     memset(context->occupied, 0, sizeof(context->occupied));
     button_panel_reset(panel);
     button_panel_reserve(panel, context->matrix_x, context->matrix_y);
@@ -249,6 +265,7 @@ static JsBtnPanelContext* ctx_make(struct mjs* mjs, ButtonPanel* panel, mjs_val_
         .matrix_x = 1,
         .matrix_y = 1,
         .next_index = 0,
+        .has_children = false,
         .str_buffer = {0},
         .input_queue = furi_message_queue_alloc(1, sizeof(JsBtnPanelEvent)),
     };

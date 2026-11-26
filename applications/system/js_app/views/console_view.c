@@ -57,6 +57,27 @@ void console_view_push_line(JsConsoleView* console_view, const char* text, bool 
         true);
 }
 
+// Appends one char and wraps the line when full; returns true when the text must be trimmed
+static bool console_view_append(
+    JsConsoleView* console_view,
+    char* line_buf,
+    uint8_t* line_buf_cnt,
+    uint8_t* line_break_cnt,
+    char c) {
+    line_buf[(*line_buf_cnt)++] = c;
+    if(*line_buf_cnt >= LINE_LEN_MAX) {
+        (*line_break_cnt)++;
+        if(*line_break_cnt >= LINE_BREAKS_MAX) {
+            return true;
+        }
+        line_buf[*line_buf_cnt] = '\0';
+        console_view_push_line(console_view, line_buf, false);
+        *line_buf_cnt = 1;
+        line_buf[0] = ' ';
+    }
+    return false;
+}
+
 void console_view_print(JsConsoleView* console_view, const char* text) {
     char line_buf[LINE_LEN_MAX + 1];
     uint8_t line_buf_cnt = 0;
@@ -64,12 +85,19 @@ void console_view_print(JsConsoleView* console_view, const char* text) {
     uint8_t line_break_cnt = 0;
     bool line_trim = false;
 
-    for(size_t i = 0; i < strlen(text); i++) {
+    // strlen once, not per iteration (was O(n^2))
+    const size_t text_len = strlen(text);
+    for(size_t i = 0; i < text_len; i++) {
+        // every write goes through console_view_append so line_buf (26 bytes) can't overflow
         if(text[i] & 0x80) { // UTF8 or another non-ascii character byte
             if(utf8_bytes_left > 0) {
                 utf8_bytes_left--;
                 if(utf8_bytes_left == 0) {
-                    line_buf[line_buf_cnt++] = '?';
+                    if(console_view_append(
+                           console_view, line_buf, &line_buf_cnt, &line_break_cnt, '?')) {
+                        line_trim = true;
+                        break;
+                    }
                 }
             } else {
                 if((text[i] & 0xE0) == 0xC0) {
@@ -79,23 +107,20 @@ void console_view_print(JsConsoleView* console_view, const char* text) {
                 } else if((text[i] & 0xF8) == 0xF0) {
                     utf8_bytes_left = 3;
                 } else {
-                    line_buf[line_buf_cnt++] = '?';
+                    if(console_view_append(
+                           console_view, line_buf, &line_buf_cnt, &line_break_cnt, '?')) {
+                        line_trim = true;
+                        break;
+                    }
                 }
             }
         } else {
             if(utf8_bytes_left > 0) {
                 utf8_bytes_left = 0;
-                line_buf[line_buf_cnt++] = '?';
-                if(line_buf_cnt >= LINE_LEN_MAX) {
-                    line_break_cnt++;
-                    if(line_break_cnt >= LINE_BREAKS_MAX) {
-                        line_trim = true;
-                        break;
-                    }
-                    line_buf[line_buf_cnt] = '\0';
-                    console_view_push_line(console_view, line_buf, false);
-                    line_buf_cnt = 1;
-                    line_buf[0] = ' ';
+                if(console_view_append(
+                       console_view, line_buf, &line_buf_cnt, &line_break_cnt, '?')) {
+                    line_trim = true;
+                    break;
                 }
             }
 
@@ -104,19 +129,11 @@ void console_view_print(JsConsoleView* console_view, const char* text) {
                 line_buf_cnt = 0;
                 console_view_push_line(console_view, line_buf, false);
             } else {
-                line_buf[line_buf_cnt++] = text[i];
-            }
-
-            if(line_buf_cnt >= LINE_LEN_MAX) {
-                line_break_cnt++;
-                if(line_break_cnt >= LINE_BREAKS_MAX) {
+                if(console_view_append(
+                       console_view, line_buf, &line_buf_cnt, &line_break_cnt, text[i])) {
                     line_trim = true;
                     break;
                 }
-                line_buf[line_buf_cnt] = '\0';
-                console_view_push_line(console_view, line_buf, false);
-                line_buf_cnt = 1;
-                line_buf[0] = ' ';
             }
         }
     }

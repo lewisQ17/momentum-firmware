@@ -50,14 +50,21 @@ void js_send_protocol_signal(struct mjs* mjs) {
     InfraredMessage message;
     message.repeat = repeat;
     mjs_val_t protocol_arg = mjs_arg(mjs, 0);
-    message.protocol = infrared_get_protocol_by_name(mjs_get_cstring(mjs, &protocol_arg));
+    const char* protocol_name = mjs_get_cstring(mjs, &protocol_arg);
+    // Why: a string with an embedded NUL yields NULL, which the lookup would strcmp
+    if(!protocol_name) {
+        ret_bad_args(mjs, "Invalid protocol");
+        return;
+    }
+    message.protocol = infrared_get_protocol_by_name(protocol_name);
     // Why: infrared_send furi_checks a valid protocol and times > 0 (device reboot otherwise)
     if(message.protocol == InfraredProtocolUnknown) {
         ret_bad_args(mjs, "Unknown protocol");
         return;
     }
-    if(times < 1) {
-        ret_bad_args(mjs, "'times' must be >= 1");
+    // Why: infrared_send blocks uninterruptibly, so a huge 'times' would hang the app
+    if(times < 1 || times > 100) {
+        ret_bad_args(mjs, "'times' must be 1-100");
         return;
     }
     message.address = mjs_get_int(mjs, mjs_arg(mjs, 1));

@@ -16,7 +16,8 @@
 
 #define TAG "RpcStorage"
 
-#define MAX_NAME_LENGTH 254
+// FatFs _MAX_LFN is 255 (+ NUL): 254 truncated the longest names
+#define MAX_NAME_LENGTH 256
 
 static const size_t MAX_DATA_SIZE = 512;
 
@@ -31,6 +32,8 @@ typedef struct {
     File* file;
     RpcStorageState state;
     uint32_t current_command_id;
+    bool write_failed;
+    uint32_t failed_command_id;
 } RpcStorageSystem;
 
 static void rpc_system_storage_reset_state(
@@ -39,6 +42,9 @@ static void rpc_system_storage_reset_state(
     bool send_error) {
     furi_assert(rpc_storage);
     furi_assert(session);
+
+    // A new command ends any failed write; its queued chunks are no longer expected
+    if(send_error) rpc_storage->write_failed = false;
 
     if(rpc_storage->state != RpcStorageStateIdle) {
         if(send_error) {
@@ -251,7 +257,10 @@ static void rpc_system_storage_list_root(const PB_Main* request, void* context) 
     }
 
     // Expose /mnt as a root only when a device is actually mounted there.
-    if(storage_dir_exists(rpc_storage->api, STORAGE_MNT_PATH_PREFIX)) {
+    // (fs_info, not a stat: stat on the bare volume root always fails in FatFs)
+    uint64_t mnt_total, mnt_free;
+    if(storage_common_fs_info(rpc_storage->api, STORAGE_MNT_PATH_PREFIX, &mnt_total, &mnt_free) ==
+       FSE_OK) {
         uint32_t i = response.content.storage_list_response.file_count;
         if(i < COUNT_OF(response.content.storage_list_response.file)) {
             ++response.content.storage_list_response.file_count;
@@ -349,6 +358,8 @@ static void rpc_system_storage_list_process(const PB_Main* request, void* contex
                 list->file[i].size = fileinfo.size;
                 list->file[i].data = NULL;
                 list->file[i].name = name;
+                // Why: the response is reused across chunks and pb_release keeps static md5sum
+                list->file[i].md5sum[0] = '\0';
 
                 if(include_md5 && !file_info_is_dir(&fileinfo)) {
                     furi_string_printf(md5_path, "%s/%s", list_request->path, name); //-V576
@@ -408,13 +419,14 @@ static void rpc_system_storage_read_process(const PB_Main* request, void* contex
     bool fs_operation_success = storage_file_open(file, path, FSAM_READ, FSOM_OPEN_EXISTING);
 
     if(fs_operation_success) {
-        size_t size_left = storage_file_size(file);
+        // 64-bit: exFAT files over 4 GiB would otherwise be silently truncated
+        uint64_t size_left = storage_file_size(file);
         do {
             response->command_id = request->command_id;
             response->which_content = PB_Main_storage_read_response_tag;
             response->command_status = PB_CommandStatus_OK;
 
-            size_t read_size = MIN(size_left, MAX_DATA_SIZE);
+            size_t read_size = (size_t)MIN(size_left, (uint64_t)MAX_DATA_SIZE);
             if(read_size) {
                 response->content.storage_read_response.has_file = true;
                 response->content.storage_read_response.file.data =
@@ -472,11 +484,20 @@ static void rpc_system_storage_write_process(const PB_Main* request, void* conte
 
     bool fs_operation_success = true;
 
+    // Pipelined chunks of a write that already failed: error was sent, drop them silently
+    if(rpc_storage->write_failed && request->command_id == rpc_storage->failed_command_id) {
+        if(!request->has_next) rpc_storage->write_failed = false;
+        return;
+    }
+    rpc_storage->write_failed = false;
+
     if(!path_contains_only_ascii(request->content.storage_write_request.path)) {
         rpc_storage->current_command_id = request->command_id;
         rpc_send_and_release_empty(
             session, rpc_storage->current_command_id, PB_CommandStatus_ERROR_STORAGE_INVALID_NAME);
         rpc_system_storage_reset_state(rpc_storage, session, false);
+        rpc_storage->write_failed = request->has_next;
+        rpc_storage->failed_command_id = request->command_id;
         return;
     }
 
@@ -532,6 +553,8 @@ static void rpc_system_storage_write_process(const PB_Main* request, void* conte
         } else {
             rpc_send_and_release_empty(session, rpc_storage->current_command_id, command_status);
             rpc_system_storage_reset_state(rpc_storage, session, false);
+            rpc_storage->write_failed = request->has_next;
+            rpc_storage->failed_command_id = request->command_id;
         }
     }
 }
@@ -547,11 +570,9 @@ static bool rpc_system_storage_is_dir_is_empty(Storage* storage, const char* pat
         File* dir = storage_file_alloc(storage);
         if(storage_dir_open(dir, path)) {
             char* name = malloc(MAX_NAME_LENGTH);
-            while(storage_dir_read(dir, &fileinfo, name, MAX_NAME_LENGTH)) {
-                if(path_contains_only_ascii(name)) {
-                    is_dir_is_empty = false;
-                    break;
-                }
+            // Count any entry: hidden non-ASCII names still make the dir non-empty
+            if(storage_dir_read(dir, &fileinfo, name, MAX_NAME_LENGTH)) {
+                is_dir_is_empty = false;
             }
             free(name);
         }
@@ -819,6 +840,8 @@ void* rpc_system_storage_alloc(RpcSession* session) {
     rpc_storage->api = furi_record_open(RECORD_STORAGE);
     rpc_storage->session = session;
     rpc_storage->state = RpcStorageStateIdle;
+    rpc_storage->write_failed = false;
+    rpc_storage->failed_command_id = 0;
 
     RpcHandler rpc_handler = {
         .message_handler = NULL,

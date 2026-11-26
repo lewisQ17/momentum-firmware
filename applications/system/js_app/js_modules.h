@@ -24,9 +24,26 @@ extern "C" {
  */
 #define JS_GET_INST(mjs, obj) mjs_get_ptr(mjs, mjs_get(mjs, obj, INST_PROP_NAME, ~0))
 /**
- * @brief Returns the foreign pointer in `this["_"]`
+ * @brief Returns the foreign pointer in `this["_"]`, without any NULL handling
  */
-#define JS_GET_CONTEXT(mjs)   JS_GET_INST(mjs, mjs_get_this(mjs))
+#define JS_GET_CONTEXT_RAW(mjs) JS_GET_INST(mjs, mjs_get_this(mjs))
+/**
+ * @brief Returns the non-NULL foreign pointer in `this["_"]`
+ * @warning If `this` has no context (e.g. a method called detached from its
+ * object), this raises a JS error and executes `return;` from the calling
+ * C function by design (like `JS_ERROR_AND_RETURN`), so it is only usable in
+ * functions returning `void`. Use `JS_GET_CONTEXT_RAW` to handle NULL yourself.
+ */
+#define JS_GET_CONTEXT(mjs)                                                         \
+    ({                                                                              \
+        void* _js_ctx = JS_GET_CONTEXT_RAW(mjs);                                    \
+        if(!_js_ctx) {                                                              \
+            mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "method called on wrong object"); \
+            mjs_return(mjs, MJS_UNDEFINED);                                         \
+            return;                                                                 \
+        }                                                                           \
+        _js_ctx;                                                                    \
+    })
 
 /**
  * @brief Syntax sugar for constructing an object

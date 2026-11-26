@@ -132,7 +132,8 @@ static void js_event_loop_subscription_cancel(struct mjs* mjs) {
     subscription->cancelled = true;
     subscription->context->cancelled = true;
 
-    furi_event_loop_unsubscribe(subscription->loop, subscription->object);
+    // maybe_: gc() may already have freed the view and dropped its subscription
+    furi_event_loop_maybe_unsubscribe(subscription->loop, subscription->object);
 
     // Don't free the context here: cancel() may be called from inside the subscribed callback,
     // which still uses it after returning. js_event_loop_destroy frees it, like for timers.
@@ -301,6 +302,11 @@ static void js_event_loop_timer(struct mjs* mjs) {
     FuriEventLoopTimerType mode;
     int32_t interval;
     JS_VALUE_PARSE_ARGS_OR_RETURN(mjs, &js_loop_timer_args, &mode, &interval);
+
+    // Why: interval 0 divides by zero in the event loop and spins; negative wraps to ~49 days
+    if(interval < 1) {
+        JS_ERROR_AND_RETURN(mjs, MJS_BAD_ARGS_ERROR, "timer interval must be >= 1 ms");
+    }
 
     JsEventLoop* module = JS_GET_CONTEXT(mjs);
 
@@ -482,6 +488,11 @@ static void js_event_loop_destroy(void* inst) {
                 break;
             case JsEventLoopObjectTypeQueue:
                 furi_event_loop_maybe_unsubscribe(module->loop, contract->object);
+                // free still-queued message cells (mjs is already destroyed, so no mjs_disown)
+                mjs_val_t* cell;
+                while(furi_message_queue_get(contract->object, &cell, 0) == FuriStatusOk) {
+                    free(cell);
+                }
                 furi_message_queue_free(contract->object);
                 break;
             default:

@@ -48,7 +48,14 @@ static void mjs_load(struct mjs* mjs) {
         /* mjs_get_cstring() points into the owned_strings mbuf, which the
          * mjs_mk_string() calls below (and executing the file) may realloc, so
          * work on a private copy. */
-        char* path = strdup(mjs_get_cstring(mjs, &arg0));
+        const char* path_cs = mjs_get_cstring(mjs, &arg0);
+        if(path_cs == NULL) {
+            /* embedded NUL / unterminated string: strdup(NULL) would crash */
+            mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "invalid path");
+            mjs_return(mjs, MJS_UNDEFINED);
+            return;
+        }
+        char* path = strdup(path_cs);
         struct mjs_bcode_part* bp = NULL;
         mjs_err_t ret;
 

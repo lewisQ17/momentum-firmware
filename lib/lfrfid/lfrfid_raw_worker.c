@@ -173,9 +173,12 @@ static int32_t lfrfid_raw_read_worker_thread(void* thread_context) {
             Buffer* buffer = buffer_stream_receive(data->stream, 100);
 
             // size 0 must never reach lfrfid_raw_file_write_buffer (furi_check(buffer_size))
-            if(buffer != NULL && buffer_get_size(buffer) > 0) {
-                file_valid = lfrfid_raw_file_write_buffer(
-                    file, buffer_get_data(buffer), buffer_get_size(buffer));
+            if(buffer != NULL) {
+                if(buffer_get_size(buffer) > 0) {
+                    file_valid = lfrfid_raw_file_write_buffer(
+                        file, buffer_get_data(buffer), buffer_get_size(buffer));
+                }
+                // always return the buffer to the pool, else a size-0 buffer is lost for good
                 buffer_reset(buffer);
             }
 

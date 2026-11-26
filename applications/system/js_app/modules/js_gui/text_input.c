@@ -65,6 +65,8 @@ static bool max_len_assign(
     }
     context->buffer_size = new_buffer_size;
     context->buffer = realloc(context->buffer, context->buffer_size); //-V701
+    // Shrinking can cut off the terminator; later strlen/mjs_mk_string would read past the buffer
+    context->buffer[context->buffer_size - 1] = '\0';
     text_input_set_result_callback(
         input,
         (TextInputCallback)input_callback,

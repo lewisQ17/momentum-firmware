@@ -1,3 +1,4 @@
+#include <string.h>
 #include <core/log.h>
 #include <core/record.h>
 #include "storage.h"
@@ -7,8 +8,10 @@
 #include <toolbox/dir_walk.h>
 #include "toolbox/path.h"
 
-#define MAX_NAME_LENGTH  254
+#define MAX_NAME_LENGTH  256
 #define FILE_BUFFER_SIZE 512
+// Cap on waiting for a path another thread holds open (RPC handlers run under a global lock)
+#define STORAGE_OPEN_WAIT_MS 5000
 
 #define TAG "StorageApi"
 
@@ -99,12 +102,16 @@ bool storage_file_open(
     FuriPubSubSubscription* subscription = furi_pubsub_subscribe(
         storage_get_pubsub(file->storage), storage_file_close_callback, event);
 
+    const uint32_t deadline = furi_get_tick() + furi_ms_to_ticks(STORAGE_OPEN_WAIT_MS);
+
     do {
         result = storage_file_open_internal(file, path, access_mode, open_mode);
 
         if(!result && file->error_id == FSE_ALREADY_OPEN) {
-            furi_event_flag_wait(
-                event, StorageEventFlagFileClose, FuriFlagWaitAny, FuriWaitForever);
+            // Signed diff survives tick wrap; budget spent -> fail with FSE_ALREADY_OPEN
+            const int32_t left = (int32_t)(deadline - furi_get_tick());
+            if(left <= 0) break;
+            furi_event_flag_wait(event, StorageEventFlagFileClose, FuriFlagWaitAny, (uint32_t)left);
         } else {
             break;
         }
@@ -359,12 +366,16 @@ bool storage_dir_open(File* file, const char* path) {
     FuriPubSubSubscription* subscription = furi_pubsub_subscribe(
         storage_get_pubsub(file->storage), storage_file_close_callback, event);
 
+    const uint32_t deadline = furi_get_tick() + furi_ms_to_ticks(STORAGE_OPEN_WAIT_MS);
+
     do {
         result = storage_dir_open_internal(file, path);
 
         if(!result && file->error_id == FSE_ALREADY_OPEN) {
-            furi_event_flag_wait(
-                event, StorageEventFlagFileClose, FuriFlagWaitAny, FuriWaitForever);
+            // Signed diff survives tick wrap; budget spent -> fail with FSE_ALREADY_OPEN
+            const int32_t left = (int32_t)(deadline - furi_get_tick());
+            if(left <= 0) break;
+            furi_event_flag_wait(event, StorageEventFlagFileClose, FuriFlagWaitAny, (uint32_t)left);
         } else {
             break;
         }
@@ -489,9 +500,46 @@ FS_Error storage_common_remove(Storage* storage, const char* path) {
     return S_RETURN_ERROR;
 }
 
+static FS_Error storage_rename_raw(Storage* storage, const char* old_path, const char* new_path) {
+    S_API_PROLOGUE;
+    SAData data = {
+        .rename = {
+            .old = old_path,
+            .new = new_path,
+            .thread_id = furi_thread_get_current_id(),
+        }};
+
+    S_API_MESSAGE(StorageCommandCommonRename);
+    S_API_EPILOGUE;
+    return S_RETURN_ERROR;
+}
+
+// Spelling-independent form for same-file checks: collapse "//" and map deprecated /any to /ext
+static void storage_rename_normalize_path(FuriString* path) {
+    while(furi_string_search(path, "//") != FURI_STRING_FAILURE) {
+        furi_string_replace(path, "//", "/");
+    }
+    const char* cstr = furi_string_get_cstr(path);
+    if(strncmp(cstr, STORAGE_ANY_PATH_PREFIX, strlen(STORAGE_ANY_PATH_PREFIX)) == 0 &&
+       (cstr[strlen(STORAGE_ANY_PATH_PREFIX)] == '/' ||
+        cstr[strlen(STORAGE_ANY_PATH_PREFIX)] == '\0')) {
+        furi_string_replace_at(
+            path, 0, strlen(STORAGE_ANY_PATH_PREFIX), STORAGE_EXT_PATH_PREFIX);
+    }
+}
+
 FS_Error storage_common_rename(Storage* storage, const char* old_path, const char* new_path) {
     furi_check(storage);
     FS_Error error;
+    FuriString* norm_old = furi_string_alloc_set(old_path);
+    FuriString* norm_new = furi_string_alloc_set(new_path);
+    FuriString* backup = NULL;
+    bool parked = false;
+    bool copy_attempted = false;
+    storage_rename_normalize_path(norm_old);
+    storage_rename_normalize_path(norm_new);
+    const char* old_norm = furi_string_get_cstr(norm_old);
+    const char* new_norm = furi_string_get_cstr(norm_new);
 
     do {
         if(!storage_common_exists(storage, old_path)) {
@@ -507,45 +555,71 @@ FS_Error storage_common_rename(Storage* storage, const char* old_path, const cha
             }
 
             // Cannot rename a directory to itself or to a nested directory
-            if(storage_common_is_subdir(storage, old_path, new_path)) {
+            if(storage_common_is_subdir(storage, old_norm, new_norm)) {
                 error = FSE_INVALID_NAME;
                 break;
             }
 
             // Renaming a regular file to itself does nothing and always succeeds
-        } else if(storage_common_equivalent_path(storage, old_path, new_path)) {
+        } else if(storage_common_equivalent_path(storage, old_norm, new_norm)) {
             error = FSE_OK;
             break;
         }
 
+        // Park an existing destination under a temp name instead of deleting it up front,
+        // so a failed rename can put it back
         if(storage_file_exists(storage, new_path)) {
-            storage_common_remove(storage, new_path);
+            backup = furi_string_alloc();
+            bool found = false;
+            for(unsigned i = 0; i < 10; i++) {
+                furi_string_printf(backup, "%s.old%u~", new_path, i);
+                if(!storage_common_exists(storage, furi_string_get_cstr(backup))) {
+                    found = true;
+                    break;
+                }
+            }
+            if(!found) {
+                error = FSE_EXIST;
+                break;
+            }
+            error = storage_rename_raw(storage, new_path, furi_string_get_cstr(backup));
+            if(error != FSE_OK) break;
+            parked = true;
         }
 
-        S_API_PROLOGUE;
-        SAData data = {
-            .rename = {
-                .old = old_path,
-                .new = new_path,
-                .thread_id = furi_thread_get_current_id(),
-            }};
-
-        S_API_MESSAGE(StorageCommandCommonRename);
-        S_API_EPILOGUE;
-        error = S_RETURN_ERROR;
+        error = storage_rename_raw(storage, old_path, new_path);
+        bool moved = (error == FSE_OK);
 
         if(error == FSE_NOT_IMPLEMENTED) {
             // Different filesystems, use copy + remove
+            copy_attempted = true;
             error = storage_common_copy(storage, old_path, new_path);
             if(error != FSE_OK) {
                 break;
             }
+            moved = true;
 
             if(!storage_simply_remove_recursive(storage, old_path)) {
                 error = FSE_INTERNAL;
             }
         }
+
+        if(parked && moved) {
+            storage_common_remove(storage, furi_string_get_cstr(backup));
+            parked = false;
+        }
     } while(false);
+
+    if(parked) {
+        // New file never landed: drop any partial copy and put the old destination back
+        if(copy_attempted && storage_common_exists(storage, new_path)) {
+            storage_common_remove(storage, new_path);
+        }
+        storage_rename_raw(storage, furi_string_get_cstr(backup), new_path);
+    }
+    if(backup) furi_string_free(backup);
+    furi_string_free(norm_old);
+    furi_string_free(norm_new);
 
     return error;
 }

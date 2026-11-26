@@ -29,7 +29,7 @@ static mjs_val_t
 }
 
 static void input_callback(DialogExResult result, JsDialogCtx* context) {
-    furi_check(furi_message_queue_put(context->queue, &result, 0) == FuriStatusOk);
+    (void)furi_message_queue_put(context->queue, &result, 0); // drop on full instead of rebooting the device
 }
 
 static bool

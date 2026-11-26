@@ -13,6 +13,11 @@
 #define MJS_ARRAY_BUF_RESERVE 100
 #endif
 
+/* Cap on a single buffer so size arithmetic below cannot wrap */
+#ifndef MJS_ARRAY_BUF_MAX
+#define MJS_ARRAY_BUF_MAX (128 * 1024)
+#endif
+
 #define IS_SIGNED(type) \
     (type == MJS_DATAVIEW_I8 || type == MJS_DATAVIEW_I16 || type == MJS_DATAVIEW_I32)
 
@@ -37,6 +42,10 @@ char* mjs_array_buf_get_ptr(struct mjs* mjs, mjs_val_t buf, size_t* bytelen) {
     uint64_t len = 0;
     size_t header_len = 0;
     if(offset < m->len && cs_varint_decode((uint8_t*)ptr, m->len - offset, &len, &header_len)) {
+        /* a header claiming more than the mbuf holds is corrupt */
+        if(len > m->len - offset - header_len) {
+            return NULL;
+        }
         if(bytelen) {
             *bytelen = len;
         }
@@ -125,7 +134,8 @@ static mjs_val_t mjs_dataview_get(struct mjs* mjs, mjs_val_t obj, size_t index) 
     size_t byte_len = 0;
     char* buf = mjs_array_buf_get_ptr(mjs, buf_obj, &byte_len);
     mjs_dataview_type_t type = mjs_get_int(mjs, mjs_get(mjs, obj, "_t", -1));
-    if((mjs_dataview_get_element_len(type) * (index + 1)) > byte_len) {
+    /* index >= count form cannot wrap; also reject a missing buffer */
+    if(buf == NULL || index >= byte_len / mjs_dataview_get_element_len(type)) {
         return MJS_UNDEFINED;
     }
 
@@ -141,7 +151,8 @@ static mjs_err_t mjs_dataview_set(struct mjs* mjs, mjs_val_t obj, size_t index, 
     size_t byte_len = 0;
     char* buf = mjs_array_buf_get_ptr(mjs, buf_obj, &byte_len);
     mjs_dataview_type_t type = mjs_get_int(mjs, mjs_get(mjs, obj, "_t", -1));
-    if((mjs_dataview_get_element_len(type) * (index + 1)) > byte_len) {
+    /* index >= count form cannot wrap; also reject a missing buffer */
+    if(buf == NULL || index >= byte_len / mjs_dataview_get_element_len(type)) {
         return MJS_TYPE_ERROR;
     }
 
@@ -155,15 +166,24 @@ mjs_val_t mjs_dataview_get_prop(struct mjs* mjs, mjs_val_t obj, mjs_val_t key) {
     if(!mjs_is_number(key)) {
         return MJS_UNDEFINED;
     }
-    int index = mjs_get_int(mjs, key);
-    return mjs_dataview_get(mjs, obj, index);
+    /* mjs_get_int wraps 2^32-1 to -1 (SIZE_MAX); reject anything not a valid index */
+    double index_d = mjs_get_double(mjs, key);
+    if(!(index_d >= 0 && index_d < (double)4294967296.0 && index_d == (double)(uint32_t)index_d)) {
+        return MJS_UNDEFINED;
+    }
+    return mjs_dataview_get(mjs, obj, (size_t)index_d);
 }
 
 mjs_err_t mjs_dataview_set_prop(struct mjs* mjs, mjs_val_t obj, mjs_val_t key, mjs_val_t val) {
     if(!mjs_is_number(key)) {
         return MJS_TYPE_ERROR;
     }
-    int index = mjs_get_int(mjs, key);
+    /* mjs_get_int wraps 2^32-1 to -1 (SIZE_MAX); reject anything not a valid index */
+    double index_d = mjs_get_double(mjs, key);
+    if(!(index_d >= 0 && index_d < (double)4294967296.0 && index_d == (double)(uint32_t)index_d)) {
+        return MJS_TYPE_ERROR;
+    }
+    size_t index = (size_t)index_d;
     int64_t value = 0;
 
     if(mjs_is_number(val)) {
@@ -190,6 +210,11 @@ mjs_val_t mjs_dataview_get_len(struct mjs* mjs, mjs_val_t obj) {
 mjs_val_t mjs_mk_array_buf(struct mjs* mjs, char* data, size_t buf_len) {
     struct mbuf* m = &mjs->array_buffers;
 
+    /* reject sizes that would wrap the length arithmetic below */
+    if(buf_len > MJS_ARRAY_BUF_MAX) {
+        return MJS_UNDEFINED;
+    }
+
     if((m->len + buf_len) > m->size) {
         char* prev_buf = m->buf;
         mbuf_resize(m, m->len + buf_len + MJS_ARRAY_BUF_RESERVE);
@@ -203,7 +228,9 @@ mjs_val_t mjs_mk_array_buf(struct mjs* mjs, char* data, size_t buf_len) {
     char* prev_buf = m->buf;
 
     size_t header_len = cs_varint_llen(buf_len);
-    mbuf_insert(m, offset, NULL, header_len + buf_len);
+    if(mbuf_insert(m, offset, NULL, header_len + buf_len) != header_len + buf_len) {
+        return MJS_UNDEFINED;
+    }
     if(data >= prev_buf && data < (prev_buf + m->len)) {
         data += m->buf - prev_buf;
     }
@@ -306,11 +333,20 @@ static mjs_val_t
     }
 
     size_t element_len = mjs_dataview_get_element_len(type);
-    mjs_val_t buf_obj = mjs_mk_array_buf(mjs, NULL, element_len * elements_nb);
+    size_t total_len = 0;
+    if(__builtin_mul_overflow(element_len, elements_nb, &total_len)) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "Array too large");
+        return MJS_UNDEFINED;
+    }
+    mjs_val_t buf_obj = mjs_mk_array_buf(mjs, NULL, total_len);
+    if(!mjs_is_array_buf(buf_obj)) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "Array too large");
+        return MJS_UNDEFINED;
+    }
 
     if(mjs_is_array(arr)) {
         char* buf_ptr = mjs_array_buf_get_ptr(mjs, buf_obj, NULL);
-        for(uint8_t i = 0; i < elements_nb; i++) {
+        for(size_t i = 0; i < elements_nb; i++) {
             int64_t value = mjs_get_double(mjs, mjs_array_get(mjs, arr, i));
             set_value(buf_ptr, value, type);
             buf_ptr += element_len;
@@ -326,8 +362,16 @@ static void mjs_array_buf_new(struct mjs* mjs) {
     if(!mjs_is_number(len_arg)) {
         mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "");
     } else {
-        int len = mjs_get_int(mjs, len_arg);
-        buf_obj = mjs_mk_array_buf(mjs, NULL, len);
+        /* (int) cast of a >=2^31 length wraps negative, so go via uint32 */
+        double len_d = mjs_get_double(mjs, len_arg);
+        if(!(len_d >= 0 && len_d <= (double)MJS_ARRAY_BUF_MAX)) {
+            mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "Invalid length");
+        } else {
+            buf_obj = mjs_mk_array_buf(mjs, NULL, (size_t)len_d);
+            if(!mjs_is_array_buf(buf_obj)) {
+                mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "Invalid length");
+            }
+        }
     }
     mjs_return(mjs, buf_obj);
 }
@@ -339,8 +383,12 @@ static void mjs_dataview_new(struct mjs* mjs, mjs_dataview_type_t type) {
     if(mjs_is_array_buf(view_arg)) { // Create a view of existing ArrayBuf
         view_obj = mjs_mk_dataview_from_buf(mjs, view_arg, type);
     } else if(mjs_is_number(view_arg)) { // Create new typed array
-        int len = mjs_get_int(mjs, view_arg);
-        view_obj = mjs_mk_dataview(mjs, len, MJS_UNDEFINED, type);
+        double len_d = mjs_get_double(mjs, view_arg);
+        if(!(len_d >= 0 && len_d <= (double)MJS_ARRAY_BUF_MAX)) {
+            mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "Invalid length");
+        } else {
+            view_obj = mjs_mk_dataview(mjs, (size_t)len_d, MJS_UNDEFINED, type);
+        }
     } else if(mjs_is_array(view_arg)) { // Create new typed array from array
         view_obj = mjs_mk_dataview(mjs, 0, view_arg, type);
     } else {

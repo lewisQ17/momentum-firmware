@@ -92,13 +92,19 @@ static void rpc_system_app_start_process(const PB_Main* request, void* context) 
         char app_args_temp[RPC_SYSTEM_APP_TEMP_ARGS_SIZE];
         const char* app_args = request->content.app_start_request.args;
 
+        bool args_forged = false;
         if(app_args && strcmp(app_args, "RPC") == 0) {
             // If app is being started in RPC mode - pass RPC context via args string
             snprintf(app_args_temp, RPC_SYSTEM_APP_TEMP_ARGS_SIZE, "RPC %08lX", (uint32_t)rpc_app);
             app_args = app_args_temp;
+        } else if(app_args && strncmp(app_args, "RPC", 3) == 0) {
+            // Apps parse "RPC <hex>" as a pointer: a client must never supply it
+            args_forged = true;
         }
 
-        const LoaderStatus status = loader_start(loader, app_name, app_args, NULL);
+        const LoaderStatus status = args_forged ?
+                                        LoaderStatusErrorUnknownApp :
+                                        loader_start(loader, app_name, app_args, NULL);
         if(status == LoaderStatusErrorAppStarted) {
             result = PB_CommandStatus_ERROR_APP_SYSTEM_LOCKED;
         } else if(status == LoaderStatusErrorInternal) {
@@ -157,7 +163,10 @@ static void rpc_system_app_exit_request(const PB_Main* request, void* context) {
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    if(rpc_app->callback) {
+    // Snapshot once: the app thread may clear the callback concurrently on exit
+    RpcAppSystemCallback callback = rpc_app->callback;
+    void* callback_context = rpc_app->callback_context;
+    if(callback) {
         FURI_LOG_D(TAG, "ExitRequest: id %lu", request->command_id);
 
         const RpcAppSystemEvent event = {
@@ -174,7 +183,7 @@ static void rpc_system_app_exit_request(const PB_Main* request, void* context) {
         }
         rpc_system_app_error_reset(rpc_app);
 
-        rpc_app->callback(&event, rpc_app->callback_context);
+        callback(&event, callback_context);
 
     } else {
         rpc_system_app_send_error_response(
@@ -189,7 +198,10 @@ static void rpc_system_app_load_file(const PB_Main* request, void* context) {
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    if(rpc_app->callback) {
+    // Snapshot once: the app thread may clear the callback concurrently on exit
+    RpcAppSystemCallback callback = rpc_app->callback;
+    void* callback_context = rpc_app->callback_context;
+    if(callback) {
         FURI_LOG_D(TAG, "LoadFile: id %lu", request->command_id);
 
         const RpcAppSystemEvent event = {
@@ -206,7 +218,7 @@ static void rpc_system_app_load_file(const PB_Main* request, void* context) {
         }
         rpc_system_app_error_reset(rpc_app);
 
-        rpc_app->callback(&event, rpc_app->callback_context);
+        callback(&event, callback_context);
 
     } else {
         rpc_system_app_send_error_response(
@@ -221,7 +233,10 @@ static void rpc_system_app_button_press(const PB_Main* request, void* context) {
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    if(rpc_app->callback) {
+    // Snapshot once: the app thread may clear the callback concurrently on exit
+    RpcAppSystemCallback callback = rpc_app->callback;
+    void* callback_context = rpc_app->callback_context;
+    if(callback) {
         FURI_LOG_D(TAG, "ButtonPress");
 
         RpcAppSystemEvent event;
@@ -240,7 +255,7 @@ static void rpc_system_app_button_press(const PB_Main* request, void* context) {
         }
         rpc_system_app_error_reset(rpc_app);
 
-        rpc_app->callback(&event, rpc_app->callback_context);
+        callback(&event, callback_context);
 
     } else {
         rpc_system_app_send_error_response(
@@ -255,7 +270,10 @@ static void rpc_system_app_button_release(const PB_Main* request, void* context)
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    if(rpc_app->callback) {
+    // Snapshot once: the app thread may clear the callback concurrently on exit
+    RpcAppSystemCallback callback = rpc_app->callback;
+    void* callback_context = rpc_app->callback_context;
+    if(callback) {
         FURI_LOG_D(TAG, "ButtonRelease");
 
         const RpcAppSystemEvent event = {
@@ -273,7 +291,7 @@ static void rpc_system_app_button_release(const PB_Main* request, void* context)
         }
         rpc_system_app_error_reset(rpc_app);
 
-        rpc_app->callback(&event, rpc_app->callback_context);
+        callback(&event, callback_context);
 
     } else {
         rpc_system_app_send_error_response(
@@ -288,7 +306,10 @@ static void rpc_system_app_button_press_release(const PB_Main* request, void* co
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    if(rpc_app->callback) {
+    // Snapshot once: the app thread may clear the callback concurrently on exit
+    RpcAppSystemCallback callback = rpc_app->callback;
+    void* callback_context = rpc_app->callback_context;
+    if(callback) {
         FURI_LOG_D(TAG, "ButtonPressRelease");
 
         RpcAppSystemEvent event;
@@ -308,7 +329,7 @@ static void rpc_system_app_button_press_release(const PB_Main* request, void* co
         }
         rpc_system_app_error_reset(rpc_app);
 
-        rpc_app->callback(&event, rpc_app->callback_context);
+        callback(&event, callback_context);
 
     } else {
         rpc_system_app_send_error_response(
@@ -346,7 +367,10 @@ static void rpc_system_app_data_exchange_process(const PB_Main* request, void* c
     RpcAppSystem* rpc_app = context;
     furi_assert(rpc_app);
 
-    if(rpc_app->callback) {
+    // Snapshot once: the app thread may clear the callback concurrently on exit
+    RpcAppSystemCallback callback = rpc_app->callback;
+    void* callback_context = rpc_app->callback_context;
+    if(callback) {
         FURI_LOG_D(TAG, "DataExchange");
 
         const pb_bytes_array_t* data = request->content.app_data_exchange_request.data;
@@ -369,7 +393,7 @@ static void rpc_system_app_data_exchange_process(const PB_Main* request, void* c
         }
         rpc_system_app_error_reset(rpc_app);
 
-        rpc_app->callback(&event, rpc_app->callback_context);
+        callback(&event, callback_context);
     } else {
         rpc_system_app_send_error_response(
             rpc_app, request->command_id, PB_CommandStatus_ERROR_APP_NOT_RUNNING, "DataExchange");
@@ -420,7 +444,8 @@ void rpc_system_app_set_callback(RpcAppSystem* rpc_app, RpcAppSystemCallback cal
     rpc_app->last_event_type = RpcAppEventTypeInvalid;
 
     // callback last: rpc_system_app_free() frees us as soon as it reads NULL
-    rpc_app->callback_context = ctx;
+    // keep ctx when clearing: handlers snapshot callback+ctx and must not see NULL ctx
+    if(callback) rpc_app->callback_context = ctx;
     rpc_app->callback = callback;
 }
 

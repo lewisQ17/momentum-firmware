@@ -8,14 +8,14 @@
 
 #define TAG "TarArch"
 
-#define MAX_NAME_LEN    254
+#define MAX_NAME_LEN    256
 #define FILE_BLOCK_SIZE (10 * 1024)
 
 #define FILE_OPEN_NTRIES      10
 #define FILE_OPEN_RETRY_DELAY 25
 
 TarOpenMode tar_archive_get_mode_for_path(const char* path) {
-    char ext[8];
+    char ext[8] = {0}; // path_extract_extension leaves it untouched without an extension
 
     FuriString* path_str = furi_string_alloc_set_str(path);
     path_extract_extension(path_str, ext, sizeof(ext));
@@ -381,6 +381,10 @@ static bool archive_extract_current_file(TarArchive* archive, const char* dst_pa
             }
         }
     } while(false);
+    // Why: the final flush happens on close, so a failed close is a truncated last file
+    if(storage_file_is_open(out_file) && !storage_file_close(out_file)) {
+        success = false;
+    }
     storage_file_free(out_file);
     free(readbuf);
 
@@ -425,6 +429,67 @@ static bool tar_archive_entry_name_is_safe(const char* name) {
     return safe;
 }
 
+// Drop "." components ("./a", "a/./b", "./"): FatFs (no RPATH) rejects them, so such entries
+// fail today. Names without a "." component are left untouched.
+static void tar_archive_entry_name_drop_dots(FuriString* name) {
+    const char* src = furi_string_get_cstr(name);
+    bool has_dot = false;
+    for(const char* p = src; *p; p++) {
+        if(*p == '.' && (p == src || p[-1] == '/') && (p[1] == '/' || p[1] == '\0')) {
+            has_dot = true;
+            break;
+        }
+    }
+    if(!has_dot) return;
+
+    FuriString* out = furi_string_alloc();
+    bool first = true;
+    const char* p = src;
+    while(true) {
+        const char* end = strchr(p, '/');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        if(!(len == 1 && p[0] == '.')) {
+            if(!first) furi_string_push_back(out, '/');
+            for(size_t i = 0; i < len; i++) {
+                furi_string_push_back(out, p[i]);
+            }
+            first = false;
+        }
+        if(!end) break;
+        p = end + 1;
+    }
+    furi_string_set(name, out);
+    furi_string_free(out);
+}
+
+// Create the missing parent directories of an extracted file. Only runs when the parent is
+// absent, i.e. when the open below would fail anyway; errors are left for the open to report.
+static void
+    tar_archive_make_parents(TarArchive* archive, const char* work_dir, const char* full_path) {
+    FuriString* base = furi_string_alloc();
+    path_concat(work_dir, "", base); // "<work_dir>/"
+    const size_t base_len = furi_string_size(base) - 1;
+    furi_string_free(base);
+
+    const char* last_slash = strrchr(full_path, '/');
+    if(!last_slash || (size_t)(last_slash - full_path) < base_len) return;
+    const size_t parent_len = (size_t)(last_slash - full_path);
+
+    FuriString* dir = furi_string_alloc_set(full_path);
+    furi_string_left(dir, parent_len);
+    if(storage_common_stat(archive->storage, furi_string_get_cstr(dir), NULL) != FSE_OK) {
+        storage_simply_mkdir(archive->storage, work_dir);
+        for(size_t pos = base_len + 1; pos <= parent_len; pos++) {
+            if(pos == parent_len || full_path[pos] == '/') {
+                furi_string_set(dir, full_path);
+                furi_string_left(dir, pos);
+                storage_simply_mkdir(archive->storage, furi_string_get_cstr(dir));
+            }
+        }
+    }
+    furi_string_free(dir);
+}
+
 static int archive_extract_foreach_cb(mtar_t* tar, const mtar_header_t* header, void* param) {
     UNUSED(tar);
     TarArchiveDirectoryOpParams* op_params = param;
@@ -435,59 +500,83 @@ static int archive_extract_foreach_cb(mtar_t* tar, const mtar_header_t* header, 
         return 0;
     }
 
-    bool skip_entry = false;
-    if(archive->unpack_cb) {
-        skip_entry = !archive->unpack_cb(
-            header->name, header->type == MTAR_TDIR, archive->unpack_cb_context);
-    }
+    // "./x" style names (tar -C dir .) become "x"; other names are unchanged
+    FuriString* entry_name = furi_string_alloc_set(header->name);
+    tar_archive_entry_name_drop_dots(entry_name);
+    const char* name = furi_string_get_cstr(entry_name);
+    int result = 0;
 
-    if(skip_entry) {
-        FURI_LOG_W(TAG, "filter: skipping entry \"%s\"", header->name);
-        return 0;
-    }
+    do {
+        if(!tar_archive_entry_name_is_safe(name)) {
+            FURI_LOG_W(TAG, "unsafe path: skipping entry \"%s\"", header->name);
+            break;
+        }
 
-    FuriString* full_extracted_fname;
-    if(header->type == MTAR_TDIR) {
-        // Skip "/" entry since concat would leave it dangling, also want caller to mkdir destination
-        if(strcmp(header->name, "/") == 0) {
-            return 0;
+        // The "./" root entry only: nothing to create (a truly empty name keeps old behaviour)
+        if(header->type == MTAR_TDIR && name[0] == '\0' && header->name[0] != '\0') break;
+
+        bool skip_entry = false;
+        if(archive->unpack_cb) {
+            skip_entry =
+                !archive->unpack_cb(name, header->type == MTAR_TDIR, archive->unpack_cb_context);
+        }
+
+        if(skip_entry) {
+            FURI_LOG_W(TAG, "filter: skipping entry \"%s\"", header->name);
+            break;
+        }
+
+        FuriString* full_extracted_fname;
+        if(header->type == MTAR_TDIR) {
+            // Skip "/" entry since concat would leave it dangling, also want caller to mkdir destination
+            if(strcmp(name, "/") == 0) {
+                break;
+            }
+
+            full_extracted_fname = furi_string_alloc();
+            path_concat(op_params->work_dir, name, full_extracted_fname);
+
+            bool create_res =
+                storage_simply_mkdir(archive->storage, furi_string_get_cstr(full_extracted_fname));
+            furi_string_free(full_extracted_fname);
+            result = create_res ? 0 : -1;
+            break;
+        }
+
+        if(header->type != MTAR_TREG) {
+            FURI_LOG_W(TAG, "not extracting unsupported type \"%s\"", header->name);
+            break;
+        }
+
+        FURI_LOG_D(TAG, "Extracting %u bytes to '%s'", header->size, header->name);
+
+        FuriString* converted_fname = furi_string_alloc_set(name);
+        if(op_params->converter) {
+            op_params->converter(converted_fname);
+        }
+        if(!tar_archive_entry_name_is_safe(furi_string_get_cstr(converted_fname))) {
+            FURI_LOG_W(TAG, "unsafe path: skipping entry \"%s\"", header->name);
+            furi_string_free(converted_fname);
+            break;
         }
 
         full_extracted_fname = furi_string_alloc();
-        path_concat(op_params->work_dir, header->name, full_extracted_fname);
+        path_concat(
+            op_params->work_dir, furi_string_get_cstr(converted_fname), full_extracted_fname);
 
-        bool create_res =
-            storage_simply_mkdir(archive->storage, furi_string_get_cstr(full_extracted_fname));
-        furi_string_free(full_extracted_fname);
-        return create_res ? 0 : -1;
-    }
+        tar_archive_make_parents(
+            archive, op_params->work_dir, furi_string_get_cstr(full_extracted_fname));
 
-    if(header->type != MTAR_TREG) {
-        FURI_LOG_W(TAG, "not extracting unsupported type \"%s\"", header->name);
-        return 0;
-    }
+        bool success =
+            archive_extract_current_file(archive, furi_string_get_cstr(full_extracted_fname));
 
-    FURI_LOG_D(TAG, "Extracting %u bytes to '%s'", header->size, header->name);
-
-    FuriString* converted_fname = furi_string_alloc_set(header->name);
-    if(op_params->converter) {
-        op_params->converter(converted_fname);
-    }
-    if(!tar_archive_entry_name_is_safe(furi_string_get_cstr(converted_fname))) {
-        FURI_LOG_W(TAG, "unsafe path: skipping entry \"%s\"", header->name);
         furi_string_free(converted_fname);
-        return 0;
-    }
+        furi_string_free(full_extracted_fname);
+        result = success ? 0 : MTAR_EFAILURE;
+    } while(false);
 
-    full_extracted_fname = furi_string_alloc();
-    path_concat(op_params->work_dir, furi_string_get_cstr(converted_fname), full_extracted_fname);
-
-    bool success =
-        archive_extract_current_file(archive, furi_string_get_cstr(full_extracted_fname));
-
-    furi_string_free(converted_fname);
-    furi_string_free(full_extracted_fname);
-    return success ? 0 : MTAR_EFAILURE;
+    furi_string_free(entry_name);
+    return result;
 }
 
 bool tar_archive_unpack_to(

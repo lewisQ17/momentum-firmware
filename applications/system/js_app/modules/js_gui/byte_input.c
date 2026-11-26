@@ -66,13 +66,18 @@ static bool default_data_assign(
     ByteInput* input,
     JsViewPropValue value,
     JsByteKbContext* context) {
-    UNUSED(mjs);
-
     mjs_val_t array_buf = value.term;
     if(mjs_is_data_view(array_buf)) {
         array_buf = mjs_dataview_get_buf(mjs, array_buf);
     }
-    char* default_data = mjs_array_buf_get_ptr(mjs, array_buf, &context->default_data_size);
+    size_t default_len;
+    char* default_data = mjs_array_buf_get_ptr(mjs, array_buf, &default_len);
+    // Use a local so a rejected value leaves the context untouched; bytes_count is a uint8_t
+    if(default_len > 255) {
+        mjs_prepend_errorf(mjs, MJS_BAD_ARGS_ERROR, "defaultData must be at most 255 bytes");
+        return false;
+    }
+    context->default_data_size = default_len;
     if(context->buffer_size < context->default_data_size) {
         // Ensure buffer is large enough for defaultData
         context->buffer_size = context->default_data_size;
