@@ -37,16 +37,17 @@ char* scytale_decrypt(const char* ciphertext, int32_t key) {
     char* plaintext = malloc(len + 1);
     if (!plaintext) return strdup("memory allocation failed, try again");
 
+    // walk the same (column, row) order as scytale_encrypt so it inverts for any length
     int index = 0;
-    for (int j = 0; j < key; j++) {
-        for (int i = 0; i < cols; i++) {
-            int pos = i * key + j;
+    for (int i = 0; i < cols; i++) {
+        for (int j = 0; j < key; j++) {
+            int pos = j * cols + i;
             if (pos < len) {
-                plaintext[index++] = ciphertext[pos];
+                plaintext[pos] = ciphertext[index++];
             }
         }
     }
 
-    plaintext[index] = '\0';
+    plaintext[len] = '\0';
     return plaintext;
 }

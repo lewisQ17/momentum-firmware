@@ -842,7 +842,6 @@ uint16_t qrcode_getBufferSize(uint8_t version) {
     return bb_getGridSizeBytes(4 * version + 17);
 }
 
-// @TODO: Return error if data is too big.
 int8_t qrcode_initBytes(
     QRCode* qrcode,
     uint8_t* modules,
@@ -880,6 +879,11 @@ int8_t qrcode_initBytes(
         return -1;
     }
     qrcode->mode = mode;
+
+    // data that exceeds the capacity for this version/ECC would yield a non-decodable code
+    if(codewords.bitOffsetOrWidth > (uint32_t)dataCapacity * 8) {
+        return -1;
+    }
 
     // Add terminator and pad up to a byte if applicable
     uint32_t padding = (dataCapacity * 8) - codewords.bitOffsetOrWidth;

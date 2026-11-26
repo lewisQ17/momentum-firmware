@@ -100,7 +100,8 @@ Action upython_splash_screen() {
     canvas_commit(canvas);
 
     while(action == ActionNone) {
-        furi_delay_ms(1);
+        // idle wait: no need to wake the MCU every millisecond
+        furi_delay_ms(20);
     }
 
     furi_pubsub_unsubscribe(input_event_queue, input_event);

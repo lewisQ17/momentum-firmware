@@ -213,7 +213,8 @@ void file_input_handle_ok(void* context) {
 
         TextInput* text_input = text_input_alloc();
         char tmp_cstr[64] = {0};
-        strncpy(tmp_cstr, furi_string_get_cstr(app->icon->name), sizeof(tmp_cstr));
+        // leave room for the terminator so long names stay NUL-terminated
+        strncpy(tmp_cstr, furi_string_get_cstr(app->icon->name), sizeof(tmp_cstr) - 1);
         text_input_set_result_callback(
             text_input, text_input_callback, ti_context, tmp_cstr, 64, false);
         text_input_set_header_text(text_input, "Rename icon:");

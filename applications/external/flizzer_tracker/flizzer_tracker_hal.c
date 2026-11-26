@@ -270,6 +270,9 @@ void sound_engine_stop() {
     LL_TIM_DisableCounter(SAMPLE_RATE_TIMER);
 
     sound_engine_dma_stop();
+
+    // DMA is stopped: drop the speaker PWM duty to 0 so no DC level stays on the speaker
+    SPEAKER_PWM_TIMER->CCR1 = 0;
 }
 
 void sound_engine_deinit_timer() {

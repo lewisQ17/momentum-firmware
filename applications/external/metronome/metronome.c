@@ -55,6 +55,7 @@ typedef struct {
     FuriTimer* timer;
     NotificationApp* notifications;
     FuriMutex* mutex;
+    ViewPort* view_port;
 } MetronomeState;
 
 static void render_callback(Canvas* const canvas, void* ctx) {
@@ -158,10 +159,19 @@ static void timer_callback(void* ctx) {
     if(metronome_state->current_beat > metronome_state->beats_per_bar) {
         metronome_state->current_beat = 1;
     }
-    if(metronome_state->current_beat == 1) {
+    // snapshot under the mutex, then release it: the beep delays below must not block UI/input
+    const int current_beat = metronome_state->current_beat;
+    const enum OutputMode output_mode = metronome_state->output_mode;
+
+    furi_mutex_release(metronome_state->mutex);
+
+    // the progress bar only changes here, so redraw on every beat
+    view_port_update(metronome_state->view_port);
+
+    if(current_beat == 1) {
         // pronounced beat
         notification_message(metronome_state->notifications, &sequence_set_only_red_255);
-        switch(metronome_state->output_mode) {
+        switch(output_mode) {
         case Loud:
             if(furi_hal_speaker_acquire(1000)) {
                 furi_hal_speaker_start(440.0f, 1.0f);
@@ -176,7 +186,7 @@ static void timer_callback(void* ctx) {
     } else {
         // unpronounced beat
         notification_message(metronome_state->notifications, &sequence_set_only_green_255);
-        switch(metronome_state->output_mode) {
+        switch(output_mode) {
         case Loud:
             if(furi_hal_speaker_acquire(1000)) {
                 furi_hal_speaker_start(220.0f, 1.0f);
@@ -191,7 +201,7 @@ static void timer_callback(void* ctx) {
     };
 
     // this is a bit of a kludge... if we are on vibro and unpronounced, stop vibro after half the usual duration
-    switch(metronome_state->output_mode) {
+    switch(output_mode) {
     case Loud:
         furi_delay_ms(BEEP_DELAY_MS);
         if(furi_hal_speaker_is_mine()) {
@@ -200,7 +210,7 @@ static void timer_callback(void* ctx) {
         }
         break;
     case Vibro:
-        if(metronome_state->current_beat == 1) {
+        if(current_beat == 1) {
             furi_delay_ms(BEEP_DELAY_MS);
             notification_message(metronome_state->notifications, &sequence_reset_vibro);
         } else {
@@ -213,8 +223,6 @@ static void timer_callback(void* ctx) {
         break;
     }
     notification_message(metronome_state->notifications, &sequence_reset_rgb);
-
-    furi_mutex_release(metronome_state->mutex);
 }
 
 static uint32_t state_to_sleep_ticks(MetronomeState* metronome_state) {
@@ -222,7 +230,10 @@ static uint32_t state_to_sleep_ticks(MetronomeState* metronome_state) {
     uint32_t tps = furi_kernel_get_tick_frequency();
     double multiplier = 4.0d / metronome_state->note_length;
     double bps = (double)metronome_state->bpm / 60;
-    return (uint32_t)(round(tps / bps) - ((BEEP_DELAY_MS / 1000) * tps)) * multiplier;
+    uint32_t ticks = (uint32_t)(round(tps / bps) - ((BEEP_DELAY_MS / 1000) * tps)) * multiplier;
+    // keep the period above the beep length so the timer daemon is never saturated
+    uint32_t min_ticks = (BEEP_DELAY_MS + 10) * tps / 1000;
+    return ticks < min_ticks ? min_ticks : ticks;
 }
 
 static void update_timer(MetronomeState* metronome_state) {
@@ -298,6 +309,7 @@ int32_t metronome_app() {
     ViewPort* view_port = view_port_alloc();
     view_port_draw_callback_set(view_port, render_callback, metronome_state);
     view_port_input_callback_set(view_port, input_callback, event_queue);
+    metronome_state->view_port = view_port;
     metronome_state->timer =
         furi_timer_alloc(timer_callback, FuriTimerTypePeriodic, metronome_state);
 
@@ -307,7 +319,7 @@ int32_t metronome_app() {
 
     PluginEvent event;
     for(bool processing = true; processing;) {
-        FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
+        FuriStatus event_status = furi_message_queue_get(event_queue, &event, FuriWaitForever);
 
         furi_mutex_acquire(metronome_state->mutex, FuriWaitForever);
         if(event_status == FuriStatusOk) {
@@ -389,15 +401,20 @@ int32_t metronome_app() {
             }
         }
         furi_mutex_release(metronome_state->mutex);
-        view_port_update(view_port);
+        // redraw only after handled input (the timer redraws on each beat)
+        if(event_status == FuriStatusOk) {
+            view_port_update(view_port);
+        }
     }
+
+    // free the timer first: its callback uses the view port
+    furi_timer_free(metronome_state->timer);
 
     view_port_enabled_set(view_port, false);
     gui_remove_view_port(gui, view_port);
     furi_record_close(RECORD_GUI);
     view_port_free(view_port);
     furi_message_queue_free(event_queue);
-    furi_timer_free(metronome_state->timer);
     furi_record_close(RECORD_NOTIFICATION);
     furi_mutex_free(metronome_state->mutex);
     free(metronome_state);

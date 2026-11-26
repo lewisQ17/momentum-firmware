@@ -332,7 +332,7 @@ void calculate(Calculator* calculator_state) {
             snprintf(
                 calculator_state->hexToBinResult,
                 sizeof(calculator_state->hexToBinResult),
-                "Error    ---------Input:   64-bit");
+                "Error    ---------Input:   32-bit"); // result buffer fits 8 hex digits
         }
         break;
 

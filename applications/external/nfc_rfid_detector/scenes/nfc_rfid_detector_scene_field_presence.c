@@ -23,8 +23,15 @@ static void nfc_rfid_detector_scene_field_presence_update(void* context) {
     bool nfc_field = nfc_rfid_detector_app_field_presence_is_nfc(app);
     bool rfid_field = nfc_rfid_detector_app_field_presence_is_rfid(app, &frequency);
 
-    if(nfc_field || rfid_field)
-        notification_message(app->notifications, &notification_app_display_on);
+    // keep the display on while a field is present, but at most ~1x per second (not every tick)
+    static uint32_t last_display_on_tick = 0;
+    if(nfc_field || rfid_field) {
+        const uint32_t now = furi_get_tick();
+        if(last_display_on_tick == 0 || (now - last_display_on_tick) >= 1000) {
+            notification_message(app->notifications, &notification_app_display_on);
+            last_display_on_tick = now ? now : 1;
+        }
+    }
 
     nfc_rfid_detector_view_field_presence_update(
         app->nfc_rfid_detector_field_presence, nfc_field, rfid_field, frequency);

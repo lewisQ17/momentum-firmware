@@ -11,6 +11,9 @@
 
 VariableItemList* settings_list;
 
+// true while create_items() runs its label-refresh callbacks (no SD write per item then)
+static bool settings_ui_creating = false;
+
 void settings_ui_clear() {
     if(settings_list) {
         variable_item_list_reset(settings_list);
@@ -68,7 +71,7 @@ void settings_ui_clear() {
         if(value <= (cast)(minv)) value = (cast)(minv);       \
         if(value >= (cast)(maxv)) value = (cast)(maxv);       \
         settings.fld = value;                                 \
-        settings_save();                                      \
+        if(!settings_ui_creating) settings_save();            \
         char buf[12];                                         \
         snprintf(buf, sizeof(buf), fmt, settings.fld);        \
         variable_item_set_current_value_text(i, buf);         \
@@ -91,7 +94,7 @@ void settings_ui_clear() {
         if(value >= (cast)(maxv)) value = (cast)(maxv);                    \
                                                                            \
         settings.fld = value;                                              \
-        settings_save();                                                   \
+        if(!settings_ui_creating) settings_save();                         \
                                                                            \
         char buf[12];                                                      \
         snprintf(buf, sizeof(buf), fmt, settings.fld);                     \
@@ -117,6 +120,8 @@ MAKE_CB_UNIT(debri_cb, debri_count, DEBRI_MIN, DEBRI_MAX, "%u", size_t)
 
 void create_items() {
     variable_item_list_reset(settings_list);
+
+    settings_ui_creating = true;
 
     VariableItem* it;
 
@@ -182,6 +187,8 @@ void create_items() {
     INIT_INDEX(it, settings.debri_count, DEBRI_MIN, DEBRI_MAX);
     debri_cb(it);
 #undef INIT_INDEX
+
+    settings_ui_creating = false;
 }
 
 /*--------------------------------------------------------------------------*/

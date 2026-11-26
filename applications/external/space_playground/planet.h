@@ -74,6 +74,10 @@ Vec2 planet_get_combined_acceleration(const Vec2* pos) {
 }
 
 void planet_clear() {
+    // the Planet structs are separate allocations from the list nodes
+    for(ListNode* node = planets.head; node != NULL; node = node->next) {
+        free(node->data);
+    }
     list_free(&planets);
 }
 

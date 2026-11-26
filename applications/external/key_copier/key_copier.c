@@ -168,6 +168,7 @@ static void key_copier_file_saver(void* context) {
     furi_string_free(buffer);
     flipper_format_free(flipper_format);
     furi_string_free(file_path); // Leak fix: per-save path string
+    furi_record_close(RECORD_STORAGE); // balance the furi_record_open above
 
     view_dispatcher_switch_to_view(app->view_dispatcher, KeyCopierViewSubmenu);
 }
@@ -243,10 +244,28 @@ static void key_copier_view_load_callback(void* context) {
                 model->depth[i] = model->format.min_depth_ind;
             }
 
+            // the pattern is "-"-separated numbers (a depth can have two digits, e.g. "10-3-5")
+            const char* pattern = furi_string_get_cstr(depth_buffer);
+            bool pattern_ok = true;
             for(int i = 0; i < model->format.pin_num; i++) {
-                // the pattern holds one digit and one separator per pin
-                if((size_t)(i * 2) >= furi_string_size(depth_buffer)) break;
-                model->depth[i] = (uint8_t)(furi_string_get_char(depth_buffer, i * 2) - '0');
+                char* end = NULL;
+                long value = strtol(pattern, &end, 10);
+                if(end == pattern || value < model->format.min_depth_ind ||
+                   value > model->format.max_depth_ind ||
+                   (i < model->format.pin_num - 1 && *end != '-')) {
+                    pattern_ok = false;
+                    break;
+                }
+                model->depth[i] = (uint8_t)value;
+                pattern = (*end == '-') ? end + 1 : end;
+            }
+            if(!pattern_ok || *pattern != '\0') {
+                // malformed pattern: keep the minimum-depth defaults and do not mark data as loaded
+                FURI_LOG_E(TAG, "Invalid Bitting Pattern in key file");
+                for(uint8_t i = 0; i <= model->format.pin_num; i++) {
+                    model->depth[i] = model->format.min_depth_ind;
+                }
+                break;
             }
             model->data_loaded = true;
             // signal that the file was read successfully
@@ -313,7 +332,9 @@ static void key_copier_view_measure_draw_callback(Canvas* canvas, void* model) {
             top_contour_px + current_depth_px); // draw top pin width horizontal line
 
         if(my_format.sides == 2) { // new
-            int last_depth = my_model->depth[current_pin - 2] - my_format.min_depth_ind;
+            // no pin before the first one (avoid reading depth[-1])
+            int last_depth =
+                current_pin > 1 ? my_model->depth[current_pin - 2] - my_format.min_depth_ind : 0;
             int next_depth = my_model->depth[current_pin] - my_format.min_depth_ind;
             int current_depth = my_model->depth[current_pin - 1] - my_format.min_depth_ind;
             int current_depth_px =
@@ -402,7 +423,8 @@ static void key_copier_view_measure_draw_callback(Canvas* canvas, void* model) {
         }
         // new end
 
-        int last_depth = my_model->depth[current_pin - 2] - my_format.min_depth_ind;
+        int last_depth =
+            current_pin > 1 ? my_model->depth[current_pin - 2] - my_format.min_depth_ind : 0;
         int next_depth = my_model->depth[current_pin] - my_format.min_depth_ind;
         if(current_pin == 1) {
             canvas_draw_line(

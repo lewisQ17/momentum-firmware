@@ -14,15 +14,17 @@ typedef struct {
     char uid_text[64];
 } FlipperWedgeStartscreenModel;
 
+// Mode changed since the last save (written on scene exit)
+static bool s_mode_dirty = false;
+
 // Forward declarations
 static void flipper_wedge_scene_startscreen_start_scanning(FlipperWedge* app);
 static void flipper_wedge_scene_startscreen_stop_scanning(FlipperWedge* app);
 
-// Display timer callback - used to clear messages and return to scanning
-static void flipper_wedge_scene_startscreen_display_timer_callback(void* context) {
-    furi_assert(context);
-    FlipperWedge* app = context;
-
+// Display sequence step - clears messages and returns to scanning. Runs on the app thread
+// (from the scene's custom-event handler), not on the shared FreeRTOS timer daemon,
+// because the LED/haptic helpers block for up to ~300 ms.
+static void flipper_wedge_scene_startscreen_display_step(FlipperWedge* app) {
     FlipperWedgeDisplayState current_state = FlipperWedgeDisplayStateIdle;
     with_view_model(
         flipper_wedge_startscreen_get_view(app->flipper_wedge_startscreen),
@@ -74,6 +76,13 @@ static void flipper_wedge_scene_startscreen_display_timer_callback(void* context
         app->scan_state = FlipperWedgeScanStateIdle;
         // Tick handler will restart scanning automatically
     }
+}
+
+// Display timer callback - only forwards to the scene; never block in the timer daemon
+static void flipper_wedge_scene_startscreen_display_timer_callback(void* context) {
+    furi_assert(context);
+    FlipperWedge* app = context;
+    view_dispatcher_send_custom_event(app->view_dispatcher, FlipperWedgeCustomEventDisplayDone);
 }
 
 // Timeout callback - used for combo mode timeout when waiting for second tag
@@ -361,6 +370,11 @@ bool flipper_wedge_scene_startscreen_on_event(void* context, SceneManagerEvent e
 
     if(event.type == SceneManagerEventTypeCustom) {
         switch(event.event) {
+        case FlipperWedgeCustomEventDisplayDone:
+            flipper_wedge_scene_startscreen_display_step(app);
+            consumed = true;
+            break;
+
         case FlipperWedgeCustomEventModeChange:
             // Stop current scanning and restart with new mode
             flipper_wedge_scene_startscreen_stop_scanning(app);
@@ -369,8 +383,8 @@ bool flipper_wedge_scene_startscreen_on_event(void* context, SceneManagerEvent e
             app->mode = flipper_wedge_startscreen_get_mode(app->flipper_wedge_startscreen);
             FURI_LOG_I("FlipperWedgeScene", "Mode changed to: %d", app->mode);
 
-            // Save mode to persistent storage
-            flipper_wedge_save_settings(app);
+            // Persisted once on scene exit (saving here rewrote the file on every hold repeat)
+            s_mode_dirty = true;
 
             flipper_wedge_scene_startscreen_start_scanning(app);
             consumed = true;
@@ -578,6 +592,11 @@ bool flipper_wedge_scene_startscreen_on_event(void* context, SceneManagerEvent e
 void flipper_wedge_scene_startscreen_on_exit(void* context) {
     FlipperWedge* app = context;
     flipper_wedge_scene_startscreen_stop_scanning(app);
+
+    if(s_mode_dirty) {
+        s_mode_dirty = false;
+        flipper_wedge_save_settings(app);
+    }
 
     // Stop display timer if running
     if(app->display_timer) {

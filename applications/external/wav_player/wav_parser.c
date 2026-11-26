@@ -88,7 +88,15 @@ bool wav_parser_parse(WavParser* parser, Stream* stream, WavPlayerApp* app) {
     app->bits_per_sample = parser->format.bits_per_sample;
 
     parser->wav_data_start = stream_tell(stream);
-    parser->wav_data_end = parser->wav_data_start + parser->data.size;
+    // size 0 / 0xFFFFFFFF (streamed WAV) or a size past the file means "until EOF"
+    size_t file_end = stream_size(stream);
+    if(file_end < parser->wav_data_start) file_end = parser->wav_data_start;
+    if(parser->data.size == 0 || parser->data.size == 0xFFFFFFFFUL ||
+       parser->data.size > file_end - parser->wav_data_start) {
+        parser->wav_data_end = file_end;
+    } else {
+        parser->wav_data_end = parser->wav_data_start + parser->data.size;
+    }
 
     FURI_LOG_I(TAG, "data: %u - %u", parser->wav_data_start, parser->wav_data_end);
 

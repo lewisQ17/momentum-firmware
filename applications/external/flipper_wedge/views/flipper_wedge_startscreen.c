@@ -219,14 +219,18 @@ void flipper_wedge_startscreen_set_connected_status(
     bool usb_connected,
     bool bt_connected) {
     furi_assert(instance);
+    // redraw only on a real change (called every 100 ms tick)
+    bool changed = false;
     with_view_model(
         instance->view,
         FlipperWedgeStartscreenModel * model,
         {
+            changed = (model->usb_connected != usb_connected) ||
+                      (model->bt_connected != bt_connected);
             model->usb_connected = usb_connected;
             model->bt_connected = bt_connected;
         },
-        true);
+        changed);
 }
 
 void flipper_wedge_startscreen_set_mode(

@@ -2,6 +2,9 @@
 
 #include <mp_flipper_modflipperzero.h>
 
+// set once a script touched the RGB LEDs, so cleanup does not clobber notification LEDs otherwise
+static bool rgb_touched = false;
+
 static Light decode_light(uint8_t value) {
     Light light = 0;
 
@@ -16,6 +19,10 @@ static Light decode_light(uint8_t value) {
 inline void mp_flipper_light_set(uint8_t raw_light, uint8_t brightness) {
     Light light = decode_light(raw_light);
 
+    if(light & (LightRed | LightGreen | LightBlue)) {
+        rgb_touched = true;
+    }
+
     furi_hal_light_set(light, brightness);
 }
 
@@ -25,6 +32,8 @@ inline void mp_flipper_light_blink_start(
     uint16_t on_time,
     uint16_t period) {
     Light light = decode_light(raw_light);
+
+    rgb_touched = true;
 
     furi_hal_light_blink_start(light, brightness, on_time, period);
 }
@@ -37,4 +46,13 @@ inline void mp_flipper_light_blink_set_color(uint8_t raw_light) {
 
 inline void mp_flipper_light_blink_stop() {
     furi_hal_light_blink_stop();
+}
+// called when the script ends: leave no blinking or lit RGB LED behind (backlight is left to the system)
+void mp_flipper_light_reset(void) {
+    if(rgb_touched) {
+        rgb_touched = false;
+
+        furi_hal_light_blink_stop();
+        furi_hal_light_set(LightRed | LightGreen | LightBlue, 0);
+    }
 }

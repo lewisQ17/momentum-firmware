@@ -28,6 +28,19 @@ static Settings DEFAULT_SETTINGS = {
 
 Settings settings;
 
+// clamp a loaded value to the same limits the settings UI enforces
+static size_t settings_clamp_size(size_t value, size_t minv, size_t maxv) {
+    if(value < minv) return minv;
+    if(value > maxv) return maxv;
+    return value;
+}
+
+static double settings_clamp_double(double value, double minv, double maxv) {
+    if(value < minv) return minv;
+    if(value > maxv) return maxv;
+    return value;
+}
+
 static void settings_load() {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* file = storage_file_alloc(storage);
@@ -38,7 +51,7 @@ static void settings_load() {
 
         char buf[256] = {0};
         storage_file_read(file, buf, sizeof(buf) - 1);
-        sscanf(
+        int parsed = sscanf(
             buf,
             "%d %d %d %d %d %d %d %d",
             &gravity_force,
@@ -50,9 +63,25 @@ static void settings_load() {
             &settings.asteroid_speed,
             &settings.debri_count);
 
-        settings.gravity_force = (double)gravity_force / (double)1000.0;
-        settings.launch_interval = (double)launch_interval / (double)1000.0;
-        settings.grid_speed = (double)grid_speed / (double)1000.0;
+        // fields missing from a short/truncated file keep their defaults
+        if(parsed >= 1) {
+            settings.gravity_force = settings_clamp_double(
+                (double)gravity_force / (double)1000.0, (double)1.0, (double)100.0);
+        }
+        if(parsed >= 3) {
+            settings.launch_interval = settings_clamp_double(
+                (double)launch_interval / (double)1000.0, (double)0.10, (double)5.0);
+        }
+        if(parsed >= 4) {
+            settings.grid_speed = settings_clamp_double(
+                (double)grid_speed / (double)1000.0, (double)1.0, (double)32.0);
+        }
+
+        settings.num_planets = settings_clamp_size(settings.num_planets, 1, 8);
+        settings.grid_spacing = settings_clamp_size(settings.grid_spacing, 1, 32);
+        settings.trail_duration = settings_clamp_size(settings.trail_duration, 0, 5);
+        settings.asteroid_speed = settings_clamp_size(settings.asteroid_speed, 1, 5);
+        settings.debri_count = settings_clamp_size(settings.debri_count, 0, 50);
 
         storage_file_close(file);
     }

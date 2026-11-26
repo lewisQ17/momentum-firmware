@@ -16,15 +16,20 @@
 #include "common.h"
 #include <sys/types.h>
 
+// guards the sim lists: tick (dispatcher thread) frees nodes while draw (GUI thread) walks them
+static FuriMutex* sim_mutex = NULL;
+
 static void tick_cb(void* ctx) {
     View* view = (View*)ctx;
 
     double dt = (double)1.0 / (double)60.0;
 
+    furi_mutex_acquire(sim_mutex, FuriWaitForever);
     background_update(dt);
     planet_update_planets(dt);
     asteroid_update_asteroids(dt);
     debri_update(dt);
+    furi_mutex_release(sim_mutex);
 
     view_commit_model(view, true);
 }
@@ -38,12 +43,15 @@ void fzspground_draw_callback(Canvas* canvas, void* ctx) {
     UNUSED(ctx);
     canvas_clear(canvas);
 
+    furi_mutex_acquire(sim_mutex, FuriWaitForever);
     background_draw(canvas);
     planet_draw_planets(canvas);
     asteroid_draw_asteroids(canvas);
     debri_draw(canvas);
 
     int num_debri = debri_list.size;
+    furi_mutex_release(sim_mutex);
+
     char debri_count_str[16];
     snprintf(debri_count_str, sizeof(debri_count_str), "Debris: %d", num_debri);
 }
@@ -51,7 +59,9 @@ void fzspground_draw_callback(Canvas* canvas, void* ctx) {
 void fzspground_enter_callback(void* ctx) {
     UNUSED(ctx);
 
+    furi_mutex_acquire(sim_mutex, FuriWaitForever);
     planet_init();
+    furi_mutex_release(sim_mutex);
 }
 
 bool fzspground_input_callback(InputEvent* e, void* ctx) {
@@ -73,6 +83,8 @@ int32_t fzspground_app(void* p) {
     UNUSED(p);
 
     srand(furi_get_tick() & 0xFFFFFFFF);
+
+    sim_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
 
     Gui* gui = furi_record_open("gui");
 
@@ -119,6 +131,10 @@ int32_t fzspground_app(void* p) {
     view_dispatcher_free(view_dispatcher);
 
     furi_record_close("gui");
+
+    // the GUI no longer draws, nothing can take the mutex anymore
+    furi_mutex_free(sim_mutex);
+    sim_mutex = NULL;
 
     planet_clear();
     asteroid_clear();

@@ -61,7 +61,8 @@ int32_t upython(void* args) {
             break;
         }
 
-        furi_delay_ms(1);
+        // idle poll: no need to wake the MCU every millisecond
+        furi_delay_ms(10);
     } while(action != ActionTerm);
 
     upython_cli_unregister(args);

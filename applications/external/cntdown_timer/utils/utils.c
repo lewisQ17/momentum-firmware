@@ -46,17 +46,21 @@ static const NotificationSequence sequence_timeup = {
     NULL,
 };
 
+// every open is closed in the same function; the old unbalanced open/close pair drifted the holder count
 void notification_beep_once() {
-    notification_message(furi_record_open(RECORD_NOTIFICATION), &sequence_beep);
-    notification_off();
-}
-
-void notification_off() {
+    NotificationApp* notification = furi_record_open(RECORD_NOTIFICATION);
+    notification_message(notification, &sequence_beep);
     furi_record_close(RECORD_NOTIFICATION);
 }
 
+void notification_off() {
+    // nothing is held between calls any more; kept for the callers
+}
+
 void notification_timeup() {
-    notification_message(furi_record_open(RECORD_NOTIFICATION), &sequence_timeup);
+    NotificationApp* notification = furi_record_open(RECORD_NOTIFICATION);
+    notification_message(notification, &sequence_timeup);
+    furi_record_close(RECORD_NOTIFICATION);
 }
 
 void parse_sec_to_time_str(char* buffer, size_t len, int32_t sec) {
@@ -64,7 +68,7 @@ void parse_sec_to_time_str(char* buffer, size_t len, int32_t sec) {
         buffer,
         len,
         "%02ld:%02ld:%02ld",
-        (sec % (60 * 60 * 24)) / (60 * 60), // hour
+        sec / (60 * 60), // hour (no 24 h wrap: the timer can be set above 24 h)
         (sec % (60 * 60)) / 60, // minute
         sec % 60); // second
 }

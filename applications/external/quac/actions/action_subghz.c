@@ -24,11 +24,7 @@ void action_subghz_need_save_callback(void* context) {
     //flipper_format_delete_key(ff, "Manufacture");
 
     do {
-        if(!storage_simply_remove(
-               savectx->app->storage, furi_string_get_cstr(savectx->file_path))) {
-            FURI_LOG_E(TAG, "Failed to delete subghz file before re-save");
-            break;
-        }
+        // no separate remove: FSOM_CREATE_ALWAYS already truncates the file
         stream_seek(ff_stream, 0, StreamOffsetFromStart);
         stream_save_to_file(
             ff_stream,
@@ -177,16 +173,21 @@ void action_subghz_tx(void* context, const FuriString* action_path, FuriString* 
     flipper_format_file_close(fff_data_file);
     flipper_format_free(fff_data_file);
 
-    if(subghz_txrx_tx_start(txrx, subghz_txrx_get_fff_data(txrx)) != SubGhzTxRxStartTxStateOk) {
+    bool tx_started =
+        subghz_txrx_tx_start(txrx, subghz_txrx_get_fff_data(txrx)) == SubGhzTxRxStartTxStateOk;
+    if(!tx_started) {
         FURI_LOG_E(TAG, "Failed to start TX");
     }
 
-    if(is_raw) {
-        subghz_txrx_set_raw_file_encoder_worker_callback_end(
-            txrx, action_subghz_raw_end_callback, furi_thread_get_current());
-        furi_thread_flags_wait(0, FuriFlagWaitAll, FuriWaitForever);
-    } else {
-        furi_delay_ms(app->settings.subghz_duration);
+    // without a running TX there is no transmitter, so no end callback to wait for
+    if(tx_started) {
+        if(is_raw) {
+            subghz_txrx_set_raw_file_encoder_worker_callback_end(
+                txrx, action_subghz_raw_end_callback, furi_thread_get_current());
+            furi_thread_flags_wait(0, FuriFlagWaitAll, FuriWaitForever);
+        } else {
+            furi_delay_ms(app->settings.subghz_duration);
+        }
     }
 
     FURI_LOG_I(TAG, "SUBGHZ: Action complete.");
@@ -195,6 +196,9 @@ void action_subghz_tx(void* context, const FuriString* action_path, FuriString* 
     subghz_txrx_stop(txrx);
 
     subghz_custom_btns_reset();
+
+    // put the CC1101 to sleep like the stock Sub-GHz app does before freeing
+    subghz_txrx_sleep(txrx);
 
     subghz_txrx_free(txrx);
     furi_string_free(preset_name);

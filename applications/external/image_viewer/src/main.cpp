@@ -9,10 +9,12 @@ constexpr auto tag = "Image viewer";
 
 constexpr uint32_t msg_count = 8UL;
 
-constexpr uint32_t timeout = 100UL;
-
 Stream* stream;
 static bool image_opened = false; // false when the browser was cancelled
+
+// 1 header byte + 128x64 bitmap bits; read and bit-reversed once, not on every redraw
+constexpr size_t image_size = ((128 * 64) / 8) + 1;
+static uint8_t* image_data = nullptr;
 
 uint8_t reverse_bits(uint8_t b) {
     b = (b & 0xF0) >> 4 | (b & 0x0F) << 4;
@@ -27,24 +29,11 @@ static void draw_callback(Canvas* canvas, void* ctx) {
     const size_t width = canvas_width(canvas);
     const size_t height = canvas_height(canvas);
 
-    const size_t image_size = ((width * height) / 8) + 1;
-
     canvas_clear(canvas);
-    if(!image_opened) return;
+    if(!image_opened || image_data == nullptr) return;
 
-    uint8_t* image_data = new uint8_t[image_size](); // zero-initialised
-
-    stream_rewind(stream);
-    // never read more than the buffer holds, whatever the file size is
-    stream_read(stream, image_data, MIN(stream_size(stream), image_size));
-
-    for(size_t i = 1; i < image_size; ++i) {
-        image_data[i] = reverse_bits(image_data[i]);
-    }
-
-    canvas_draw_bitmap(canvas, 0, 0, width, height, image_data);
-
-    delete[] image_data;
+    // skip the 1-byte .bm header, otherwise every row is shifted by 8 px
+    canvas_draw_bitmap(canvas, 0, 0, width, height, image_data + 1);
 }
 
 static void input_callback(InputEvent* input_event, void* ctx) {
@@ -86,7 +75,23 @@ int32_t image_viewer_main(void* p) {
             stream_free(stream);
             return -1;
         }
-        image_opened = true;
+
+        image_data = new uint8_t[image_size](); // zero-initialised
+
+        // never read more than the buffer holds, whatever the file size is
+        stream_read(stream, image_data, MIN(stream_size(stream), image_size));
+
+        if(image_data[0] != 0) {
+            // header byte 0 = uncompressed; anything else would be drawn as noise
+            FURI_LOG_E(tag, "Unsupported (compressed) .bm file");
+            delete[] image_data;
+            image_data = nullptr;
+        } else {
+            for(size_t i = 1; i < image_size; ++i) {
+                image_data[i] = reverse_bits(image_data[i]);
+            }
+            image_opened = true;
+        }
     }
 
     furi_string_free(path);
@@ -104,11 +109,12 @@ int32_t image_viewer_main(void* p) {
     InputEvent event;
 
     while(true) {
-        if(furi_message_queue_get(event_queue, &event, timeout) == FuriStatusOk &&
-           event.key == InputKeyBack) {
-            break;
+        if(furi_message_queue_get(event_queue, &event, FuriWaitForever) == FuriStatusOk) {
+            if(event.key == InputKeyBack) {
+                break;
+            }
+            view_port_update(view_port);
         }
-        view_port_update(view_port);
     }
 
     view_port_enabled_set(view_port, false);
@@ -122,6 +128,9 @@ int32_t image_viewer_main(void* p) {
     furi_record_close(RECORD_GUI);
 
     stream_free(stream);
+
+    delete[] image_data;
+    image_data = nullptr;
 
     return 0;
 }

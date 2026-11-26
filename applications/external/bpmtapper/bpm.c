@@ -211,7 +211,7 @@ int32_t bpm_tapper_app(void* p) {
 
     PluginEvent event;
     for(bool processing = true; processing;) {
-        FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
+        FuriStatus event_status = furi_message_queue_get(event_queue, &event, FuriWaitForever);
         furi_mutex_acquire(bpm_state->mutex, FuriWaitForever);
         if(event_status == FuriStatusOk) {
             // press events
@@ -226,6 +226,17 @@ int32_t bpm_tapper_app(void* p) {
                         bpm_state->taps++;
                         uint32_t new_stamp = furi_get_tick();
                         if(bpm_state->last_stamp == 0) {
+                            bpm_state->last_stamp = new_stamp;
+                            break;
+                        }
+                        if(new_stamp - bpm_state->last_stamp > 2000) {
+                            // long pause: restart averaging so the old gap does not skew the BPM
+                            queue* tq = bpm_state->tap_queue;
+                            while(tq->size > 0) {
+                                queue_remove(tq);
+                            }
+                            tq->front = NULL;
+                            tq->rear = NULL;
                             bpm_state->last_stamp = new_stamp;
                             break;
                         }
@@ -248,7 +259,10 @@ int32_t bpm_tapper_app(void* p) {
         }
 
         furi_mutex_release(bpm_state->mutex);
-        view_port_update(view_port);
+        // redraw only when an event was handled, not on a timeout
+        if(event_status == FuriStatusOk) {
+            view_port_update(view_port);
+        }
     }
     view_port_enabled_set(view_port, false);
     gui_remove_view_port(gui, view_port);

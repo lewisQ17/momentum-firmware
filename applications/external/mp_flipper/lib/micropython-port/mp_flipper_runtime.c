@@ -101,7 +101,8 @@ void* mp_flipper_context_alloc() {
     ctx->infrared_rx = malloc(sizeof(mp_flipper_infrared_rx_t));
 
     ctx->infrared_rx->size = MP_FLIPPER_INFRARED_RX_BUFFER_SIZE;
-    ctx->infrared_rx->buffer = calloc(ctx->infrared_rx->size, sizeof(uint16_t));
+    // buffer holds uint32_t durations, so size the allocation by that type
+    ctx->infrared_rx->buffer = calloc(ctx->infrared_rx->size, sizeof(uint32_t));
     ctx->infrared_rx->pointer = 0;
     ctx->infrared_rx->running = true;
 
@@ -150,6 +151,11 @@ void mp_flipper_context_free(void* context) {
     mp_flipper_pwm_stop(MP_FLIPPER_GPIO_PIN_PA7);
 
     free(ctx->gpio_pins);
+
+    // switch off outputs a script may have left running
+    mp_flipper_vibro(false);
+    mp_flipper_speaker_stop();
+    mp_flipper_light_reset();
 
     // stop infrared
     free(ctx->infrared_rx->buffer);

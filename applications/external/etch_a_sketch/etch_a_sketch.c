@@ -247,8 +247,8 @@ int32_t etch_a_sketch_app(void* p) {
             if(etch_state->selected.x < 0) {
                 etch_state->selected.x = 0;
             }
-            if(etch_state->selected.x > 61) {
-                etch_state->selected.x = 61;
+            if(etch_state->selected.x > WIDTH - 1) {
+                etch_state->selected.x = WIDTH - 1; // board is WIDTH columns wide
             }
             if(etch_state->selected.y < 0) {
                 etch_state->selected.y = 0;

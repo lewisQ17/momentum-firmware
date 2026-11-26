@@ -465,7 +465,12 @@ static mp_obj_t flipperzero_infrared_receive(size_t n_args, const mp_obj_t* args
         signal[i] = mp_obj_new_int(buffer[i]);
     }
 
-    return mp_obj_new_list(length, signal);
+    mp_obj_t list = mp_obj_new_list(length, signal);
+
+    // mp_obj_new_list copies the items, so the temporary C array must be released
+    free(signal);
+
+    return list;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(flipperzero_infrared_receive_obj, 0, 1, flipperzero_infrared_receive);
 
@@ -806,6 +811,12 @@ const mp_obj_module_t flipperzero_module = {
 
 MP_REGISTER_MODULE(MP_QSTR_flipperzero, flipperzero_module);
 MP_REGISTER_MODULE_DELEGATION(flipperzero_module, flipperzero_module_attr);
+
+// the callbacks point into the MicroPython heap, which is freed after each script
+void mp_flipper_reset_callbacks(void) {
+    mp_flipper_on_input_callback = NULL;
+    mp_flipper_on_gpio_callback = NULL;
+}
 
 void mp_flipper_on_input(uint16_t button, uint16_t type) {
     if(mp_flipper_on_input_callback != NULL) {

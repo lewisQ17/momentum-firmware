@@ -8,6 +8,7 @@
 #include "shared/runtime/gchelper.h"
 
 #include "mp_flipper_runtime.h"
+#include "mp_flipper_modflipperzero.h"
 #include "mp_flipper_halport.h"
 
 const char* mp_flipper_root_module_path;
@@ -32,6 +33,9 @@ void mp_flipper_init(void* heap, size_t heap_size, size_t stack_size, void* stac
 }
 
 void mp_flipper_deinit() {
+    // drop stale callback pointers before the heap goes away
+    mp_flipper_reset_callbacks();
+
     gc_sweep_all();
 
     mp_deinit();

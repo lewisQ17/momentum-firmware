@@ -120,7 +120,8 @@ static void flipp_pomodoro_view_timer_draw_hint(Canvas *canvas, FlippPomodoroTim
     uint8_t HINT_MAX_DURATION_SECONDS = 30;
     uint8_t SCROLL_DELAY_SECONDS = 2;
 
-    uint8_t hint_duration = time_now() - model->hint_open_timestamp;
+    // uint32_t: a uint8_t wrapped every 256 s and made the expired hint reappear
+    uint32_t hint_duration = time_now() - model->hint_open_timestamp;
 
     if (hint_duration > HINT_MAX_DURATION_SECONDS || model->current_hint == NULL)
     {

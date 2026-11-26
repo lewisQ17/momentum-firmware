@@ -127,10 +127,8 @@ void overwrite_instrument_file_widget_yes_input_callback(
     if(type == InputTypeShort) {
         tracker->is_saving_instrument = true;
         view_dispatcher_switch_to_view(tracker->view_dispatcher, VIEW_TRACKER);
-        // save_song(tracker, tracker->filepath);
-        static FlizzerTrackerEvent event = {
-            .type = EventTypeSaveInstrument, .input = {{0}}, .period = 0};
-        furi_message_queue_put(tracker->event_queue, &event, FuriWaitForever);
+        // nothing ever drained event_queue (app froze on 'Saving...'), so save directly like the song path
+        save_instrument(tracker, tracker->filepath);
     }
 }
 
@@ -304,7 +302,7 @@ void submenu_callback(void* context, uint32_t index) {
 
             else {
                 furi_string_free(path);
-                tracker->is_loading = false;
+                tracker->is_loading_instrument = false; // cancel left the app stuck on 'Loading...'
             }
             break;
         }
@@ -347,7 +345,8 @@ void submenu_copypaste_callback(void* context, uint32_t index) {
     }
 
     case SUBMENU_PATTERN_COPYPASTE_PASTE: {
-        if(tracker->source_pattern_index >= 0) {
+        if(tracker->source_pattern_index >= 0 && source_pattern->step != NULL &&
+           current_pattern->step != NULL) {
             memcpy(
                 current_pattern->step,
                 source_pattern->step,

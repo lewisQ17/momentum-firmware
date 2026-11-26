@@ -151,10 +151,18 @@ static void app_free(WavPlayerApp* app) {
 }
 
 // TODO: that works only with 8-bit 2ch audio
+// never reads past the data chunk: trailing LIST/id3 chunks would otherwise play as noise
+static size_t wav_read_data(WavPlayerApp* app, uint8_t* buffer, size_t size) {
+    size_t pos = stream_tell(app->stream);
+    size_t end = wav_parser_get_data_end(app->parser);
+    if(pos >= end) return 0;
+    return stream_read(app->stream, buffer, MIN(size, end - pos));
+}
+
 static bool fill_data(WavPlayerApp* app, size_t index) {
     if(app->num_channels == 1 && app->bits_per_sample == 8) {
         uint8_t* sample_buffer_start = &app->sample_buffer[index];
-        size_t count = stream_read(app->stream, app->tmp_buffer, app->samples_count_half);
+        size_t count = wav_read_data(app, app->tmp_buffer, app->samples_count_half);
 
         for(size_t i = count; i < app->samples_count_half; i++) {
             app->tmp_buffer[i] = 0;
@@ -193,7 +201,7 @@ static bool fill_data(WavPlayerApp* app, size_t index) {
 
     if(app->num_channels == 1 && app->bits_per_sample == 16) {
         uint8_t* sample_buffer_start = &app->sample_buffer[index];
-        size_t count = stream_read(app->stream, app->tmp_buffer, app->samples_count);
+        size_t count = wav_read_data(app, app->tmp_buffer, app->samples_count);
 
         for(size_t i = count; i < app->samples_count; i++) {
             //app->tmp_buffer[i] = 0;
@@ -231,7 +239,7 @@ static bool fill_data(WavPlayerApp* app, size_t index) {
 
     if(app->num_channels == 2 && app->bits_per_sample == 16) {
         uint8_t* sample_buffer_start = &app->sample_buffer[index];
-        size_t count = stream_read(app->stream, app->tmp_buffer, app->samples_count);
+        size_t count = wav_read_data(app, app->tmp_buffer, app->samples_count);
 
         for(size_t i = 0; i < app->samples_count; i += 4) {
             int16_t L = (((int16_t)app->tmp_buffer[i + 1] << 8) + (int16_t)app->tmp_buffer[i]);
@@ -259,7 +267,7 @@ static bool fill_data(WavPlayerApp* app, size_t index) {
             sample_buffer_start[i / 4] = data;
         }
 
-        count = stream_read(app->stream, app->tmp_buffer, app->samples_count);
+        count = wav_read_data(app, app->tmp_buffer, app->samples_count);
 
         for(size_t i = 0; i < app->samples_count; i += 4) {
             int16_t L = (((int16_t)app->tmp_buffer[i + 1] << 8) + (int16_t)app->tmp_buffer[i]);
@@ -294,7 +302,7 @@ static bool fill_data(WavPlayerApp* app, size_t index) {
 
     if(app->num_channels == 2 && app->bits_per_sample == 8) {
         uint8_t* sample_buffer_start = &app->sample_buffer[index];
-        size_t count = stream_read(app->stream, app->tmp_buffer, app->samples_count);
+        size_t count = wav_read_data(app, app->tmp_buffer, app->samples_count);
 
         for(size_t i = count; i < app->samples_count; i++) {
             app->tmp_buffer[i] = 0;
@@ -442,6 +450,8 @@ static void app_run(WavPlayerApp* app) {
                     wav_player_view_set_current(app->view, stream_tell(app->stream));
                 } else if(event.type == WavPlayerEventCtrlMoveR) {
                     int32_t seek = wav_parser_get_data_end(app->parser) - stream_tell(app->stream);
+                    // tell can be past data_end (bad header size): never seek backwards on Right
+                    if(seek < 0) seek = 0;
                     seek = MIN(
                         seek,
                         (int32_t)(wav_parser_get_data_len(app->parser) / (size_t)100) % 2 ?

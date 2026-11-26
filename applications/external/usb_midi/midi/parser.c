@@ -92,8 +92,10 @@ bool midi_parser_parse(MidiParser* parser, uint8_t byte) {
     case ParserHasStatus:
         if((byte & kStatusByteMask) == 0) {
             event->data[0] = byte & kDataByteMask;
+            // sc_type is only valid for System Common; a stale value must not hit channel messages
             if(parser->status == ChannelPressure || parser->status == ProgramChange ||
-               event->sc_type == MTCQuarterFrame || event->sc_type == SongSelect) {
+               (parser->status == SystemCommon &&
+                (event->sc_type == MTCQuarterFrame || event->sc_type == SongSelect))) {
                 //these are just one data byte, so we short circuit back to start
                 parser->state = ParserEmpty;
                 //queue_.push(incoming_message_);

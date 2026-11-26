@@ -407,17 +407,27 @@ void save_barcode(CreateView* create_view_object) {
 
     Storage* storage = furi_record_open(RECORD_STORAGE);
 
+    bool rename_ok = true;
+    const char* fail_message = "A saving error has occurred";
     if(mode == EditMode) {
         if(!furi_string_empty(file_path)) {
             if(!furi_string_equal(file_path, full_file_path)) {
-                FS_Error error = storage_common_rename(
-                    storage,
-                    furi_string_get_cstr(file_path),
-                    furi_string_get_cstr(full_file_path));
-                if(error != FSE_OK) {
-                    FURI_LOG_E(TAG, "Rename error: %s", storage_error_get_desc(error));
+                // storage_common_rename replaces an existing destination: never overwrite another barcode
+                if(storage_common_exists(storage, furi_string_get_cstr(full_file_path))) {
+                    FURI_LOG_E(TAG, "Rename target already exists");
+                    rename_ok = false;
+                    fail_message = "Name already exists";
                 } else {
-                    FURI_LOG_I(TAG, "Rename Success");
+                    FS_Error error = storage_common_rename(
+                        storage,
+                        furi_string_get_cstr(file_path),
+                        furi_string_get_cstr(full_file_path));
+                    if(error != FSE_OK) {
+                        FURI_LOG_E(TAG, "Rename error: %s", storage_error_get_desc(error));
+                        rename_ok = false;
+                    } else {
+                        FURI_LOG_I(TAG, "Rename Success");
+                    }
                 }
             }
         }
@@ -431,7 +441,7 @@ void save_barcode(CreateView* create_view_object) {
     if(mode == NewMode) {
         file_opened_status =
             flipper_format_file_open_new(ff, furi_string_get_cstr(full_file_path));
-    } else if(mode == EditMode) {
+    } else if(mode == EditMode && rename_ok) {
         file_opened_status =
             flipper_format_file_open_always(ff, furi_string_get_cstr(full_file_path));
     }
@@ -470,7 +480,7 @@ void save_barcode(CreateView* create_view_object) {
             if(success) {
                 model->message = "File Saved!";
             } else {
-                model->message = "A saving error has occurred";
+                model->message = fail_message;
             }
         },
         true);

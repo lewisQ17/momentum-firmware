@@ -129,6 +129,8 @@ void player_deinit_hardware() {
 
 void player_stop() {
     LL_TIM_DisableCounter(SAMPLE_RATE_TIMER);
+    // no sample clock any more: drop the PWM to 0 so the speaker is not left on a DC level
+    LL_TIM_OC_SetCompareCH1(SPEAKER_PWM_TIMER, 0);
 }
 
 void player_start() {

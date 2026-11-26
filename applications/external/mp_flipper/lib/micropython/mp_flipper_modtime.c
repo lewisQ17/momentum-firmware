@@ -10,15 +10,17 @@ mp_obj_t mp_time_time_get(void) {
 }
 
 uint64_t mp_hal_time_ns(void) {
-    return mp_flipper_get_timestamp() * 1000;
+    // widen first: the 32-bit product overflowed and was not nanoseconds
+    return (uint64_t)mp_flipper_get_timestamp() * 1000000000ULL;
 }
 
 mp_uint_t mp_hal_ticks_ms(void) {
-    return mp_flipper_get_tick_frequency() / 1000;
+    // scale the running tick counter, not the constant tick frequency
+    return (mp_uint_t)((uint64_t)mp_flipper_get_tick() * 1000ULL / mp_flipper_get_tick_frequency());
 }
 
 mp_uint_t mp_hal_ticks_us(void) {
-    return mp_flipper_get_tick_frequency() / 1000000;
+    return (mp_uint_t)((uint64_t)mp_flipper_get_tick() * 1000000ULL / mp_flipper_get_tick_frequency());
 }
 
 mp_uint_t mp_hal_ticks_cpu(void) {

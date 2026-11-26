@@ -448,7 +448,7 @@ int32_t calculator_app(void* p) {
     furi_mutex_free(calculator_state->mutex);
     furi_message_queue_free(event_queue);
 
-    furi_record_close(RECORD_NOTIFICATION);
+    // RECORD_NOTIFICATION is not opened above (commented out), so it must not be closed either
     furi_record_close(RECORD_GUI);
     free(calculator_state);
 

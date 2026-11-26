@@ -1731,6 +1731,21 @@ static void dialog_ex_callback(DialogExResult result, void* context) {
     }
 }
 
+// Leak fix: every cipher/encoder helper returns a heap string (errors included); show, save, free it
+static void flip_crypt_show_result(App* app, const char* save_path, char* result) {
+    dialog_ex_set_text(app->dialog_ex, result, 64, 18, AlignCenter, AlignCenter);
+    save_result_generic(save_path, result);
+    free(result);
+}
+
+// Error text without the NFC/Save/QR buttons: they would act on the previous operation's output file
+static void flip_crypt_show_output_error(App* app, const char* text) {
+    dialog_ex_set_text(app->dialog_ex, text, 64, 18, AlignCenter, AlignCenter);
+    dialog_ex_set_left_button_text(app->dialog_ex, "");
+    dialog_ex_set_center_button_text(app->dialog_ex, "");
+    dialog_ex_set_right_button_text(app->dialog_ex, "");
+}
+
 void dialog_cipher_output_scene_on_enter(void* context) {
     App* app = context;
     FlipCryptScene current = scene_manager_get_current_scene(app->scene_manager);
@@ -1738,11 +1753,14 @@ void dialog_cipher_output_scene_on_enter(void* context) {
     switch(current) {
         case FlipCryptAESOutputScene:
             if(strlen(app->aes_key_input) != 16) {
-                dialog_ex_set_text(app->dialog_ex, "Key must be 16 bytes", 64, 18, AlignCenter, AlignCenter);
+                flip_crypt_show_output_error(app, "Key must be 16 bytes");
                 break;
             }
             size_t aes_encrypt_len = strlen(app->universal_input);
-            if(aes_encrypt_len > 128) aes_encrypt_len = 128;
+            if(aes_encrypt_len > 128) {
+                flip_crypt_show_output_error(app, "Input too long (max 128 chars)");
+                break;
+            }
             uint8_t key[16];
             memcpy(key, app->aes_key_input, 16);
             uint8_t iv[16] = {0};
@@ -1755,7 +1773,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             aes_bytes_to_hex(aes_encrypt_encrypted, aes_encrypt_len, aes_output_text);
             dialog_ex_set_text(app->dialog_ex, aes_output_text, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("aes.txt"), aes_output_text);
-            app->last_output_scene = "AES";
+            strlcpy(app->last_output_scene, "AES", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -1763,13 +1781,25 @@ void dialog_cipher_output_scene_on_enter(void* context) {
 
         case FlipCryptAESDecryptOutputScene:
             if(strlen(app->aes_key_input) != 16) {
-                dialog_ex_set_text(app->dialog_ex, "Key must be 16 bytes", 64, 18, AlignCenter, AlignCenter);
+                flip_crypt_show_output_error(app, "Key must be 16 bytes");
                 break;
             }
             size_t aes_decrypt_input_len = strlen(app->universal_input);
-            if(aes_decrypt_input_len > 256) aes_decrypt_input_len = 256;
+            if(aes_decrypt_input_len > 256) {
+                flip_crypt_show_output_error(app, "Input too long (max 256 hex chars)");
+                break;
+            }
             if(aes_decrypt_input_len % 2 != 0) {
-                dialog_ex_set_text(app->dialog_ex, "Invalid hex length", 64, 18, AlignCenter, AlignCenter);
+                flip_crypt_show_output_error(app, "Invalid hex length");
+                break;
+            }
+            bool aes_hex_valid = true;
+            for(size_t i = 0; i < aes_decrypt_input_len; i++) {
+                if(!isxdigit((unsigned char)app->universal_input[i])) aes_hex_valid = false;
+            }
+            if(!aes_hex_valid) {
+                // sscanf would skip bad pairs and leave uninitialized bytes to be decrypted
+                flip_crypt_show_output_error(app, "Invalid hex");
                 break;
             }
             size_t aes_decrypt_len = aes_decrypt_input_len / 2;
@@ -1786,151 +1816,137 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             aes_decrypt_output_text[aes_decrypt_len] = '\0';
             dialog_ex_set_text(app->dialog_ex, aes_decrypt_output_text, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("aes_decrypt.txt"), aes_decrypt_output_text);
-            app->last_output_scene = "AESDecrypt";
+            strlcpy(app->last_output_scene, "AESDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptAffineOutputScene:
-            dialog_ex_set_text(app->dialog_ex, encode_affine(app->universal_input, app->affine_keya_input, app->affine_keyb_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("affine.txt"), encode_affine(app->universal_input, app->affine_keya_input, app->affine_keyb_input));
-            app->last_output_scene = "Affine";
+            flip_crypt_show_result(app, APP_DATA_PATH("affine.txt"), encode_affine(app->universal_input, app->affine_keya_input, app->affine_keyb_input));
+            strlcpy(app->last_output_scene, "Affine", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptAffineDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, decode_affine(app->universal_input, app->affine_keya_input, app->affine_keyb_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("affine_decrypt.txt"), decode_affine(app->universal_input, app->affine_keya_input, app->affine_keyb_input));
-            app->last_output_scene = "AffineDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("affine_decrypt.txt"), decode_affine(app->universal_input, app->affine_keya_input, app->affine_keyb_input));
+            strlcpy(app->last_output_scene, "AffineDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptAtbashOutputScene:
-            dialog_ex_set_text(app->dialog_ex, atbash_encrypt_or_decrypt(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("atbash.txt"), atbash_encrypt_or_decrypt(app->universal_input));
-            app->last_output_scene = "Atbash";
+            flip_crypt_show_result(app, APP_DATA_PATH("atbash.txt"), atbash_encrypt_or_decrypt(app->universal_input));
+            strlcpy(app->last_output_scene, "Atbash", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptAtbashDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, atbash_encrypt_or_decrypt(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("atbash_decrypt.txt"), atbash_encrypt_or_decrypt(app->universal_input));
-            app->last_output_scene = "AtbashDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("atbash_decrypt.txt"), atbash_encrypt_or_decrypt(app->universal_input));
+            strlcpy(app->last_output_scene, "AtbashDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBaconianOutputScene:
-            dialog_ex_set_text(app->dialog_ex, baconian_encrypt(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("baconian.txt"), baconian_encrypt(app->universal_input));
-            app->last_output_scene = "Baconian";
+            flip_crypt_show_result(app, APP_DATA_PATH("baconian.txt"), baconian_encrypt(app->universal_input));
+            strlcpy(app->last_output_scene, "Baconian", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBaconianDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, baconian_decrypt(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("baconian_decrypt.txt"), baconian_decrypt(app->universal_input));
-            app->last_output_scene = "BaconianDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("baconian_decrypt.txt"), baconian_decrypt(app->universal_input));
+            strlcpy(app->last_output_scene, "BaconianDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBeaufortOutputScene:
-            dialog_ex_set_text(app->dialog_ex, beaufort_cipher_encrypt_and_decrypt(app->universal_input, app->beaufort_key_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("beaufort.txt"), beaufort_cipher_encrypt_and_decrypt(app->universal_input, app->beaufort_key_input));
-            app->last_output_scene = "Beaufort";
+            flip_crypt_show_result(app, APP_DATA_PATH("beaufort.txt"), beaufort_cipher_encrypt_and_decrypt(app->universal_input, app->beaufort_key_input));
+            strlcpy(app->last_output_scene, "Beaufort", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBeaufortDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, beaufort_cipher_encrypt_and_decrypt(app->universal_input, app->beaufort_key_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("beaufort_decrypt.txt"), beaufort_cipher_encrypt_and_decrypt(app->universal_input, app->beaufort_key_input));
-            app->last_output_scene = "BeaufortDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("beaufort_decrypt.txt"), beaufort_cipher_encrypt_and_decrypt(app->universal_input, app->beaufort_key_input));
+            strlcpy(app->last_output_scene, "BeaufortDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptCaesarOutputScene:
-            dialog_ex_set_text(app->dialog_ex, encode_caesar(app->universal_input, app->caesar_key_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("caesar.txt"), encode_caesar(app->universal_input, app->caesar_key_input));
-            app->last_output_scene = "Caesar";
+            flip_crypt_show_result(app, APP_DATA_PATH("caesar.txt"), encode_caesar(app->universal_input, app->caesar_key_input));
+            strlcpy(app->last_output_scene, "Caesar", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptCaesarDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, decode_caesar(app->universal_input, app->caesar_key_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("caesar_decrypt.txt"), decode_caesar(app->universal_input, app->caesar_key_input));
-            app->last_output_scene = "CaesarDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("caesar_decrypt.txt"), decode_caesar(app->universal_input, app->caesar_key_input));
+            strlcpy(app->last_output_scene, "CaesarDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptPlayfairOutputScene:
-            dialog_ex_set_text(app->dialog_ex, playfair_encrypt(app->universal_input, playfair_make_table(app->playfair_keyword_input)), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("playfair.txt"), playfair_encrypt(app->universal_input, playfair_make_table(app->playfair_keyword_input)));
-            app->last_output_scene = "Playfair";
+            char* playfair_table = playfair_make_table(app->playfair_keyword_input);
+            flip_crypt_show_result(app, APP_DATA_PATH("playfair.txt"), playfair_encrypt(app->universal_input, playfair_table));
+            free(playfair_table);
+            strlcpy(app->last_output_scene, "Playfair", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptPlayfairDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, playfair_decrypt(app->universal_input, playfair_make_table(app->playfair_keyword_input)), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("playfair_decrypt.txt"), playfair_decrypt(app->universal_input, playfair_make_table(app->playfair_keyword_input)));
-            app->last_output_scene = "PlayfairDecrypt";
+            char* playfair_decrypt_table = playfair_make_table(app->playfair_keyword_input);
+            flip_crypt_show_result(app, APP_DATA_PATH("playfair_decrypt.txt"), playfair_decrypt(app->universal_input, playfair_decrypt_table));
+            free(playfair_decrypt_table);
+            strlcpy(app->last_output_scene, "PlayfairDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptPolybiusOutputScene:
-            dialog_ex_set_text(app->dialog_ex, encrypt_polybius(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("polybius.txt"), encrypt_polybius(app->universal_input));
-            app->last_output_scene = "Polybius";
+            flip_crypt_show_result(app, APP_DATA_PATH("polybius.txt"), encrypt_polybius(app->universal_input));
+            strlcpy(app->last_output_scene, "Polybius", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptPolybiusDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, decrypt_polybius(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("polybius_decrypt.txt"), decrypt_polybius(app->universal_input));
-            app->last_output_scene = "PolybiusDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("polybius_decrypt.txt"), decrypt_polybius(app->universal_input));
+            strlcpy(app->last_output_scene, "PolybiusDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptPortaOutputScene:
-            dialog_ex_set_text(app->dialog_ex, porta_encrypt_and_decrypt(app->universal_input, app->porta_keyword_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("porta.txt"), porta_encrypt_and_decrypt(app->universal_input, app->porta_keyword_input));
-            app->last_output_scene = "Porta";
+            flip_crypt_show_result(app, APP_DATA_PATH("porta.txt"), porta_encrypt_and_decrypt(app->universal_input, app->porta_keyword_input));
+            strlcpy(app->last_output_scene, "Porta", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptPortaDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, porta_encrypt_and_decrypt(app->universal_input, app->porta_keyword_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("porta_decrypt.txt"), porta_encrypt_and_decrypt(app->universal_input, app->porta_keyword_input));
-            app->last_output_scene = "PortaDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("porta_decrypt.txt"), porta_encrypt_and_decrypt(app->universal_input, app->porta_keyword_input));
+            strlcpy(app->last_output_scene, "PortaDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptRailfenceOutputScene:
-            dialog_ex_set_text(app->dialog_ex, rail_fence_encrypt(app->universal_input, app->railfence_key_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("railfence.txt"), rail_fence_encrypt(app->universal_input, app->railfence_key_input));
-            app->last_output_scene = "Railfence";
+            flip_crypt_show_result(app, APP_DATA_PATH("railfence.txt"), rail_fence_encrypt(app->universal_input, app->railfence_key_input));
+            strlcpy(app->last_output_scene, "Railfence", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptRailfenceDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, rail_fence_decrypt(app->universal_input, app->railfence_key_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("railfence_decrypt.txt"), rail_fence_decrypt(app->universal_input, app->railfence_key_input));
-            app->last_output_scene = "RailfenceDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("railfence_decrypt.txt"), rail_fence_decrypt(app->universal_input, app->railfence_key_input));
+            strlcpy(app->last_output_scene, "RailfenceDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -1945,7 +1961,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             char* rc4_encrypt_hex_output = rc4_to_hex((const char*)rc4_encrypted, rc4_input_len);
             dialog_ex_set_text(app->dialog_ex, rc4_encrypt_hex_output, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("rc4.txt"), rc4_encrypt_hex_output);
-            app->last_output_scene = "RC4";
+            strlcpy(app->last_output_scene, "RC4", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -1973,7 +1989,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             }
             save_result_generic(APP_DATA_PATH("rc4_decrypt.txt"), rc4_decrypted_str);
             free(rc4_decrypted_str);
-            app->last_output_scene = "RC4Decrypt";
+            strlcpy(app->last_output_scene, "RC4Decrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -1981,49 +1997,43 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             free(rc4_decrypted);
             break;
         case FlipCryptROT13OutputScene:
-            dialog_ex_set_text(app->dialog_ex, encrypt_rot13(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("rot13.txt"), encrypt_rot13(app->universal_input));
-            app->last_output_scene = "ROT13";
+            flip_crypt_show_result(app, APP_DATA_PATH("rot13.txt"), encrypt_rot13(app->universal_input));
+            strlcpy(app->last_output_scene, "ROT13", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptROT13DecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, decrypt_rot13(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("rot13_decrypt.txt"), decrypt_rot13(app->universal_input));
-            app->last_output_scene = "ROT13Decrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("rot13_decrypt.txt"), decrypt_rot13(app->universal_input));
+            strlcpy(app->last_output_scene, "ROT13Decrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptScytaleOutputScene:
-            dialog_ex_set_text(app->dialog_ex, scytale_encrypt(app->universal_input, app->scytale_keyword_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("scytale.txt"), scytale_encrypt(app->universal_input, app->scytale_keyword_input));
-            app->last_output_scene = "Scytale";
+            flip_crypt_show_result(app, APP_DATA_PATH("scytale.txt"), scytale_encrypt(app->universal_input, app->scytale_keyword_input));
+            strlcpy(app->last_output_scene, "Scytale", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptScytaleDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, scytale_decrypt(app->universal_input, app->scytale_keyword_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("scytale_decrypt.txt"), scytale_decrypt(app->universal_input, app->scytale_keyword_input));
-            app->last_output_scene = "ScytaleDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("scytale_decrypt.txt"), scytale_decrypt(app->universal_input, app->scytale_keyword_input));
+            strlcpy(app->last_output_scene, "ScytaleDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptVigenereOutputScene:
-            dialog_ex_set_text(app->dialog_ex, vigenere_encrypt(app->universal_input, app->vigenere_keyword_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("vigenere.txt"), vigenere_encrypt(app->universal_input, app->vigenere_keyword_input));
-            app->last_output_scene = "Vigenere";
+            flip_crypt_show_result(app, APP_DATA_PATH("vigenere.txt"), vigenere_encrypt(app->universal_input, app->vigenere_keyword_input));
+            strlcpy(app->last_output_scene, "Vigenere", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptVigenereDecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, vigenere_decrypt(app->universal_input, app->vigenere_keyword_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("vigenere_decrypt.txt"), vigenere_decrypt(app->universal_input, app->vigenere_keyword_input));
-            app->last_output_scene = "VigenereDecrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("vigenere_decrypt.txt"), vigenere_decrypt(app->universal_input, app->vigenere_keyword_input));
+            strlcpy(app->last_output_scene, "VigenereDecrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2038,7 +2048,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             blake2s_to_hex(blake2_hash, blake2_hex_output);
             dialog_ex_set_text(app->dialog_ex, blake2_hex_output, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("blake2.txt"), blake2_hex_output);
-            app->last_output_scene = "Blake2";
+            strlcpy(app->last_output_scene, "Blake2", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2049,7 +2059,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             snprintf(fnv1a_hash_str, sizeof(fnv1a_hash_str), "0x%08lx", fnv1a_hash);
             dialog_ex_set_text(app->dialog_ex, fnv1a_hash_str, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("fnv1a.txt"), fnv1a_hash_str);
-            app->last_output_scene = "FNV1A";
+            strlcpy(app->last_output_scene, "FNV1A", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2066,7 +2076,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             }
             dialog_ex_set_text(app->dialog_ex, md2_hash_str, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("md2.txt"), md2_hash_str);
-            app->last_output_scene = "MD2";
+            strlcpy(app->last_output_scene, "MD2", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2081,15 +2091,14 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             md5_to_hex(md5_hash, md5_hex_output);
             dialog_ex_set_text(app->dialog_ex, md5_hex_output, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("md5.txt"), md5_hex_output);
-            app->last_output_scene = "MD5";
+            strlcpy(app->last_output_scene, "MD5", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptMurmur3OutputScene:
-            dialog_ex_set_text(app->dialog_ex, MurmurHash3_x86_32(app->universal_input, strlen(app->universal_input), 0), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("murmur3.txt"), MurmurHash3_x86_32(app->universal_input, strlen(app->universal_input), 0));
-            app->last_output_scene = "Murmur3";
+            flip_crypt_show_result(app, APP_DATA_PATH("murmur3.txt"), MurmurHash3_x86_32(app->universal_input, strlen(app->universal_input), 0));
+            strlcpy(app->last_output_scene, "Murmur3", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2104,7 +2113,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             siphash_str[16] = '\0';
             dialog_ex_set_text(app->dialog_ex, siphash_str, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("sip.txt"), siphash_str);
-            app->last_output_scene = "Sip";
+            strlcpy(app->last_output_scene, "Sip", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2119,7 +2128,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             sha1_to_hex(sha1_hash, sha1_hex_output);
             dialog_ex_set_text(app->dialog_ex, sha1_hex_output, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("sha1.txt"), sha1_hex_output);
-            app->last_output_scene = "SHA1";
+            strlcpy(app->last_output_scene, "SHA1", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2135,7 +2144,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             sha224_hex_output[56] = '\0';
             dialog_ex_set_text(app->dialog_ex, sha224_hex_output, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("sha224.txt"), sha224_hex_output);
-            app->last_output_scene = "SHA224";
+            strlcpy(app->last_output_scene, "SHA224", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2151,7 +2160,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             sha256_hex_output[64] = '\0';
             dialog_ex_set_text(app->dialog_ex, sha256_hex_output, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("sha256.txt"), sha256_hex_output);
-            app->last_output_scene = "SHA256";
+            strlcpy(app->last_output_scene, "SHA256", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2167,7 +2176,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             sha384_hex_output[96] = '\0';
             dialog_ex_set_text(app->dialog_ex, sha384_hex_output, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("sha384.txt"), sha384_hex_output);
-            app->last_output_scene = "SHA384";
+            strlcpy(app->last_output_scene, "SHA384", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2183,7 +2192,7 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             sha512_hex_output[128] = '\0';
             dialog_ex_set_text(app->dialog_ex, sha512_hex_output, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("sha512.txt"), sha512_hex_output);
-            app->last_output_scene = "SHA512";
+            strlcpy(app->last_output_scene, "SHA512", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2194,57 +2203,51 @@ void dialog_cipher_output_scene_on_enter(void* context) {
             snprintf(xxhash_str, sizeof(xxhash_str), "%016llX", xxhash);
             dialog_ex_set_text(app->dialog_ex, xxhash_str, 64, 18, AlignCenter, AlignCenter);
             save_result_generic(APP_DATA_PATH("xx.txt"), xxhash_str);
-            app->last_output_scene = "XX";
+            strlcpy(app->last_output_scene, "XX", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBase32OutputScene:
-            dialog_ex_set_text(app->dialog_ex, base32_encode((const uint8_t*)app->universal_input, strlen(app->universal_input)), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("base32.txt"), base32_encode((const uint8_t*)app->universal_input, strlen(app->universal_input)));
-            app->last_output_scene = "Base32";
+            flip_crypt_show_result(app, APP_DATA_PATH("base32.txt"), base32_encode((const uint8_t*)app->universal_input, strlen(app->universal_input)));
+            strlcpy(app->last_output_scene, "Base32", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBase32DecryptOutputScene:
             size_t base32_decoded_len;
-            dialog_ex_set_text(app->dialog_ex, (const char*)base32_decode(app->universal_input, &base32_decoded_len), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("base32_decrypt.txt"), (const char*)base32_decode(app->universal_input, &base32_decoded_len));
-            app->last_output_scene = "Base32Decrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("base32_decrypt.txt"), (char*)base32_decode(app->universal_input, &base32_decoded_len));
+            strlcpy(app->last_output_scene, "Base32Decrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBase58OutputScene:
-            dialog_ex_set_text(app->dialog_ex, base58_encode(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("base58.txt"), base58_encode(app->universal_input));
-            app->last_output_scene = "Base58";
+            flip_crypt_show_result(app, APP_DATA_PATH("base58.txt"), base58_encode(app->universal_input));
+            strlcpy(app->last_output_scene, "Base58", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBase58DecryptOutputScene:
-            dialog_ex_set_text(app->dialog_ex, base58_decode(app->universal_input), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("base58_decrypt.txt"), base58_decode(app->universal_input));
-            app->last_output_scene = "Base58Decrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("base58_decrypt.txt"), base58_decode(app->universal_input));
+            strlcpy(app->last_output_scene, "Base58Decrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBase64OutputScene:
-            dialog_ex_set_text(app->dialog_ex, base64_encode((const unsigned char*)app->universal_input, strlen(app->universal_input)), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("base64.txt"), base64_encode((const unsigned char*)app->universal_input, strlen(app->universal_input)));
-            app->last_output_scene = "Base64";
+            flip_crypt_show_result(app, APP_DATA_PATH("base64.txt"), base64_encode((const unsigned char*)app->universal_input, strlen(app->universal_input)));
+            strlcpy(app->last_output_scene, "Base64", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
             break;
         case FlipCryptBase64DecryptOutputScene:
             size_t base64_decoded_len;
-            dialog_ex_set_text(app->dialog_ex, (const char*)base64_decode(app->universal_input, &base64_decoded_len), 64, 18, AlignCenter, AlignCenter);
-            save_result_generic(APP_DATA_PATH("base64_decrypt.txt"), (const char*)base64_decode(app->universal_input, &base64_decoded_len));
-            app->last_output_scene = "Base64Decrypt";
+            flip_crypt_show_result(app, APP_DATA_PATH("base64_decrypt.txt"), (char*)base64_decode(app->universal_input, &base64_decoded_len));
+            strlcpy(app->last_output_scene, "Base64Decrypt", app->last_output_scene_size);
             dialog_ex_set_left_button_text(app->dialog_ex, "NFC");
             dialog_ex_set_center_button_text(app->dialog_ex, "Save");
             dialog_ex_set_right_button_text(app->dialog_ex, "QR");
@@ -2404,6 +2407,11 @@ void create_nfc_tag(App* app, const char* message) {
     const char* lang = "en";
     uint8_t lang_len = strlen(lang);
     size_t msg_len = strlen(message);
+    // NDEF length bytes are uint8_t: a longer message wraps them and corrupts the tag
+    if(msg_len > 240) {
+        message = "Output too long for NFC";
+        msg_len = strlen(message);
+    }
 
     // NDEF Text Record Payload: Status Byte + Language Code + Message
     size_t text_payload_len = 1 + lang_len + msg_len;
@@ -2475,10 +2483,12 @@ static void flip_crypt_nfc_from_file(App* app, const char* path) {
     free(text);
 }
 
-static void flip_crypt_qr_from_file(App* app, const char* path) {
+// returns false when the text does not fit a version 5 QR code
+static bool flip_crypt_qr_from_file(App* app, const char* path) {
     char* text = flip_crypt_load_or_error(path);
-    qrcodegen_encodeText(text, app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
+    bool ok = qrcodegen_encodeText(text, app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
     free(text);
+    return ok;
 }
 
 static void flip_crypt_save_from_file(const char* path, char* file_name) {
@@ -2611,97 +2621,97 @@ void flip_crypt_qr_scene_on_enter(void* context) {
     bool isTooLong = false;
     widget_reset(app->widget);
     if (strcmp(app->last_output_scene, "AES") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("aes.txt")); 
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("aes.txt")); 
     } else if (strcmp(app->last_output_scene, "AESDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("aes_decrypt.txt"));  
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("aes_decrypt.txt"));  
     } else if (strcmp(app->last_output_scene, "Atbash") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("atbash.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("atbash.txt"));
     } else if (strcmp(app->last_output_scene, "AtbashDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("atbash_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("atbash_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Affine") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("affine.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("affine.txt"));
     } else if (strcmp(app->last_output_scene, "AffineDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("affine_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("affine_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Baconian") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("baconian.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("baconian.txt"));
     } else if (strcmp(app->last_output_scene, "BaconianDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("baconian_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("baconian_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Beaufort") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("beaufort.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("beaufort.txt"));
     } else if (strcmp(app->last_output_scene, "BeaufortDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("beaufort_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("beaufort_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Caesar") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("caesar.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("caesar.txt"));
     } else if (strcmp(app->last_output_scene, "CaesarDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("caesar_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("caesar_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Playfair") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("playfair.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("playfair.txt"));
     } else if (strcmp(app->last_output_scene, "PlayfairDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("playfair_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("playfair_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Polybius") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("polybius.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("polybius.txt"));
     } else if (strcmp(app->last_output_scene, "PolybiusDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("polybius_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("polybius_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Porta") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("porta.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("porta.txt"));
     } else if (strcmp(app->last_output_scene, "PortaDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("porta_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("porta_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Railfence") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("railfence.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("railfence.txt"));
     } else if (strcmp(app->last_output_scene, "RailfenceDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("railfence_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("railfence_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "RC4") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("rc4.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("rc4.txt"));
     } else if (strcmp(app->last_output_scene, "RC4Decrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("rc4_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("rc4_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "ROT13") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("rot13.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("rot13.txt"));
     } else if (strcmp(app->last_output_scene, "ROT13Decrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("rot13_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("rot13_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Scytale") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("scytale.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("scytale.txt"));
     } else if (strcmp(app->last_output_scene, "ScytaleDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("scytale_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("scytale_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Vigenere") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("vigenere.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("vigenere.txt"));
     } else if (strcmp(app->last_output_scene, "VigenereDecrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("vigenere_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("vigenere_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Blake2") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("blake2.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("blake2.txt"));
     } else if (strcmp(app->last_output_scene, "FNV1A") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("fnv1a.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("fnv1a.txt"));
     } else if (strcmp(app->last_output_scene, "MD2") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("md2.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("md2.txt"));
     } else if (strcmp(app->last_output_scene, "MD5") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("md5.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("md5.txt"));
     } else if (strcmp(app->last_output_scene, "Murmur3") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("murmur3.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("murmur3.txt"));
     } else if (strcmp(app->last_output_scene, "Sip") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("sip.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("sip.txt"));
     } else if (strcmp(app->last_output_scene, "SHA1") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("sha1.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("sha1.txt"));
     } else if (strcmp(app->last_output_scene, "SHA224") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("sha224.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("sha224.txt"));
     } else if (strcmp(app->last_output_scene, "SHA256") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("sha256.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("sha256.txt"));
     } else if (strcmp(app->last_output_scene, "SHA384") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("sha384.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("sha384.txt"));
     } else if (strcmp(app->last_output_scene, "SHA512") == 0) {
         isTooLong = true;
     } else if (strcmp(app->last_output_scene, "XX") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("xx.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("xx.txt"));
     } else if (strcmp(app->last_output_scene, "Base32") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("base32.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("base32.txt"));
     } else if (strcmp(app->last_output_scene, "Base32Decrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("base32_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("base32_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Base58") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("base58.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("base58.txt"));
     } else if (strcmp(app->last_output_scene, "Base58Decrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("base58_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("base58_decrypt.txt"));
     } else if (strcmp(app->last_output_scene, "Base64") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("base64.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("base64.txt"));
     } else if (strcmp(app->last_output_scene, "Base64Decrypt") == 0) {
-        flip_crypt_qr_from_file(app, APP_DATA_PATH("base64_decrypt.txt"));
+        isTooLong = !flip_crypt_qr_from_file(app, APP_DATA_PATH("base64_decrypt.txt"));
     } else {
         qrcodegen_encodeText("ERROR", app->qr_buffer, app->qrcode, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, 5, qrcodegen_Mask_AUTO, true);
     }
@@ -3481,6 +3491,7 @@ static App* app_alloc() {
     app->universal_input = malloc(app->universal_input_size);
     app->save_name_input = malloc(app->save_name_input_size);
     app->last_output_scene = malloc(app->last_output_scene_size);
+    app->last_output_scene[0] = '\0';
     app->aes_key_input = malloc(app->aes_key_input_size);
     app->affine_keya_input = 1;
     app->affine_keyb_input = 1;

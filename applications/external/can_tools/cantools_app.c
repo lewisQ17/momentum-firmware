@@ -42,6 +42,9 @@
 // Folder + file format for saved DBC files
 #define DBC_USER_PATH      EXT_PATH("apps_data/can_tools")
 #define DBC_EXTENSION      ".dbc"
+// Larger files are loaded read-only without keeping their raw lines in RAM
+#define DBC_MAX_EDIT_SIZE  (32 * 1024)
+#define DBC_VEHICLE_SCAN_LIMIT 8192
 #define DBC_VEHICLE_PREFIX "CM_ \"Vehicle: "
 
 typedef enum {
@@ -232,7 +235,9 @@ static bool validate_required(const char* value, const char* label, FuriString* 
 static bool parse_uint32_str(const char* value, uint32_t* out) {
     if(!value || value[0] == '\0') return false;
     char* end = NULL;
-    unsigned long parsed = strtoul(value, &end, 0);
+    // base 0 read a leading zero as octal ("0100" = 64); the prompt says dec/0x
+    int base = (value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) ? 16 : 10;
+    unsigned long parsed = strtoul(value, &end, base);
     if(end == value || *end != '\0') return false;
     if(parsed > UINT32_MAX) return false;
     if(out) *out = (uint32_t)parsed;
@@ -819,6 +824,63 @@ static bool
     return true;
 }
 
+// Writing regenerates BO_/SG_ lines with fixed DLC 8, transmitter and receiver, no multiplexer and
+// names cut to TEXT_INPUT_SIZE. A line that holds more than that must make the file read-only.
+static bool dbc_bo_line_is_lossless(const char* line) {
+    const char* p = line + 3;
+    while(isspace((unsigned char)*p))
+        p++;
+    while(isdigit((unsigned char)*p))
+        p++;
+    while(isspace((unsigned char)*p))
+        p++;
+    const char* name_start = p;
+    while(*p && *p != ':' && !isspace((unsigned char)*p))
+        p++;
+    if((size_t)(p - name_start) >= TEXT_INPUT_SIZE) return false;
+    while(isspace((unsigned char)*p))
+        p++;
+    if(*p != ':') return false;
+    p++;
+    while(isspace((unsigned char)*p))
+        p++;
+    char* end = NULL;
+    unsigned long dlc = strtoul(p, &end, 10);
+    if(end == p || dlc != 8) return false;
+    p = end;
+    while(isspace((unsigned char)*p))
+        p++;
+    return strcmp(p, "VehicleBus") == 0;
+}
+
+static bool dbc_sg_line_is_lossless(const char* line) {
+    const char* p = line + 3;
+    while(isspace((unsigned char)*p))
+        p++;
+    const char* name_start = p;
+    while(*p && !isspace((unsigned char)*p) && *p != ':')
+        p++;
+    if((size_t)(p - name_start) >= TEXT_INPUT_SIZE) return false;
+    // anything between the name and ':' is a multiplexer indicator (M, m0)
+    while(isspace((unsigned char)*p))
+        p++;
+    if(*p != ':') return false;
+    // after the range comes "unit" and the receivers
+    p = strchr(p, ']');
+    if(!p) return false;
+    p++;
+    while(isspace((unsigned char)*p))
+        p++;
+    if(*p != '"') return false;
+    p++;
+    const char* unit_end = strchr(p, '"');
+    if(!unit_end || (size_t)(unit_end - p) >= TEXT_INPUT_SIZE) return false;
+    p = unit_end + 1;
+    while(isspace((unsigned char)*p))
+        p++;
+    return strcmp(p, "Receiver") == 0;
+}
+
 static bool dbc_read_vehicle_info(const char* path, char* out, size_t out_size) {
     if(!out || out_size == 0) return false;
     out[0] = '\0';
@@ -829,6 +891,7 @@ static bool dbc_read_vehicle_info(const char* path, char* out, size_t out_size) 
         goto cleanup;
     }
     FuriString* line = furi_string_alloc();
+    size_t scanned = 0;
     while(stream_read_line(stream, line)) {
         char buf[256];
         strlcpy(buf, furi_string_get_cstr(line), sizeof(buf));
@@ -838,6 +901,9 @@ static bool dbc_read_vehicle_info(const char* path, char* out, size_t out_size) 
             found = true;
             break;
         }
+        // the comment sits near the top; do not read a whole large DBC for every list entry
+        scanned += furi_string_size(line);
+        if(scanned > DBC_VEHICLE_SCAN_LIMIT) break;
     }
     furi_string_free(line);
 
@@ -878,10 +944,19 @@ static bool dbc_load_file(App* app, const char* path) {
         goto cleanup;
     }
 
+    // A big DBC would be copied into header/footer and run the heap out; it is never rewritten
+    bool keep_raw = true;
+    if(stream_size(stream) > DBC_MAX_EDIT_SIZE) {
+        FURI_LOG_W(TAG, "DBC file too large to edit, read-only");
+        app->dbc_lossy = true;
+        keep_raw = false;
+    }
+
     FuriString* line = furi_string_alloc();
     // Raw BO_ line, only kept if no signal follows it (otherwise it is regenerated on write)
     FuriString* pending_bo = furi_string_alloc();
     bool pending_has_signal = false;
+    bool current_bo_lossless = true;
     bool in_body = false;
     uint32_t current_can_id = 0;
     char current_msg[TEXT_INPUT_SIZE] = {0};
@@ -900,10 +975,11 @@ static bool dbc_load_file(App* app, const char* path) {
         }
 
         if(dbc_parse_bo_line(trimmed, &current_can_id, current_msg, sizeof(current_msg))) {
-            if(furi_string_size(pending_bo) > 0 && !pending_has_signal) {
+            if(keep_raw && furi_string_size(pending_bo) > 0 && !pending_has_signal) {
                 dbc_append_raw_line(app->dbc_footer, pending_bo);
             }
-            furi_string_set(pending_bo, line);
+            current_bo_lossless = dbc_bo_line_is_lossless(trimmed);
+            if(keep_raw) furi_string_set(pending_bo, line);
             pending_has_signal = false;
             in_body = true;
             continue;
@@ -915,6 +991,10 @@ static bool dbc_load_file(App* app, const char* path) {
                dbc_parse_sg_line(trimmed, &sig, current_can_id, current_msg)) {
                 app->signals[app->signal_count++] = sig;
                 pending_has_signal = true;
+                if(!current_bo_lossless || !dbc_sg_line_is_lossless(trimmed)) {
+                    FURI_LOG_W(TAG, "DBC line holds data a rewrite would lose, read-only");
+                    app->dbc_lossy = true;
+                }
                 continue;
             }
             // Cannot be held in memory; refuse to rewrite the file instead of dropping it
@@ -924,6 +1004,7 @@ static bool dbc_load_file(App* app, const char* path) {
         }
 
         // Unparsed line: keep it verbatim and in its original order
+        if(!keep_raw) continue;
         if(furi_string_size(pending_bo) > 0 && !pending_has_signal) {
             dbc_append_raw_line(app->dbc_footer, pending_bo);
         }
@@ -931,7 +1012,7 @@ static bool dbc_load_file(App* app, const char* path) {
         dbc_append_raw_line(in_body ? app->dbc_footer : app->dbc_header, line);
     }
 
-    if(furi_string_size(pending_bo) > 0 && !pending_has_signal) {
+    if(keep_raw && furi_string_size(pending_bo) > 0 && !pending_has_signal) {
         dbc_append_raw_line(app->dbc_footer, pending_bo);
     }
     furi_string_free(pending_bo);
@@ -2217,7 +2298,8 @@ void Cantools_scenes_decode_result_scene_on_enter(void* context) {
     bool matched = false;
     for(uint8_t i = 0; i < app->signal_count; i++) {
         const DbcSignal* sig = &app->signals[i];
-        uint32_t sig_id = dbc_parse_can_id(sig);
+        // DBC marks 29-bit IDs with bit 31; the typed ID has no flag
+        uint32_t sig_id = dbc_parse_can_id(sig) & 0x1FFFFFFF;
         if(sig_id != app->decode_can_id) continue;
 
         double value = 0.0;
@@ -2493,5 +2575,6 @@ int32_t cantools_app(void* p) {
     view_dispatcher_run(app->view_dispatcher);
 
     app_free(app);
+    furi_record_close(RECORD_GUI);
     return 0;
 }

@@ -11,7 +11,7 @@ char* base32_encode(const uint8_t* data, size_t input_length) {
     size_t encoded_length = (output_length + 7) / 8 * 8; // pad to full 8 chars
     char* encoded = (char*)malloc(encoded_length + 1); // +1 for null terminator
 
-    if (!encoded) return "memory allocation failed, try again";
+    if (!encoded) return strdup("memory allocation failed, try again");
 
     size_t buffer = 0;
     int bits_left = 0;
@@ -55,7 +55,7 @@ uint8_t* base32_decode(const char* input, size_t* output_length) {
 
     // Allocate maximum possible decoded size
     uint8_t* decoded = (uint8_t*)malloc((input_length * 5 / 8) + 1);
-    if (!decoded) return (uint8_t *)"memory allocation failed, try again";
+    if (!decoded) return (uint8_t*)strdup("memory allocation failed, try again");
 
     for (size_t i = 0; i < input_length; i++) {
         char c = toupper(input[i]);
@@ -73,6 +73,8 @@ uint8_t* base32_decode(const char* input, size_t* output_length) {
             bits_left -= 8;
         }
     }
+
+    decoded[index] = '\0'; // callers show the result as a string; index <= input_length * 5 / 8
 
     if (output_length) {
         *output_length = index;

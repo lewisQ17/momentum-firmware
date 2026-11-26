@@ -71,6 +71,7 @@ FlippPomodoroApp *flipp_pomodoro_app_alloc()
 {
     FlippPomodoroApp *app = malloc(sizeof(FlippPomodoroApp));
     app->state = flipp_pomodoro__new();
+    app->buzz_mode_cached = false;
 
     app->scene_manager = scene_manager_alloc(&flipp_pomodoro_scene_handlers, app);
     app->gui = furi_record_open(RECORD_GUI);

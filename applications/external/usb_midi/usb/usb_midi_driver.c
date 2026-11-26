@@ -322,8 +322,10 @@ void midi_usb_set_rx_callback(MidiRxCallback callback) {
 }
 
 size_t midi_usb_rx(uint8_t* buffer, size_t size) {
-    size_t len = usbd_ep_read(midi_usb.dev, USB_MIDI_EP_OUT, buffer, size);
-    return len;
+    // dev is NULL after deinit; ep_read returns -1 when the endpoint is not ready
+    if(midi_usb.dev == NULL) return 0;
+    int32_t len = usbd_ep_read(midi_usb.dev, USB_MIDI_EP_OUT, buffer, size);
+    return len < 0 ? 0 : (size_t)len;
 }
 
 size_t midi_usb_tx(uint8_t* buffer, uint8_t size) {

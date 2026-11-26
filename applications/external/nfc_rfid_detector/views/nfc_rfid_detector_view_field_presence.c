@@ -35,10 +35,15 @@ void nfc_rfid_detector_view_field_presence_update(
     bool rfid_field,
     uint32_t rfid_frequency) {
     furi_assert(instance);
+    // redraw only when the displayed state changed (called on every 100 ms tick)
+    bool changed = false;
     with_view_model(
         instance->view,
         NfcRfidDetectorFieldPresenceModel * model,
         {
+            const bool had_nfc = model->nfc_field != 0;
+            const bool had_rfid = model->rfid_field != 0;
+            const uint32_t old_frequency = model->rfid_frequency;
             if(nfc_field) {
                 model->nfc_field = FIELD_FOUND_WEIGHT;
             } else if(model->nfc_field) {
@@ -50,8 +55,12 @@ void nfc_rfid_detector_view_field_presence_update(
             } else if(model->rfid_field) {
                 model->rfid_field--;
             }
+            // drawing depends only on presence (weight != 0) and the shown frequency
+            changed = (had_nfc != (bool)model->nfc_field) ||
+                      (had_rfid != (bool)model->rfid_field) ||
+                      (old_frequency != model->rfid_frequency);
         },
-        true);
+        changed);
 }
 
 void nfc_rfid_detector_view_field_presence_draw(

@@ -286,7 +286,9 @@ static bool
                 model->playing = dtmf_dolphin_audio_play_tones(
                     model->freq1, model->freq2, model->pulses, model->pulse_ms, model->gap_ms);
             } else if(event->type == InputTypeRelease) {
-                model->playing = !dtmf_dolphin_audio_stop_tones();
+                // false from stop means nothing was playing, so the UI is not playing either way
+                dtmf_dolphin_audio_stop_tones();
+                model->playing = false;
             }
         },
         true);

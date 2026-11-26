@@ -221,8 +221,13 @@ void do_command(
             if((opcode & 0xf) > 0 && (tick % (opcode & 0xf)) == 0) {
                 uint8_t prev_vol_tr = te_channel->volume;
                 uint8_t prev_vol_cyd = se_channel->adsr.volume;
+                // last_note already holds the base_note/finetune offset the trigger adds again
+                const Instrument* rt_inst = te_channel->instrument;
+                uint16_t raw_note = (uint16_t)((int32_t)te_channel->last_note -
+                                               (((int16_t)rt_inst->base_note - MIDDLE_C) << 8) -
+                                               (int16_t)rt_inst->finetune);
                 tracker_engine_trigger_instrument_internal(
-                    tracker_engine, channel, te_channel->instrument, te_channel->last_note);
+                    tracker_engine, channel, te_channel->instrument, raw_note);
                 te_channel->volume = prev_vol_tr;
                 se_channel->adsr.volume = prev_vol_cyd;
             }
@@ -357,7 +362,8 @@ void do_command(
 
     case TE_EFFECT_SET_RING_MOD_SRC: {
         if(tick == 0) {
-            se_channel->ring_mod = (opcode & 0xff);
+            // out-of-range source means self (0xff)
+            se_channel->ring_mod = (opcode & 0xff) < SONG_MAX_CHANNELS ? (opcode & 0xff) : 0xff;
         }
 
         break;
@@ -365,7 +371,7 @@ void do_command(
 
     case TE_EFFECT_SET_HARD_SYNC_SRC: {
         if(tick == 0) {
-            se_channel->hard_sync = (opcode & 0xff);
+            se_channel->hard_sync = (opcode & 0xff) < SONG_MAX_CHANNELS ? (opcode & 0xff) : 0xff;
         }
 
         break;

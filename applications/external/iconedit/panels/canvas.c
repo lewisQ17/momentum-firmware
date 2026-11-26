@@ -54,10 +54,7 @@ void canvas_free_canvas() {
 // Sets up the view port size based on the scale setting.
 // Repositions the cursor to the middle of the viewport
 void canvas_set_scale(size_t scale_setting) {
-    if(scale_setting == 0) {
-        FURI_LOG_E(TAG, "Can not set canvas scale to 0");
-        return;
-    }
+    // 0 is SETTING_SCALE_AUTO and handled below (was wrongly rejected, leaving a blank canvas)
     // Auto minimum scale is always 2x - so we can actually SEE the pixels
     // also, let's constrain the canvas to the 64x64 area - always
     // but our drawing area needs to be a little less - like 60x60? <-- do we even do this?
@@ -66,7 +63,8 @@ void canvas_set_scale(size_t scale_setting) {
     canvasModel.scale = scale_setting == SETTING_SCALE_AUTO ? SETTING_SCALE_AUTO_MIN :
                                                               scale_setting;
     size_t max_dim = MAX(canvasModel.icon->width, canvasModel.icon->height);
-    if(scale_setting == SETTING_SCALE_AUTO && max_dim <= (CANVAS_DIM / SETTING_SCALE_AUTO_MIN)) {
+    if(scale_setting == SETTING_SCALE_AUTO && max_dim > 0 &&
+       max_dim <= (CANVAS_DIM / SETTING_SCALE_AUTO_MIN)) {
         canvasModel.scale = CANVAS_DIM / max_dim;
     }
 

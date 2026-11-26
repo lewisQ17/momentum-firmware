@@ -228,13 +228,15 @@ bool dtmf_dolphin_audio_play_tones(
         current_player->playing = true;
         return true;
     } else {
-        current_player->playing = false;
+        // no speaker: undo the ISR and free the player, or the next press would hit the ISR check
+        furi_hal_interrupt_set_isr(FuriHalInterruptIdDma1Ch1, NULL, NULL);
+        dtmf_dolphin_audio_free(current_player);
         return false;
     }
 }
 
 bool dtmf_dolphin_audio_stop_tones() {
-    if(current_player != NULL && !current_player->playing) {
+    if(current_player == NULL || !current_player->playing) {
         // Can't stop a player that isn't playing.
         return false;
     }

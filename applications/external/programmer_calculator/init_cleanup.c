@@ -42,7 +42,7 @@ void cleanup_resources(
     view_port_free(view_port);
     furi_mutex_free(calculator_state->mutex);
     furi_message_queue_free(event_queue);
-    furi_record_close(RECORD_NOTIFICATION);
+    // RECORD_NOTIFICATION is never opened by this app, so it must not be closed here
     furi_record_close(RECORD_GUI);
     free(calculator_state);
 }

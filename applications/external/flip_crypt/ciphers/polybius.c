@@ -30,7 +30,7 @@ void find_coords(char c, int* row, int* col) {
 char* encrypt_polybius(const char* plaintext) {
     size_t len = strlen(plaintext);
     char* ciphertext = malloc(len * 2 + 1); // Each letter -> 2 digits
-    if (!ciphertext) return "memory allocation failed, try again";
+    if (!ciphertext) return strdup("memory allocation failed, try again");
 
     size_t pos = 0;
     for (size_t i = 0; i < len; i++) {
@@ -49,7 +49,7 @@ char* encrypt_polybius(const char* plaintext) {
 char* decrypt_polybius(const char* ciphertext) {
     size_t len = strlen(ciphertext);
     char* plaintext = malloc(len / 2 + 1); // Each 2 digits -> 1 letter
-    if (!plaintext) return "memory allocation failed, try again";
+    if (!plaintext) return strdup("memory allocation failed, try again");
 
     size_t pos = 0;
     for (size_t i = 0; i + 1 < len; i += 2) {

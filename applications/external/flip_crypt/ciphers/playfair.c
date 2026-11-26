@@ -7,7 +7,7 @@
 
 char* playfair_make_table(const char* keyword) {
     char* table_output = (char*)malloc(26);
-    if (!table_output) return "memory allocation failed";
+    if (!table_output) return strdup("memory allocation failed");
 
     int used[26] = {0}; // Track used letters (a-z), index 0 = 'a'
     size_t table_index = 0;
@@ -59,7 +59,7 @@ char* playfair_encrypt(const char* plaintext, const char* table) {
     size_t len = strlen(plaintext);
     // Max encrypted length can be up to twice plaintext length (worst case)
     char* prepared = (char*)malloc(len * 2 + 1);
-    if (!prepared) return "memory allocation failed";
+    if (!prepared) return strdup("memory allocation failed");
 
     // Step 1: Prepare plaintext as digraphs
     size_t prep_index = 0;
@@ -86,7 +86,7 @@ char* playfair_encrypt(const char* plaintext, const char* table) {
     char* encrypted = (char*)malloc(prep_index + 1);
     if (!encrypted) {
         free(prepared);
-        return "memory allocation failed";
+        return strdup("memory allocation failed");
     }
 
     for (size_t i = 0; i < prep_index; i += 2) {
@@ -117,13 +117,13 @@ char* playfair_encrypt(const char* plaintext, const char* table) {
 char* playfair_decrypt(const char* ciphertext, const char* table) {
     size_t len = strlen(ciphertext);
     if (len % 2 != 0) {
-        return "text to decrypt must be of an even length";
+        return strdup("text to decrypt must be of an even length");
     }
 
     // Allocate and convert ciphertext to lowercase
     char* lower_text = (char*)malloc(len + 1);
     if (!lower_text) {
-        return "memory allocation failure";
+        return strdup("memory allocation failure");
     }
     for (size_t i = 0; i < len; ++i) {
         lower_text[i] = tolower((unsigned char)ciphertext[i]);
@@ -134,13 +134,20 @@ char* playfair_decrypt(const char* ciphertext, const char* table) {
     char* decrypted = (char*)malloc(len + 1);
     if (!decrypted) {
         free(lower_text);
-        return "memory allocation failure";
+        return strdup("memory allocation failure");
     }
 
     for (size_t i = 0; i < len; i += 2) {
         int r1, c1, r2, c2;
         find_position(lower_text[i], table, &r1, &c1);
         find_position(lower_text[i+1], table, &r2, &c2);
+
+        // non-letters are not in the table: indexing with -1 would read before it
+        if (r1 < 0 || r2 < 0) {
+            free(lower_text);
+            free(decrypted);
+            return strdup("text to decrypt may only contain letters");
+        }
 
         if (r1 == r2) {
             // Same row: letter to the left (wrap around)

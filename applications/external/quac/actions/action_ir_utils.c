@@ -32,6 +32,13 @@ bool infrared_utils_read_signal_at_index(
     uint32_t temp_data32;
     bool success = false;
 
+    // a reused signal (IMPORT ALL) may still own the previous raw timings
+    if(signal->is_raw) {
+        free(signal->payload.raw.timings);
+        signal->payload.raw.timings = NULL;
+        signal->is_raw = false;
+    }
+
     do {
         if(!flipper_format_read_header(fff_data_file, temp_str, &temp_data32)) {
             FURI_LOG_E(TAG, "IR: Missing or incorrect header");
@@ -94,8 +101,7 @@ bool infrared_utils_read_signal_at_index(
             }
             success = true;
         } else if(furi_string_equal(temp_str, "raw")) {
-            signal->is_raw = true;
-
+            // is_raw is only set once timings is valid, so a failure never leaves a stale pointer
             if(!flipper_format_read_uint32(
                    fff_data_file, "frequency", &signal->payload.raw.frequency, 1)) {
                 // ACTION_SET_ERROR("IR: Failed to read frequency");
@@ -122,8 +128,10 @@ bool infrared_utils_read_signal_at_index(
                    fff_data_file, "data", signal->payload.raw.timings, temp_data32)) {
                 // ACTION_SET_ERROR("IR: Failed to read data");
                 free(signal->payload.raw.timings);
+                signal->payload.raw.timings = NULL;
                 break;
             }
+            signal->is_raw = true;
             success = true;
         }
     } while(false);

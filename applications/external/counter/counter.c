@@ -33,6 +33,7 @@ void state_free(Counter* c) {
     gui_remove_view_port(c->gui, c->view_port);
     furi_record_close(RECORD_GUI);
     view_port_free(c->view_port);
+    furi_record_close(RECORD_NOTIFICATION);
     furi_message_queue_free(c->input_queue);
     furi_mutex_free(c->mutex);
     free(c);
@@ -97,8 +98,11 @@ int32_t counterapp(void) {
     Counter* c = state_init();
 
     InputEvent input;
+    // the draw callback counts the highlight down once per redraw: keep redrawing until it is gone
+    uint8_t redraws = 0;
     for(bool processing = true; processing;) {
-        while(furi_message_queue_get(c->input_queue, &input, FuriWaitForever) == FuriStatusOk) {
+        while(furi_message_queue_get(c->input_queue, &input, redraws > 0 ? 100 : FuriWaitForever) ==
+              FuriStatusOk) {
             furi_check(furi_mutex_acquire(c->mutex, FuriWaitForever) == FuriStatusOk);
 
             if(input.type == InputTypeShort) {
@@ -145,6 +149,11 @@ int32_t counterapp(void) {
             if(!processing) {
                 break;
             }
+            view_port_update(c->view_port);
+            redraws = BOXTIME;
+        }
+        if(processing && redraws > 0) {
+            redraws--;
             view_port_update(c->view_port);
         }
     }

@@ -773,7 +773,15 @@ int32_t qrcode_app(void* p) {
 
         if(!qrcode_load_file(instance, furi_string_get_cstr(file_path))) {
             FURI_LOG_E(TAG, "Unable to load file");
+
+            // loading is only cleared by qrcode_load_string, so clear it here to show the error
+            furi_check(furi_mutex_acquire(instance->mutex, FuriWaitForever) == FuriStatusOk);
+            instance->loading = false;
+            furi_mutex_release(instance->mutex);
         }
+
+        // draw the initial state; afterwards only redraw on input
+        view_port_update(instance->view_port);
 
         InputEvent input;
         while(1) {
@@ -892,8 +900,9 @@ int32_t qrcode_app(void* p) {
                 }
 
                 furi_mutex_release(instance->mutex);
+
+                view_port_update(instance->view_port);
             }
-            view_port_update(instance->view_port);
         }
 
         if(p && strlen(p)) {

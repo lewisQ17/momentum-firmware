@@ -131,10 +131,13 @@ static void update_char_pool(MatrixContext* ctx) {
 static void init_matrix_column(MatrixColumn* column, int x_pos, Settings* settings) {
     column->x = x_pos * CHAR_WIDTH;
     column->y = -(rand() % SCREEN_HEIGHT);
-    column->length = settings->min_length.value + 
-                    (rand() % (settings->max_length.value - settings->min_length.value + 1));
-    column->speed = settings->min_speed.value + 
-                   (rand() % (settings->max_speed.value - settings->min_speed.value + 1));
+    // max may be set below min in the menu: keep the modulus >= 1 (no modulo by zero / negative)
+    int length_span = settings->max_length.value - settings->min_length.value + 1;
+    int speed_span = settings->max_speed.value - settings->min_speed.value + 1;
+    if(length_span < 1) length_span = 1;
+    if(speed_span < 1) speed_span = 1;
+    column->length = settings->min_length.value + (rand() % length_span);
+    column->speed = settings->min_speed.value + (rand() % speed_span);
 }
 
 static void init_matrix_context(MatrixContext* ctx) {
@@ -271,8 +274,9 @@ static void matrix_render(Canvas* canvas, void* context) {
                         int char_y = ctx->columns[i].y - (j * CHAR_HEIGHT);
                         
                         if(char_y >= 0 && char_y < SCREEN_HEIGHT) {
-                            char random_char = ctx->char_pool[rand() % ctx->char_pool_size];
-                            canvas_draw_str(canvas, ctx->columns[i].x, char_y, &random_char);
+                            // NUL-terminated: canvas_draw_str reads a C string
+                            char random_str[2] = {ctx->char_pool[rand() % ctx->char_pool_size], 0};
+                            canvas_draw_str(canvas, ctx->columns[i].x, char_y, random_str);
                         }
                     }
                     

@@ -41,7 +41,7 @@ char* porta_encrypt_and_decrypt(const char* plaintext, const char* keyword) {
     }
 
     char* output = malloc(n + 1);
-    if (!output) return "memory allocation failed, try again";
+    if (!output) return strdup("memory allocation failed, try again");
 
     size_t ki = 0; // advance key only when we process a letter
 
@@ -52,7 +52,7 @@ char* porta_encrypt_and_decrypt(const char* plaintext, const char* keyword) {
         if (p_index >= 0) {
             if (!key_has_letter) {
                 free(output);
-                return "key needs at least one letter";
+                return strdup("key needs at least one letter");
             }
             // pull next alphabetic key character
             int k_index;

@@ -46,5 +46,6 @@ inline uint8_t mp_flipper_log_get_effective_level() {
 inline void mp_flipper_log(uint8_t raw_level, const char* message) {
     FuriLogLevel level = decode_log_level(raw_level);
 
-    furi_log_print_format(level, "uPython", message);
+    // never use the script text as the printf format
+    furi_log_print_format(level, "uPython", "%s", message);
 }

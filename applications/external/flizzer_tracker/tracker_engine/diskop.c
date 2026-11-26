@@ -19,10 +19,16 @@ void load_instrument_inner(Stream* stream, Instrument* inst, uint8_t version) {
 
     if(inst->sound_engine_flags & SE_ENABLE_RING_MOD) {
         rwops = stream_read(stream, (uint8_t*)&inst->ring_mod, sizeof(inst->ring_mod));
+        if(inst->ring_mod >= SONG_MAX_CHANNELS) {
+            inst->ring_mod = 0xff; // out-of-range source means self
+        }
     }
 
     if(inst->sound_engine_flags & SE_ENABLE_HARD_SYNC) {
         rwops = stream_read(stream, (uint8_t*)&inst->hard_sync, sizeof(inst->hard_sync));
+        if(inst->hard_sync >= SONG_MAX_CHANNELS) {
+            inst->hard_sync = 0xff; // out-of-range source means self
+        }
     }
 
     uint8_t progsteps = 0;
@@ -60,6 +66,9 @@ void load_instrument_inner(Stream* stream, Instrument* inst, uint8_t version) {
         rwops =
             stream_read(stream, (uint8_t*)&inst->filter_resonance, sizeof(inst->filter_resonance));
         rwops = stream_read(stream, (uint8_t*)&inst->filter_type, sizeof(inst->filter_type));
+        if(inst->filter_type >= FIL_MODES) {
+            inst->filter_type = FIL_OUTPUT_LOWPASS; // keeps filter_types[] indexing in range
+        }
     }
 
     UNUSED(rwops);
@@ -122,6 +131,11 @@ bool load_song_inner(TrackerSong* song, Stream* stream) {
             stream,
             (uint8_t*)&song->sequence.sequence_step[i],
             sizeof(song->sequence.sequence_step[0]));
+    }
+
+    // 0 steps would underflow sequence_position to 0xFFFF and read far outside RAM in the ISR
+    if(song->num_sequence_steps == 0) {
+        song->num_sequence_steps = 1;
     }
 
     rwops = stream_read(stream, (uint8_t*)&song->num_patterns, sizeof(song->num_patterns));

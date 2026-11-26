@@ -53,7 +53,6 @@ static DTMFDolphinApp* app_alloc() {
         dtmf_dolphin_dialer_get_view(app->dtmf_dolphin_dialer));
 
     app->notification = furi_record_open(RECORD_NOTIFICATION);
-    notification_message(app->notification, &sequence_display_backlight_enforce_on);
 
     scene_manager_next_scene(app->scene_manager, DTMFDolphinSceneStart);
 

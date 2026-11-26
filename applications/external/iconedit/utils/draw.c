@@ -115,9 +115,10 @@ void ie_draw_circle_section(
 }
 
 void ie_draw_circle(uint8_t* buffer, uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, int bw, int bh) {
-    int8_t f;
-    int8_t ddF_x;
-    int8_t ddF_y;
+    // int16_t: the decision terms overflow int8_t for radius >= ~64
+    int16_t f;
+    int16_t ddF_x;
+    int16_t ddF_y;
     uint8_t x;
     uint8_t y;
 

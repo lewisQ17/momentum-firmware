@@ -119,6 +119,8 @@ void asteroid_update_asteroids(double dt) {
                 continue;
             }
 
+            bool collided = false;
+
             for(ListNode* other_node = asteroids.head; other_node != NULL;
                 other_node = other_node->next) {
                 if(other_node == node) continue; // Skip self
@@ -135,10 +137,13 @@ void asteroid_update_asteroids(double dt) {
                         other->active = false;
                         debri_create(a->p.x, a->p.y, a->v.x, a->v.y);
                         debri_create(other->p.x, other->p.y, other->v.x, other->v.y);
-                        continue;
+                        collided = true; // stop here, otherwise more debris spawns for the same hit
+                        break;
                     }
                 }
             }
+
+            if(collided) continue; // same handling as the planet collision: revisit as inactive
 
             Vec2 acc = planet_get_combined_acceleration(&a->p);
 

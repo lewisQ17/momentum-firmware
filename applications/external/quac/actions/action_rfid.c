@@ -90,9 +90,9 @@ void action_rfid_tx(void* context, const FuriString* action_path, FuriString* er
         lfrfid_worker_start_thread(worker);
         lfrfid_worker_emulate_start(worker, protocol);
 
-        int16_t time_ms = app->settings.rfid_duration;
-        FURI_LOG_I(TAG, "RFID: Emulating (%s) for %d ms", file_name, time_ms);
-        int16_t interval_ms = 100;
+        int32_t time_ms = app->settings.rfid_duration;
+        FURI_LOG_I(TAG, "RFID: Emulating (%s) for %ld ms", file_name, (long)time_ms);
+        int32_t interval_ms = 100;
         while(time_ms > 0) {
             furi_delay_ms(interval_ms);
             time_ms -= interval_ms;

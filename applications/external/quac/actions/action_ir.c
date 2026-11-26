@@ -4,6 +4,8 @@
 #include "action_i.h"
 #include "action_ir_utils.h"
 
+#include <furi_hal_infrared.h>
+
 void action_ir_tx(void* context, const FuriString* action_path, FuriString* error) {
     UNUSED(error);
     App* app = context;
@@ -26,6 +28,16 @@ void action_ir_tx(void* context, const FuriString* action_path, FuriString* erro
         uint32_t index = 0;
         if(!infrared_utils_read_signal_at_index(fff_data_file, index, signal, temp_str)) {
             ACTION_SET_ERROR("IR: Failed to read from file");
+            break;
+        }
+
+        // the HAL crashes the device on an empty signal or out of range carrier frequency / duty cycle
+        if(signal->is_raw &&
+           (signal->payload.raw.timings_size == 0 ||
+            signal->payload.raw.frequency < INFRARED_MIN_FREQUENCY ||
+            signal->payload.raw.frequency > INFRARED_MAX_FREQUENCY ||
+            !(signal->payload.raw.duty_cycle > 0.0f) || signal->payload.raw.duty_cycle > 1.0f)) {
+            ACTION_SET_ERROR("IR: Invalid raw signal");
             break;
         }
 

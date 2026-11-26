@@ -346,19 +346,23 @@ void draw_instrument_view(Canvas* canvas, FlizzerTrackerApp* tracker) {
         35 - shift,
         inst->filter_resonance);
 
-    snprintf(buffer, sizeof(buffer), "TYPE:%s", filter_types[inst->filter_type]);
+    // guard the table index against a malformed filter_type
+    const char* filter_type_str =
+        filter_types[inst->filter_type < FIL_MODES ? inst->filter_type : 0];
+
+    snprintf(buffer, sizeof(buffer), "TYPE:%s", filter_type_str);
     canvas_draw_str(canvas, 0, 41 - shift, buffer);
 
     if(tracker->editing && tracker->focus == EDIT_INSTRUMENT &&
        tracker->selected_param == INST_FILTERTYPE) {
         canvas_draw_box(
-            canvas, 19, 35 - shift, strlen(filter_types[inst->filter_type]) * 4 + 1, 7);
+            canvas, 19, 35 - shift, strlen(filter_type_str) * 4 + 1, 7);
     }
 
     if(!(tracker->editing) && tracker->focus == EDIT_INSTRUMENT &&
        tracker->selected_param == INST_FILTERTYPE) {
         canvas_draw_frame(
-            canvas, 19, 35 - shift, strlen(filter_types[inst->filter_type]) * 4 + 1, 7);
+            canvas, 19, 35 - shift, strlen(filter_type_str) * 4 + 1, 7);
     }
 
     draw_inst_flag(

@@ -119,7 +119,9 @@ void sound_engine_fill_buffer(
                 channel->accumulator &= ACC_LENGTH - 1;
 
                 if(channel->flags & SE_ENABLE_HARD_SYNC) {
-                    uint8_t hard_sync_src = channel->hard_sync == 0xff ? chan : channel->hard_sync;
+                    // any source outside the channel range means self (stops an out-of-bounds read in the ISR)
+                    uint8_t hard_sync_src =
+                        channel->hard_sync >= NUM_CHANNELS ? chan : channel->hard_sync;
 
                     if(sound_engine->channel[hard_sync_src].sync_bit) {
                         channel->accumulator = 0;
@@ -130,7 +132,7 @@ void sound_engine_fill_buffer(
                     sound_engine_osc(sound_engine, channel, prev_acc) - WAVE_AMP / 2;
 
                 if(channel->flags & SE_ENABLE_RING_MOD) {
-                    uint8_t ring_mod_src = channel->ring_mod == 0xff ? chan : channel->ring_mod;
+                    uint8_t ring_mod_src = channel->ring_mod >= NUM_CHANNELS ? chan : channel->ring_mod;
                     channel_output[chan] =
                         channel_output[chan] * channel_output[ring_mod_src] / WAVE_AMP;
                 }

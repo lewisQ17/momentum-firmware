@@ -13,8 +13,7 @@ void dtmf_dolphin_speaker_init() {
     LL_TIM_OC_Init(FURI_HAL_SPEAKER_TIMER, FURI_HAL_SPEAKER_CHANNEL, &TIM_OC_InitStruct);
 
     // Enable GPIO output
-    // Enable bus
-    furi_hal_bus_enable(FuriHalBusTIM2);
+    // (TIM2 is not used here: the speaker runs on TIM16, which furi_hal_speaker_acquire enables)
 
     //configuring PA6 pin as TIM16 output
     furi_hal_gpio_init_ex(
@@ -28,7 +27,6 @@ void dtmf_dolphin_speaker_init() {
 void dtmf_dolphin_gpio_deinit() {
     // Disable GPIO output 
     furi_hal_gpio_init(&gpio_ext_pa6, GpioModeAnalog, GpioPullNo, GpioSpeedLow);
-    furi_hal_bus_disable(FuriHalBusTIM2);
 }
 
 void dtmf_dolphin_speaker_start() {

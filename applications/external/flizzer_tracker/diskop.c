@@ -159,6 +159,10 @@ bool load_song_util(FlizzerTrackerApp* tracker, FuriString* filepath) {
 
     bool result = load_song(&tracker->song, tracker->stream);
 
+    // a copied pattern index may not exist in the newly loaded song
+    tracker->source_pattern_index = -1;
+    tracker->cut_pattern = false;
+
     tracker->is_loading = false;
     file_stream_close(tracker->stream);
     furi_string_free(filepath);

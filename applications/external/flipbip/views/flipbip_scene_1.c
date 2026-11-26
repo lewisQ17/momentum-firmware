@@ -158,6 +158,7 @@ static void
     if(len > MAX_TEXT_LEN) {
         len = MAX_TEXT_LEN;
     }
+    const size_t text_len = strlen(text);
     for(size_t si = 1; si <= 6; si++) {
         char* ptr = NULL;
 
@@ -175,7 +176,10 @@ static void
             ptr = s_disp_text6;
 
         memzero(ptr, MAX_TEXT_BUF);
-        strncpy(ptr, text + ((si - 1) * len), len);
+        // never read past the terminator of short texts (e.g. 43-byte addresses)
+        if(((si - 1) * len) < text_len) {
+            strncpy(ptr, text + ((si - 1) * len), len);
+        }
         // add a space every 4 characters and shift the text
         if(len < 23 && chunk) {
             for(size_t i = 0; i < strlen(ptr); i++) {
@@ -356,6 +360,7 @@ static int flipbip_scene_1_model_init(
     const bool overwrite,
     const char* passphrase_text) {
     model->page = PAGE_LOADING;
+    model->mnemonic = NULL; // only non-NULL once the heap buffer below is assigned
     model->mnemonic_only = false;
     model->strength = strength;
     model->coin_type = coin_type;
@@ -534,11 +539,15 @@ bool flipbip_scene_1_input(InputEvent* event, void* context) {
                 FlipBipScene1Model * model,
                 {
                     //UNUSED(model);
+                    // no paging while loading or in the error/mnemonic-only state (data not valid)
+                    const bool can_page = !model->mnemonic_only && model->page != PAGE_LOADING;
                     int page = (model->page + 1) % (PAGE_ADDR_END + 1);
                     if(page == 0) {
                         page = PAGE_INFO;
                     }
-                    model->page = page;
+                    if(can_page) {
+                        model->page = page;
+                    }
                 },
                 true);
             break;
@@ -549,11 +558,15 @@ bool flipbip_scene_1_input(InputEvent* event, void* context) {
                 FlipBipScene1Model * model,
                 {
                     //UNUSED(model);
+                    // no paging while loading or in the error/mnemonic-only state (data not valid)
+                    const bool can_page = !model->mnemonic_only && model->page != PAGE_LOADING;
                     int page = (model->page - 1) % (PAGE_ADDR_END + 1);
                     if(page == 0) {
                         page = PAGE_ADDR_END;
                     }
-                    model->page = page;
+                    if(can_page) {
+                        model->page = page;
+                    }
                 },
                 true);
             break;
@@ -590,7 +603,7 @@ void flipbip_scene_1_exit(void* context) {
             model->coin_type = CoinTypeBTC0;
             memzero(model->seed, 64);
             // if mnemonic_only is true, then we don't need to free the data here
-            if(!model->mnemonic_only) {
+            if(!model->mnemonic_only && model->mnemonic) {
                 memzero((void*)model->mnemonic, strlen(model->mnemonic));
                 free((void*)model->mnemonic);
                 memzero((void*)model->node, sizeof(HDNode));
@@ -610,6 +623,8 @@ void flipbip_scene_1_exit(void* context) {
                     free((void*)model->recv_addresses[a]);
                 }
             }
+            // never keep a freed pointer or an error-text literal for the next visit
+            model->mnemonic = NULL;
         },
         true);
 
@@ -657,20 +672,33 @@ void flipbip_scene_1_enter(void* context) {
     //notification_message(app->notification, &sequence_blink_cyan_100);
     //flipbip_led_set_rgb(app, 255, 0, 0);
 
+    // Show the loading page first; input paging is ignored while page == PAGE_LOADING
+    with_view_model(
+        instance->view, FlipBipScene1Model * model, { model->page = PAGE_LOADING; }, true);
+
+    // Derive into a private model so the (slow) derivation does not hold the view lock
+    FlipBipScene1Model* local_model = malloc(sizeof(FlipBipScene1Model));
+    memzero(local_model, sizeof(FlipBipScene1Model));
+    const int status =
+        flipbip_scene_1_model_init(local_model, strength, coin_type, overwrite, passphrase_text);
+
     with_view_model(
         instance->view,
         FlipBipScene1Model * model,
         {
             // s_busy = true;
 
-            const int status =
-                flipbip_scene_1_model_init(model, strength, coin_type, overwrite, passphrase_text);
+            // publish the results; pointers now belong to the view model
+            *model = *local_model;
 
             // nonzero status, free the mnemonic
             if(status != FlipBipStatusSuccess) {
-                // calling strlen on mnemonic here can cause a crash, don't.
-                // it wasn't loaded properly anyways, no need to zero the memory
+                // model->mnemonic is NULL unless model_init assigned its heap buffer (free(NULL) is ok)
+                if(model->mnemonic) {
+                    memzero((void*)model->mnemonic, TEXT_BUFFER_SIZE);
+                }
                 free((void*)model->mnemonic);
+                model->mnemonic = NULL;
             }
 
             // if error, set the error message
@@ -696,6 +724,10 @@ void flipbip_scene_1_enter(void* context) {
             }
         },
         true);
+
+    // the private copy only holds pointers now owned by the model; wipe it (incl. seed)
+    memzero(local_model, sizeof(FlipBipScene1Model));
+    free(local_model);
 }
 
 FlipBipScene1* flipbip_scene_1_alloc() {

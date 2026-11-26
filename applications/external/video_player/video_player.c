@@ -113,6 +113,24 @@ void draw_all(VideoPlayerApp* player) {
     canvas_commit(player->canvas);
 }
 
+// reads one image+audio frame; false on a short read (EOF / truncated file)
+static bool video_player_read_frame(VideoPlayerApp* player, uint8_t* audio_buffer) {
+    if(stream_read(player->stream, player->image_buffer, player->image_buffer_length) !=
+       player->image_buffer_length) {
+        return false;
+    }
+
+    uint8_t* dst = player->silent ? player->fake_audio_buffer : audio_buffer;
+    return stream_read(player->stream, dst, player->audio_chunk_size) ==
+           player->audio_chunk_size;
+}
+
+// after a seek the played-frame count must follow the stream position, or EOF is never detected
+static void video_player_sync_frames_played(VideoPlayerApp* player) {
+    int32_t pos = (int32_t)stream_tell(player->stream) - player->header_size;
+    player->frames_played = (uint32_t)(pos / player->frame_size);
+}
+
 int32_t video_player_app(void* p) {
     UNUSED(p);
 
@@ -157,24 +175,27 @@ int32_t video_player_app(void* p) {
 
                 player->header_size = stream_tell(player->stream);
 
-                if(player->audio_chunk_size == 0 || player->audio_chunk_size > 32768 ||
-                   player->sample_rate == 0 || player->width == 0 || player->height == 0) {
+                // sample_rate < 977 overflows the 16-bit TIM1 reload; chunk*2 must fit 16-bit DMA
+                if(player->audio_chunk_size == 0 || player->audio_chunk_size > 32767 ||
+                   player->sample_rate < 977 || player->width == 0 || player->height == 0 ||
+                   // heap check: refuse the file instead of crashing in malloc
+                   (uint32_t)player->audio_chunk_size * 4 +
+                           ((uint32_t)player->width + 7) / 8 * (uint32_t)player->height +
+                           8192 >
+                       memmgr_get_free_heap()) {
                     FURI_LOG_E("VideoPlayer", "Invalid .bnd header");
                     player->quit = true;
                 }
             }
 
             if(!(player->quit)) {
-                player->buffer = (uint8_t*)malloc(
-                    player->audio_chunk_size * 2 +
-                    (uint32_t)player->height * (uint32_t)player->width / 8);
-                memset(
-                    player->buffer,
-                    0,
-                    player->audio_chunk_size * 2 +
-                        (uint32_t)player->height * (uint32_t)player->width / 8);
+                // xbm rows are ceil(width/8) bytes wide; the buffer must match what draw reads
+                player->image_buffer_length =
+                    ((uint32_t)player->width + 7) / 8 * (uint32_t)player->height;
+                player->buffer =
+                    (uint8_t*)malloc(player->audio_chunk_size * 2 + player->image_buffer_length);
+                memset(player->buffer, 0, player->audio_chunk_size * 2 + player->image_buffer_length);
 
-                player->image_buffer_length = (uint32_t)player->height * (uint32_t)player->width / 8;
                 player->audio_buffer = (uint8_t*)&player->buffer[player->image_buffer_length];
                 player->image_buffer = player->buffer;
 
@@ -214,8 +235,9 @@ int32_t video_player_app(void* p) {
                 furi_pubsub_subscribe(player->input, direct_input_callback, player);
 
             if(player->quit) {
-                deinit_player(player);
+                // stop DMA/ISR before the player they point at is freed
                 player_deinit_hardware();
+                deinit_player(player);
                 return 0;
             }
 
@@ -237,7 +259,8 @@ int32_t video_player_app(void* p) {
                         player->quit = true;
                     }
 
-                    if(event.input.key == InputKeyOk) {
+                    // a tap sends Press+Short+Release; toggle once (net effect unchanged)
+                    if(event.input.key == InputKeyOk && event.input.type == InputTypePress) {
                         player->playing = !player->playing;
                     }
 
@@ -249,6 +272,7 @@ int32_t video_player_app(void* p) {
                             (int32_t)player->num_frames * player->frame_size + player->header_size,
                             player->header_size);
                         stream_seek(player->stream, seek, StreamOffsetFromStart);
+                        video_player_sync_frames_played(player);
 
                         player->progress =
                             (uint8_t)((int64_t)stream_tell(player->stream) * (int64_t)126 /
@@ -271,6 +295,7 @@ int32_t video_player_app(void* p) {
                             (int32_t)player->num_frames * player->frame_size + player->header_size,
                             player->header_size);
                         stream_seek(player->stream, seek, StreamOffsetFromStart);
+                        video_player_sync_frames_played(player);
 
                         player->progress =
                             (uint8_t)((int64_t)stream_tell(player->stream) * (int64_t)126 /
@@ -321,47 +346,33 @@ int32_t video_player_app(void* p) {
                 if(event.type == EventType1stHalf) {
                     uint8_t* audio_buffer = player->audio_buffer;
 
-                    stream_read(player->stream, player->image_buffer, player->image_buffer_length);
+                    if(!video_player_read_frame(player, audio_buffer)) {
+                        player->quit = true;
+                    } else {
+                        for(int i = 0; i < player->audio_chunk_size; i++) {
+                            audio_buffer[i] = (int)audio_buffer[i] * player->volume / 0xff;
+                        }
 
-                    if(player->silent) {
-                        stream_read(
-                            player->stream, player->fake_audio_buffer, player->audio_chunk_size);
+                        player->frames_played++;
+
+                        draw_all(player);
                     }
-
-                    else {
-                        stream_read(player->stream, audio_buffer, player->audio_chunk_size);
-                    }
-
-                    for(int i = 0; i < player->audio_chunk_size; i++) {
-                        audio_buffer[i] = (int)audio_buffer[i] * player->volume / 0xff;
-                    }
-
-                    player->frames_played++;
-
-                    draw_all(player);
                 }
 
                 if(event.type == EventType2ndHalf) {
                     uint8_t* audio_buffer = &player->audio_buffer[player->audio_chunk_size];
 
-                    stream_read(player->stream, player->image_buffer, player->image_buffer_length);
+                    if(!video_player_read_frame(player, audio_buffer)) {
+                        player->quit = true;
+                    } else {
+                        for(int i = 0; i < player->audio_chunk_size; i++) {
+                            audio_buffer[i] = (int)audio_buffer[i] * player->volume / 0xff;
+                        }
 
-                    if(player->silent) {
-                        stream_read(
-                            player->stream, player->fake_audio_buffer, player->audio_chunk_size);
+                        player->frames_played++;
+
+                        draw_all(player);
                     }
-
-                    else {
-                        stream_read(player->stream, audio_buffer, player->audio_chunk_size);
-                    }
-
-                    for(int i = 0; i < player->audio_chunk_size; i++) {
-                        audio_buffer[i] = (int)audio_buffer[i] * player->volume / 0xff;
-                    }
-
-                    player->frames_played++;
-
-                    draw_all(player);
                 }
 
                 if(event.type == EventTypeJustRedraw) {
@@ -384,8 +395,9 @@ int32_t video_player_app(void* p) {
             furi_record_close(RECORD_GUI);
             exit = true;
         }
-        deinit_player(player);
+        // stop DMA/ISR before the player they point at is freed
         player_deinit_hardware();
+        deinit_player(player);
     }
 
     return 0;

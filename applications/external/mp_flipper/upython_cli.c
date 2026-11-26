@@ -41,7 +41,8 @@ void upython_cli(PipeSide* pipe, FuriString* args, void* ctx) {
         char data = '\0';
 
         while(action == ActionExec || !furi_stream_buffer_is_empty(stdout_buffer)) {
-            if(furi_stream_buffer_receive(stdout_buffer, &data, 1, 0) > 0) {
+            // block briefly instead of busy-spinning while the script runs
+            if(furi_stream_buffer_receive(stdout_buffer, &data, 1, 10) > 0) {
                 printf("%c", data);
             }
         }

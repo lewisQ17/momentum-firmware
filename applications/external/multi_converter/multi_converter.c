@@ -149,7 +149,10 @@ int32_t multi_converter_app(void* p) {
         }
 
         furi_mutex_release(multi_converter_state->mutex);
-        view_port_update(view_port);
+        // redraw only after an event; the 100 ms queue timeout changes nothing on screen
+        if(event_status == FuriStatusOk) {
+            view_port_update(view_port);
+        }
     }
 
     view_port_enabled_set(view_port, false);

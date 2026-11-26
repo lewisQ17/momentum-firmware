@@ -1,4 +1,5 @@
 #include <furi.h>
+#include <math.h>
 
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
@@ -84,6 +85,15 @@ void decimal_substitute(char *old) {
 	free(buffer);
 }
 
+/* Format a value for the small text buffers: fixed point when that is exact enough,
+ * otherwise %g so sub-mA currents are not rounded to 0.000 and large results are not cut off. */
+static void format_value(char* out, size_t size, double value) {
+	int len = snprintf(out, size, "%.3f", value);
+	if((len < 0 || (size_t)len >= size || (value != 0 && fabs(value) < 0.1))) {
+		snprintf(out, size, "%.4g", value);
+	}
+}
+
 /* Convert our VRI values to doubles for math purposes, math with them,
  * then convert back to a string. */
 void calculate_values(void* context) {
@@ -122,9 +132,9 @@ void calculate_values(void* context) {
 	}
 
 	// Convert the double values to a string.
-	snprintf(app->V, sizeof(app->V), "%.3f", V);
-	snprintf(app->R, sizeof(app->R), "%.3f", R);
-	snprintf(app->I, sizeof(app->I), "%.3f", I);
+	format_value(app->V, sizeof(app->V), V);
+	format_value(app->R, sizeof(app->R), R);
+	format_value(app->I, sizeof(app->I), I);
 
 	FURI_LOG_D(TAG, "Voltage double to string: %s", app->V);
 	FURI_LOG_D(TAG, "Resistance double to string: %s", app->R);

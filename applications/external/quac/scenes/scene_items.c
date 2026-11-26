@@ -131,7 +131,7 @@ bool scene_items_on_event(void* context, SceneManagerEvent event) {
                     action_tx(app, item, error);
 
                     if(furi_string_size(error)) {
-                        FURI_LOG_E(TAG, furi_string_get_cstr(error));
+                        FURI_LOG_E(TAG, "%s", furi_string_get_cstr(error));
                         // Fire up the LED and vibrate!
                         notification_message(app->notifications, &sequence_error);
                     }

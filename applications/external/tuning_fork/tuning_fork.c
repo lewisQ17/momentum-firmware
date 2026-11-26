@@ -112,8 +112,16 @@ static void current_tuning_note_label(TuningForkState* tuningForkState, char* ou
 // Update references
 static void updateTuning(TuningForkState* tuning_fork_state) {
     tuning_fork_state->instrument = Instruments[tuning_fork_state->current_instrument_index];
+    // clamp: stale indices must never read past the const tables
+    if(tuning_fork_state->current_variation_index >=
+       tuning_fork_state->instrument.variations_count) {
+        tuning_fork_state->current_variation_index = 0;
+    }
     tuning_fork_state->variation =
         tuning_fork_state->instrument.variations[tuning_fork_state->current_variation_index];
+    if(tuning_fork_state->current_tuning_index >= tuning_fork_state->variation.tunings_count) {
+        tuning_fork_state->current_tuning_index = 0;
+    }
     tuning_fork_state->tuning =
         tuning_fork_state->variation.tunings[tuning_fork_state->current_tuning_index];
     tuning_fork_state->current_tuning_note_index = 0;
@@ -150,6 +158,8 @@ static void next_variation(TuningForkState* tuning_fork_state) {
     } else {
         tuning_fork_state->current_variation_index += 1;
     }
+    // the new variation has its own tunings table
+    tuning_fork_state->current_tuning_index = 0;
     updateTuning(tuning_fork_state);
 }
 
@@ -160,6 +170,8 @@ static void prev_variation(TuningForkState* tuning_fork_state) {
     } else {
         tuning_fork_state->current_variation_index -= 1;
     }
+    // the new variation has its own tunings table
+    tuning_fork_state->current_tuning_index = 0;
     updateTuning(tuning_fork_state);
 }
 
@@ -402,7 +414,7 @@ int32_t tuning_fork_app() {
 
     PluginEvent event;
     for(bool processing = true; processing;) {
-        FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
+        FuriStatus event_status = furi_message_queue_get(event_queue, &event, FuriWaitForever);
 
         furi_mutex_acquire(tuning_fork_state->mutex, FuriWaitForever);
 
@@ -605,7 +617,10 @@ int32_t tuning_fork_app() {
         }
 
         furi_mutex_release(tuning_fork_state->mutex);
-        view_port_update(view_port);
+        // redraw only when an event changed something
+        if(event_status == FuriStatusOk) {
+            view_port_update(view_port);
+        }
     }
 
     view_port_enabled_set(view_port, false);
@@ -614,7 +629,6 @@ int32_t tuning_fork_app() {
     view_port_free(view_port);
     furi_message_queue_free(event_queue);
     furi_mutex_free(tuning_fork_state->mutex);
-    furi_record_close(RECORD_NOTIFICATION);
     free(tuning_fork_state);
 
     return 0;

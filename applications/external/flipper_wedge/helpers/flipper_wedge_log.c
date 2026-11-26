@@ -4,7 +4,7 @@
 
 #define SCAN_LOG_PATH APP_DATA_PATH("scan_log.txt")
 #define SCAN_LOG_MAX_SIZE (200 * 1024)  // 200KB max log size
-#define SCAN_LOG_KEEP_SIZE (100 * 1024)  // Keep most recent 100KB when rotating
+#define SCAN_LOG_KEEP_SIZE (16 * 1024)  // Keep most recent 16KB when rotating (small heap use)
 
 static FuriMutex* log_mutex = NULL;
 
@@ -32,7 +32,8 @@ static void log_rotate(Storage* storage) {
 
     // Read the tail
     uint8_t* buffer = malloc(SCAN_LOG_KEEP_SIZE);
-    uint16_t bytes_read = storage_file_read(read_file, buffer, SCAN_LOG_KEEP_SIZE);
+    // size_t: a uint16_t here truncated the tail and dropped the newest scans
+    size_t bytes_read = storage_file_read(read_file, buffer, SCAN_LOG_KEEP_SIZE);
     storage_file_close(read_file);
     storage_file_free(read_file);
 

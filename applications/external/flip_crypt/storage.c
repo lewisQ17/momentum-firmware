@@ -2,12 +2,13 @@
 
 // callback for saving from output screen
 void save_result(const char* text, char* file_name) {
-    File* file = storage_file_alloc(furi_record_open(RECORD_STORAGE));
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    File* file = storage_file_alloc(storage);
 
     char buffer[128];
     snprintf(buffer, sizeof(buffer), "/ext/flip_crypt_saved/%s.txt", file_name);
     
-    if(storage_simply_mkdir(furi_record_open(RECORD_STORAGE), "/ext/flip_crypt_saved")) {
+    if(storage_simply_mkdir(storage, "/ext/flip_crypt_saved")) {
         if (storage_file_open(file, buffer, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
             storage_file_write(file, text, strlen(text));
         }

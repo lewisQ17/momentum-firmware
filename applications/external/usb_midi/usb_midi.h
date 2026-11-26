@@ -17,6 +17,7 @@ typedef struct {
     FuriHalUsbInterface* usb_config_restore;
     MidiParser* parser;
     Note current_note;
+    bool speaker_acquired;
 } UsbMidiApp;
 
 typedef enum {

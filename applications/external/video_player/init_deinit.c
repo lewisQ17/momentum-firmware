@@ -41,6 +41,11 @@ VideoPlayerApp* init_player() {
 }
 
 void deinit_player(VideoPlayerApp* player) {
+    // unsubscribe first: the callback pushes into event_queue, which is freed below
+    if(player->input_subscription != NULL) {
+        furi_pubsub_unsubscribe(player->input, player->input_subscription);
+    }
+
     notification_message(player->notification, &sequence_display_backlight_enforce_auto);
     furi_record_close(RECORD_NOTIFICATION);
 
@@ -67,8 +72,6 @@ void deinit_player(VideoPlayerApp* player) {
 
     // only set up when the speaker was acquired and direct draw taken
     if(player->input_subscription != NULL) {
-        furi_pubsub_unsubscribe(player->input, player->input_subscription);
-
         player->canvas = NULL;
         gui_direct_draw_release(player->gui);
         furi_record_close(RECORD_GUI);

@@ -39,6 +39,7 @@ void mp_flipper_light_set(uint8_t raw_light, uint8_t brightness);
 void mp_flipper_light_blink_start(uint8_t raw_light, uint8_t brightness, uint16_t on_time, uint16_t period);
 void mp_flipper_light_blink_set_color(uint8_t raw_light);
 void mp_flipper_light_blink_stop();
+void mp_flipper_light_reset(void);
 
 void mp_flipper_vibro(bool state);
 
@@ -67,6 +68,8 @@ void mp_flipper_canvas_update();
 void mp_flipper_canvas_clear();
 
 void mp_flipper_on_input(uint16_t button, uint16_t type);
+
+void mp_flipper_reset_callbacks(void);
 
 void mp_flipper_dialog_message_set_text(const char* text, uint8_t x, uint8_t y, uint8_t h, uint8_t v);
 void mp_flipper_dialog_message_set_header(const char* text, uint8_t x, uint8_t y, uint8_t h, uint8_t v);

@@ -165,6 +165,9 @@ void flipper_wedge_hid_init_ble(FlipperWedgeHid* instance) {
     if(!instance->ble_hid_profile) {
         FURI_LOG_E(TAG, "FATAL: bt_profile_start returned NULL!");
         flipper_wedge_debug_log(TAG, "ERROR: bt_profile_start failed!");
+        // undo the key-path override (deinit_ble returns early when !bt_initialized); plain call, no furi_check
+        bt_keys_storage_set_default_path(instance->bt);
+        bt_profile_restore_default(instance->bt);
         furi_record_close(RECORD_BT);
         instance->bt = NULL;
         return;  // Fail gracefully instead of crashing

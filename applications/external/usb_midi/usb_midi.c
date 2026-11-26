@@ -18,7 +18,7 @@ static void draw_callback(Canvas* canvas, void* ctx) {
     char note_line[32];
     if(app->current_note.note >= 0) {
         int note = app->current_note.note % 12;
-        int octave = app->current_note.note / 12 + 1;
+        int octave = app->current_note.note / 12 - 1;
         snprintf(note_line, 32, "Playing note: %s%d", NOTES[note], octave);
     } else {
         strcpy(note_line, "No note");
@@ -88,7 +88,8 @@ int32_t usb_midi_app_reader(void* ctx) {
         if(status & FuriFlagError) continue;
         if((status & 1) == 0) continue;
 
-        uint8_t buffer[32];
+        // bulk OUT endpoint is 64 bytes (16 event packets); a smaller buffer drops the rest
+        uint8_t buffer[64];
         size_t size = midi_usb_rx(buffer, sizeof(buffer));
         size_t start = 0;
 
@@ -139,8 +140,10 @@ UsbMidiApp* usb_midi_app_alloc() {
     gui_add_view_port(app->gui, app->view_port, GuiLayerFullscreen);
 
     app->current_note.note = -1;
-    if(!furi_hal_speaker_acquire(1000)) {
-        furi_assert(NULL);
+    // furi_assert is compiled out in release; remember the result so exit only releases what we own
+    app->speaker_acquired = furi_hal_speaker_acquire(1000);
+    if(!app->speaker_acquired) {
+        FURI_LOG_E("UsbMidi", "Cannot acquire the speaker, running silent");
     }
 
     return app;
@@ -148,6 +151,7 @@ UsbMidiApp* usb_midi_app_alloc() {
 
 void usb_midi_app_process_note_on(UsbMidiApp* app, Note note) {
     app->current_note = note;
+    view_port_update(app->view_port);
     float freq = (440.0f / 32.0f) * powf(2, ((note.note - 9) / 12.0));
     float volume = note.velocity / 100.0f;
     if(furi_hal_speaker_is_mine()) furi_hal_speaker_start(freq, volume);
@@ -156,6 +160,7 @@ void usb_midi_app_process_note_on(UsbMidiApp* app, Note note) {
 void usb_midi_app_process_note_off(UsbMidiApp* app, Note note) {
     if(app->current_note.note != note.note) return;
     app->current_note.note = -1;
+    view_port_update(app->view_port);
     if(furi_hal_speaker_is_mine()) furi_hal_speaker_stop();
 }
 
@@ -184,7 +189,7 @@ void usb_midi_app_free(UsbMidiApp* app) {
     view_port_free(app->view_port);
     furi_record_close(RECORD_GUI);
     furi_message_queue_free(app->events);
-    furi_hal_speaker_release();
+    if(app->speaker_acquired) furi_hal_speaker_release();
     // Leak fix: reader thread (already joined in run) and app struct were never freed
     furi_thread_free(app->reader);
     free(app);

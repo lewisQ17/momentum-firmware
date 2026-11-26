@@ -23,7 +23,7 @@ char* base64_encode(const unsigned char* input, size_t len) {
     unsigned char array3[3], array4[4];
 
     output = (char*)malloc(((len + 2) / 3) * 4 + 1);
-    if (!output) return "memory allocation failed, try again";
+    if (!output) return strdup("memory allocation failed, try again");
 
     size_t out_index = 0;
     while (len--) {
@@ -65,7 +65,7 @@ unsigned char* base64_decode(const char* input, size_t* out_len) {
     int i = 0, j = 0, in = 0;
     unsigned char array4[4], array3[3];
     unsigned char* output = (unsigned char*)malloc(len * 3 / 4 + 1);
-    if (!output) return (uint8_t *)"memory allocation failed, try again";
+    if (!output) return (uint8_t*)strdup("memory allocation failed, try again");
 
     size_t out_index = 0;
     while (len-- && (input[in] != '=') && is_base64(input[in])) {

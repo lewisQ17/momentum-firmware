@@ -1,5 +1,6 @@
 #pragma once
 #include "Scenes.hpp"
+#include <string.h>
 
 namespace FTasks::Input
 {
@@ -8,6 +9,8 @@ namespace FTasks::Input
     {
         const auto* app = static_cast<UFZ::Application*>(context);
         auto* ctx = CTX(app->getUserPointer());
+        // the text input fills a fixed 128-byte buffer; keep only the entered text, not the NUL padding
+        ctx->inputTextBuffer.resize(strlen(ctx->inputTextBuffer.c_str()));
         ctx->inputTextBuffer.shrink_to_fit();
 
         if constexpr (T == Scenes::DESCRIPTION_TEXT_EDIT)

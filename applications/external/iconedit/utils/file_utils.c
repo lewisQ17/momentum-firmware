@@ -496,6 +496,11 @@ IEIcon* bmx_file_open(const char* icon_path) {
             FURI_LOG_E("BMX", "File too small!");
             break;
         }
+        // encoded data never exceeds the save buffer; reject larger files before malloc
+        if(bmx_file_size > MAX_FRAME_BUFFER_SIZE + 2 * sizeof(int32_t)) {
+            FURI_LOG_E("BMX", "File too large!");
+            break;
+        }
         int32_t w, h;
         if(storage_file_read(bmx_file, &w, sizeof(w)) != sizeof(w)) {
             FURI_LOG_E("BMX", "BMX image width can't be read");

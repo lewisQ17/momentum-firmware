@@ -10,7 +10,7 @@
 char* encrypt_rot13(const char* plaintext) {
     size_t len = strlen(plaintext);
     char* output = malloc(len + 1);
-    if (!output) return "memory allocation failed, try again";
+    if (!output) return strdup("memory allocation failed, try again");
 
     for (size_t i = 0; i < len; i++) {
         char c = plaintext[i];
@@ -31,7 +31,7 @@ char* encrypt_rot13(const char* plaintext) {
 char* decrypt_rot13(const char* ciphertext) {
     size_t len = strlen(ciphertext);
     char* output = malloc(len + 1);
-    if (!output) return "memory allocation failed, try again";
+    if (!output) return strdup("memory allocation failed, try again");
 
     for (size_t i = 0; i < len; i++) {
         char c = ciphertext[i];

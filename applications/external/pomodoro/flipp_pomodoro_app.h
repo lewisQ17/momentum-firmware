@@ -40,6 +40,8 @@ typedef struct
     FlippPomodoroStatistics *statistics;
     uint32_t paused_at_timestamp;
     FlippPomodoroSettings settings_before;
+    uint8_t buzz_mode; // cached from the settings file (re-read on timer scene enter)
+    bool buzz_mode_cached;
 } FlippPomodoroApp;
 
 typedef enum

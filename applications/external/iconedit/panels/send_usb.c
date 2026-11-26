@@ -277,10 +277,13 @@ bool send_usb_input(InputEvent* event, void* context) {
             break;
         }
         case InputKeyRight: {
-            // user wants to skip sending filename
-            sendModel.filename_prompt = false;
-            sendModel.state = State_SENDING;
-            send_usb_send_icon();
+            // user wants to skip sending filename (only while that prompt is shown; no re-send after Done)
+            if(sendModel.state == State_FILENAME ||
+               (sendModel.state == State_READY && sendModel.filename_prompt)) {
+                sendModel.filename_prompt = false;
+                sendModel.state = State_SENDING;
+                send_usb_send_icon();
+            }
             break;
         }
         default:

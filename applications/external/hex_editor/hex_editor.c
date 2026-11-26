@@ -50,7 +50,8 @@ typedef struct {
 // line. The stream is still left just after the line's '\n', which the Up/edit
 // logic relies on. A truncated line ends in a synthetic '\n' (never editable).
 static bool hex_read_line(Stream* stream, FuriString* str_result) {
-    furi_string_reset(str_result);
+    // build into a temp so a failed read (EOF) keeps the current line in str_result
+    FuriString* line = furi_string_alloc();
     uint8_t buffer[32];
     bool truncated = false;
 
@@ -66,13 +67,13 @@ static bool hex_read_line(Stream* stream, FuriString* str_result) {
                     error = true;
                     break;
                 }
-                furi_string_push_back(str_result, buffer[i]);
+                furi_string_push_back(line, buffer[i]);
                 result = true;
                 break;
             } else if(buffer[i] == '\r') {
                 // Ignore
-            } else if(furi_string_size(str_result) < HEX_LINE_MAX_DATA) {
-                furi_string_push_back(str_result, buffer[i]);
+            } else if(furi_string_size(line) < HEX_LINE_MAX_DATA) {
+                furi_string_push_back(line, buffer[i]);
             } else {
                 truncated = true;
             }
@@ -85,9 +86,13 @@ static bool hex_read_line(Stream* stream, FuriString* str_result) {
         }
     } while(true);
 
-    if(truncated) furi_string_push_back(str_result, '\n');
+    if(truncated) furi_string_push_back(line, '\n');
 
-    return furi_string_size(str_result) != 0;
+    const bool has_line = furi_string_size(line) != 0;
+    if(has_line) furi_string_swap(str_result, line);
+    furi_string_free(line);
+
+    return has_line;
 }
 
 static void draw_callback(Canvas* canvas, void* ctx) {
@@ -272,22 +277,18 @@ int32_t hex_editor_app(void* p) {
                     if(event.type == InputTypeRepeat) {
                         offset_modifier = 3;
                     }
-                    if(event.key == InputKeyRight) {
-                        hex_editor->model->string_offset += offset_modifier;
-                        if(hex_editor->model->string_offset >=
-                           furi_string_size(hex_editor->buffer)) {
-                            // dengeros
-                            hex_editor->model->string_offset -=
-                                furi_string_size(hex_editor->buffer);
-                        }
+                    // wrap in int math so repeat steps on 1-2 char lines stay inside the line
+                    const int line_size = (int)furi_string_size(hex_editor->buffer);
+                    if(event.key == InputKeyRight && line_size > 0) {
+                        hex_editor->model->string_offset =
+                            (uint8_t)(((int)hex_editor->model->string_offset + offset_modifier) %
+                                      line_size);
                     }
-                    if(event.key == InputKeyLeft) {
-                        if(hex_editor->model->string_offset - offset_modifier < 0) {
-                            // dengeros
-                            hex_editor->model->string_offset +=
-                                furi_string_size(hex_editor->buffer);
-                        }
-                        hex_editor->model->string_offset -= offset_modifier;
+                    if(event.key == InputKeyLeft && line_size > 0) {
+                        hex_editor->model->string_offset = (uint8_t)((
+                            (((int)hex_editor->model->string_offset - offset_modifier) % line_size) +
+                            line_size) %
+                                                                     line_size);
                     }
                     if(event.key == InputKeyDown) {
                         hex_editor->model->string_offset = 0;
@@ -326,7 +327,8 @@ int32_t hex_editor_app(void* p) {
                         }
                     }
 
-                    if(event.key == InputKeyOk) {
+                    if(event.key == InputKeyOk &&
+                       hex_editor->model->string_offset < furi_string_size(hex_editor->buffer)) {
                         char current_char = furi_string_get_char(
                             hex_editor->buffer, hex_editor->model->string_offset);
 

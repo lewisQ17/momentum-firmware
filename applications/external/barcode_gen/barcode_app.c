@@ -268,6 +268,13 @@ uint32_t main_menu_callback(void* context) {
     return MainMenuView;
 }
 
+// Leaving the barcode: give the backlight back to the user's own brightness and timeout
+uint32_t barcode_view_back_callback(void* context) {
+    UNUSED(context);
+    notification_message(barcode_notifications, &sequence_display_backlight_enforce_auto);
+    return MainMenuView;
+}
+
 uint32_t exit_callback(void* context) {
     UNUSED(context);
     return VIEW_NONE;
@@ -338,6 +345,8 @@ int32_t barcode_main(void* p) {
     submenu_add_item(app->main_menu, "Edit Barcode", EditBarcodeItem, submenu_callback, app);
 
     barcode_notifications = furi_record_open(RECORD_NOTIFICATION);
+    // a fresh SD has no barcodes folder yet; Create > Save needs it before the first exit
+    init_folder();
     // Save original brightness
     //float originalBrightness = barcode_notifications->settings.display_brightness;
     // force backlight and increase brightness
@@ -440,7 +449,7 @@ int32_t barcode_main(void* p) {
      * Creating Barcode View
      ******************************/
     app->barcode_view = barcode_view_allocate(app);
-    view_set_previous_callback(barcode_get_view(app->barcode_view), main_menu_callback);
+    view_set_previous_callback(barcode_get_view(app->barcode_view), barcode_view_back_callback);
     view_dispatcher_add_view(
         app->view_dispatcher, BarcodeView, barcode_get_view(app->barcode_view));
 

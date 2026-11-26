@@ -286,6 +286,7 @@ void tracker_engine_execute_program_tick(
     TrackerEngineChannel* te_channel = &tracker_engine->channel[chan];
     uint8_t tick = te_channel->program_tick;
     uint8_t visited[INST_PROG_LEN] = {0};
+    uint8_t iterations = 0; // bounds the goto chain: an all-united program would hang the ISR
 
 do_it_again:;
 
@@ -357,7 +358,7 @@ do_it_again:;
 
     if(((inst & 0x8000) || ((inst & 0x7f00) == TE_PROGRAM_LOOP_BEGIN) ||
         ((inst & 0x7f00) == TE_PROGRAM_JUMP)) &&
-       (inst & 0x7fff) != TE_PROGRAM_NOP && !dont_reloop) {
+       (inst & 0x7fff) != TE_PROGRAM_NOP && !dont_reloop && ++iterations < 4 * INST_PROG_LEN) {
         goto do_it_again;
     }
 

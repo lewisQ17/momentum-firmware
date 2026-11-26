@@ -24,13 +24,25 @@ inline void* mp_flipper_file_open(const char* name, uint8_t access_mode, uint8_t
 
     do {
         if(mp_flipper_try_resolve_filesystem_path(path) == MP_FLIPPER_IMPORT_STAT_NO_EXIST) {
-            break;
+            // a missing file may only be created by modes that create; use the exact name, not the ".py" guess
+            if(open_mode != FSOM_CREATE_ALWAYS && open_mode != FSOM_CREATE_NEW &&
+               open_mode != FSOM_OPEN_ALWAYS) {
+                break;
+            }
+
+            if(name[0] == '/') {
+                furi_string_set_str(path, name);
+            } else {
+                furi_string_printf(path, "%s/%s", mp_flipper_root_module_path, name);
+            }
         }
 
         if(!storage_file_open(file, furi_string_get_cstr(path), access_mode, open_mode)) {
             break;
         }
     } while(false);
+
+    furi_string_free(path);
 
     if(!storage_file_is_open(file)) {
         storage_file_close(file);

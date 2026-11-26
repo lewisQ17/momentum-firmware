@@ -145,7 +145,7 @@ int32_t caesar_cipher_app() {
     view_dispatcher_run(caesar_state->view_dispatcher);
 
     furi_record_close("gui");
-    furi_mutex_free(caesar_state->mutex);
+    // mutex is freed in caesar_cipher_state_free (was freed twice)
     caesar_cipher_state_free(caesar_state);
 
     return 0;

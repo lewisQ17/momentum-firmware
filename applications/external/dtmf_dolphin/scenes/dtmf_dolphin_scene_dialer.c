@@ -28,6 +28,8 @@ void dtmf_dolphin_scene_dialer_on_enter(void* context) {
         break;
     }
 
+    // keep the display lit only while the dialer is on screen
+    notification_message(app->notification, &sequence_display_backlight_enforce_on);
     view_dispatcher_switch_to_view(app->view_dispatcher, DTMFDolphinViewDialer);
 }
 
@@ -45,5 +47,6 @@ bool dtmf_dolphin_scene_dialer_on_event(void* context, SceneManagerEvent event) 
 }
 
 void dtmf_dolphin_scene_dialer_on_exit(void* context) {
-    UNUSED(context);
+    DTMFDolphinApp* app = context;
+    notification_message(app->notification, &sequence_display_backlight_enforce_auto);
 }

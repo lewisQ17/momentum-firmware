@@ -28,12 +28,12 @@ int mod_inverse(int a, int m) {
 }
 
 char* encode_affine(const char* text, uint8_t a, uint8_t b) {
-    if (a % 2 == 0) return "First key must be odd";
-    if (a == 13) return "First key cannot be 13";
+    if (a % 2 == 0) return strdup("First key must be odd");
+    if (a == 13) return strdup("First key cannot be 13");
 
     size_t len = strlen(text);
     char* result = malloc(len + 1);
-    if (!result) return "memory allocation failed, try again";
+    if (!result) return strdup("memory allocation failed, try again");
 
     for (size_t i = 0; i < len; i++) {
         char c = text[i];
@@ -53,15 +53,15 @@ char* encode_affine(const char* text, uint8_t a, uint8_t b) {
 }
 
 char* decode_affine(const char* text, uint8_t a, uint8_t b) {
-    size_t len = strlen(text);
-    char* result = malloc(len + 1);
-    if (!result) return "memory allocation failed, try again";
-
+    // check the key before allocating: the error text is longer than short inputs (heap overflow)
     int a_inv = mod_inverse(a, 26);
     if (a_inv == -1) {
-        strcpy(result, "invalid key: a has no modular inverse\nValid a vals: 1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25");
-        return result;
+        return strdup("invalid key: a has no modular inverse\nValid a vals: 1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25");
     }
+
+    size_t len = strlen(text);
+    char* result = malloc(len + 1);
+    if (!result) return strdup("memory allocation failed, try again");
 
     for (size_t i = 0; i < len; i++) {
         char c = text[i];
@@ -71,7 +71,7 @@ char* decode_affine(const char* text, uint8_t a, uint8_t b) {
         } else {
             int is_upper = (c >= 'A' && c <= 'Z');
             int y = x;
-            int orig = (a_inv * ((y - b + 26) % 26)) % 26;
+            int orig = (a_inv * (((y - b) % 26 + 26) % 26)) % 26; // b up to 30: keep the shift non-negative
             if (orig == 0) orig = 26;
             result[i] = index_to_letter(orig, is_upper);
         }

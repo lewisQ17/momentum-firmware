@@ -27,9 +27,10 @@ unsigned char mem53;
 unsigned char mem56;
 unsigned char mem59 = 0;
 
-unsigned char phonemeIndexOutput[60]; //tab47296
-unsigned char stressOutput[60]; //tab47365
-unsigned char phonemeLengthOutput[60]; //tab47416
+// 256 like phonemeindex[]: PrepareOutput writes one entry per phoneme with no other bound
+unsigned char phonemeIndexOutput[256]; //tab47296
+unsigned char stressOutput[256]; //tab47365
+unsigned char phonemeLengthOutput[256]; //tab47416
 
 // contains the soundbuffer position
 int bufferpos;
@@ -3515,7 +3516,7 @@ void STM32SAM::Init() {
         phonemeLength[i] = 0;
     }
 
-    for(i = 0; i < 60; i++) {
+    for(i = 0; i < 256; i++) {
         phonemeIndexOutput[i] = 0;
         stressOutput[i] = 0;
         phonemeLengthOutput[i] = 0;

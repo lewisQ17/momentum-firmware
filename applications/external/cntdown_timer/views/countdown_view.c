@@ -39,9 +39,10 @@ CountDownTimView* countdown_timer_view_new() {
 void countdown_timer_view_delete(CountDownTimView* cdv) {
     furi_assert(cdv);
 
-    view_free(cdv->view);
+    // stop the timer first: its callback uses the view
     furi_timer_stop(cdv->timer);
     furi_timer_free(cdv->timer);
+    view_free(cdv->view);
 
     free(cdv);
 }
@@ -60,6 +61,14 @@ void countdown_timer_view_state_reset(CountDownTimView* cdv) {
 void countdown_timer_state_toggle(CountDownTimView* cdv) {
     bool on = cdv->counting;
     if(!on) {
+        // after the alarm the count is 0: start over from the saved setting instead of alarming again
+        with_view_model(
+            cdv->view,
+            CountDownModel * model,
+            {
+                if(model->count <= 0) model->count = model->saved_count_setting;
+            },
+            true);
         countdown_timer_start_counting(cdv);
     } else {
         countdown_timer_pause_counting(cdv);
@@ -237,6 +246,9 @@ static void handle_time_setting_updown(CountDownTimView* cdv, CountDownViewCmd c
 static void handle_misc_cmd(CountDownTimView* hw, CountDownViewCmd cmd) {
     switch(cmd) {
     case CountDownTimerTimeUp:
+        // stop ticking: otherwise the alarm re-triggers every second until a key is pressed
+        furi_timer_stop(hw->timer);
+        hw->counting = false;
         notification_timeup();
         break;
 

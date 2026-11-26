@@ -300,7 +300,15 @@ bool flipbip_save_file_secure(const char* settings) {
     // seek <-- header
     data -= FILE_HLEN;
     // save k2 to file
-    flipbip_save_file(data, FlipBipFileKey, NULL, false);
+    const bool key_saved = flipbip_save_file(data, FlipBipFileKey, NULL, false);
+    if(!key_saved) {
+        // key write failed: leave the existing data file untouched and report the error
+        memzero(data, dlen);
+        free(data);
+        memzero(k1, strlen(FILE_K1) / 2);
+        memzero(k2, FILE_KLEN / 2);
+        return false;
+    }
     // seek --> header
     data += FILE_HLEN;
     // zero k2 memory
@@ -313,7 +321,7 @@ bool flipbip_save_file_secure(const char* settings) {
     // seek <-- header
     data -= FILE_HLEN;
     // save data to file
-    flipbip_save_file(data, FlipBipFileDat, NULL, false);
+    const bool data_saved = flipbip_save_file(data, FlipBipFileDat, NULL, false);
 
     // clear memory
     memzero(data, dlen);
@@ -321,5 +329,5 @@ bool flipbip_save_file_secure(const char* settings) {
     memzero(k1, strlen(FILE_K1) / 2);
     memzero(k2, FILE_KLEN / 2);
 
-    return true;
+    return data_saved;
 }

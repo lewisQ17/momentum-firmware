@@ -65,6 +65,8 @@ void flipp_pomodoro_scene_timer_on_enter(void *ctx)
     furi_assert(ctx);
 
     FlippPomodoroApp *app = ctx;
+    // settings may have changed in the config scene: re-read on next expired tick
+    app->buzz_mode_cached = false;
     notification_manager_reset(app->notification_manager);
     if (flipp_pomodoro__is_stage_expired(app->state))
     {
@@ -125,15 +127,20 @@ void flipp_pomodoro_scene_timer_handle_custom_event(FlippPomodoroApp *app, Flipp
             notification_manager_reset_flags(app->notification_manager);
             break;
         }
-        FlippPomodoroSettings s;
-        flipp_pomodoro_settings_load(&s);
+        // read the settings file once, not every second while the stage stays expired
+        if (!app->buzz_mode_cached) {
+            FlippPomodoroSettings s;
+            flipp_pomodoro_settings_load(&s);
+            app->buzz_mode = s.buzz_mode;
+            app->buzz_mode_cached = true;
+        }
 
         PomodoroStage next_stage = flipp_pomodoro__stage_by_index(app->state->current_stage_index + 1);
         
         bool should_send_complete = notification_manager_handle_expired_stage(
             app->notification_manager,
             next_stage,
-            s.buzz_mode);
+            app->buzz_mode);
         if(should_send_complete) {
             view_dispatcher_send_custom_event(
                 app->view_dispatcher,
