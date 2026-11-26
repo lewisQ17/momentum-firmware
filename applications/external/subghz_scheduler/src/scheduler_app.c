@@ -73,10 +73,10 @@ void scheduler_app_free(SchedulerApp* app) {
     furi_assert(app);
     scheduler_free(app->scheduler);
 
-    variable_item_list_free(app->var_item_list);
-
+    // Remove views from the dispatcher before freeing them (the current view's exit runs on removal)
     view_dispatcher_remove_view(app->view_dispatcher, SchedulerAppViewVarItemList);
     view_dispatcher_remove_view(app->view_dispatcher, SchedulerAppViewRunSchedule);
+    variable_item_list_free(app->var_item_list);
     scheduler_run_view_free(app->run_view);
 
     scene_manager_free(app->scene_manager);

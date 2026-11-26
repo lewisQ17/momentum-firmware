@@ -1,4 +1,5 @@
 #include "view_i.h"
+#include <string.h>
 
 View* view_alloc(void) {
     View* view = malloc(sizeof(View));
@@ -9,6 +10,10 @@ View* view_alloc(void) {
 void view_free(View* view) {
     furi_check(view);
     view_free_model(view);
+    // Many apps free a module before view_dispatcher_remove_view(); the dispatcher then
+    // calls view_exit() on this freed View. Clearing it makes that a no-op instead of
+    // calling a stale exit callback (e.g. VariableItemList's timer stop -> MemManage).
+    memset(view, 0, sizeof(View));
     free(view);
 }
 
