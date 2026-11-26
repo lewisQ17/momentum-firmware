@@ -266,7 +266,8 @@ static inline bool on_ground(Person* person, Field field) {
 static void handle_key_presses(Person* person, InputEvent* input, GameState* game) {
     switch(input->key) {
     case InputKeyUp:
-        if(person->states == PlayerNothing && on_ground(person, game->field)) {
+        // p.y > 1: a jump from row 1 would move to row 0 and read field[-1] (upper box).
+        if(person->states == PlayerNothing && person->p.y > 1 && on_ground(person, game->field)) {
             person->states = PlayerRising;
             person->j_tick = 0;
         }
@@ -354,7 +355,6 @@ void hd_person_set_state(Person* person, PlayerStates state) {
 
 static void person_move(Person* person, Field field) {
     /// Left-right logic
-    FURI_LOG_W(TAG, "[JUMP]func:[%s] line: %d", __FUNCTION__, __LINE__);
 
     if(person->states == PlayerNothing) {
         if(!on_ground(person, field)) {
@@ -362,7 +362,7 @@ static void person_move(Person* person, Field field) {
         }
     } else if(person->states == PlayerRising) {
         if(person->j_tick++ == 0) {
-            person->p.y--;
+            if(person->p.y > 1) person->p.y--; // never rise above row 1 (row 0 reads field[-1])
         } else if(person->j_tick == 6) {
             hd_person_set_state(person, PlayerNothing);
         }
@@ -392,7 +392,6 @@ static void person_move(Person* person, Field field) {
         break;
     case 1:
         person->h_tick++;
-        FURI_LOG_W(TAG, "[JUMP]func:[%s] line: %d", __FUNCTION__, __LINE__);
         bool moved = horizontal_move(person, field);
         if(!moved) {
             person->h_tick = 0;
@@ -400,12 +399,10 @@ static void person_move(Person* person, Field field) {
         }
         break;
     case 5:
-        FURI_LOG_W(TAG, "[JUMP]func:[%s] line: %d", __FUNCTION__, __LINE__);
         person->h_tick = 0;
         person->x_direction = 0;
         break;
     default:
-        FURI_LOG_W(TAG, "[JUMP]func:[%s] line: %d", __FUNCTION__, __LINE__);
         person->h_tick++;
     }
 }
@@ -446,7 +443,6 @@ static void heap_defense_render_callback(Canvas* const canvas, void* mutex) {
 
     ///Draw GameOver or Pause
     if(!(game->game_status & GameStatusInProgress)) {
-        FURI_LOG_W(TAG, "[DAED_DRAW]func: [%s] line: %d ", __FUNCTION__, __LINE__);
 
         canvas_draw_icon_animation(canvas, 0, 0, animations[game->animation]);
         furi_mutex_release(game->mutex);

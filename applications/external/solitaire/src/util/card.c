@@ -105,6 +105,7 @@ bool card_test_foundation(Card* data, Card* target) {
 
 bool card_test_column(Card* data, Card* target) {
     if(!target) return data->value == KING;
+    if(target->value == ACE) return false; // nothing may be placed on an Ace
     return target->suit % 2 == (data->suit + 1) % 2 && (data->value + 1) == target->value;
 }
 

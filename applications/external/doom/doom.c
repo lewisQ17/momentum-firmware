@@ -309,7 +309,7 @@ UID updatePosition(
     return collide_x || collide_y || UID_null;
 }
 
-void updateEntities(const uint8_t level[], Canvas* const canvas, PluginState* const plugin_state) {
+void updateEntities(const uint8_t level[], PluginState* const plugin_state) {
     uint8_t i = 0;
     while(i < plugin_state->num_entities) {
         // update distance
@@ -395,7 +395,6 @@ void updateEntities(const uint8_t level[], Canvas* const canvas, PluginState* co
                             fmax(0, plugin_state->player.health - ENEMY_MELEE_DAMAGE);
                         plugin_state->entity[i].timer = 14;
                         flash_screen = 1;
-                        updateHud(canvas, plugin_state);
                     }
                 } else {
                     // stand
@@ -411,7 +410,6 @@ void updateEntities(const uint8_t level[], Canvas* const canvas, PluginState* co
                 plugin_state->player.health =
                     fmax(0, plugin_state->player.health - ENEMY_FIREBALL_DAMAGE);
                 flash_screen = 1;
-                updateHud(canvas, plugin_state);
                 removeEntity(plugin_state->entity[i].uid, plugin_state);
                 continue; // continue in the loop
             } else {
@@ -442,7 +440,6 @@ void updateEntities(const uint8_t level[], Canvas* const canvas, PluginState* co
                 //playSound(medkit_snd, MEDKIT_SND_LEN);
                 plugin_state->entity[i].state = S_HIDDEN;
                 plugin_state->player.health = fmin(100, plugin_state->player.health + 50);
-                updateHud(canvas, plugin_state);
                 flash_screen = 1;
             }
             break;
@@ -455,7 +452,6 @@ void updateEntities(const uint8_t level[], Canvas* const canvas, PluginState* co
                 //playSound(get_key_snd, GET_KEY_SND_LEN);
                 plugin_state->entity[i].state = S_HIDDEN;
                 plugin_state->player.keys++;
-                updateHud(canvas, plugin_state);
                 flash_screen = 1;
             }
             break;
@@ -778,8 +774,7 @@ static void render_callback(Canvas* const canvas, void* ctx) {
         break;
     }
     case GAME_PLAY: {
-        updateEntities(sto_level_1, canvas, plugin_state);
-
+        // Entity AI/timers run in doom_game_tick (fixed 12 Hz), not per redraw
         renderGun(plugin_state->gun_pos, plugin_state->jogging, canvas);
         renderMap(sto_level_1, plugin_state->view_height, canvas, plugin_state);
 
@@ -955,6 +950,8 @@ static void doom_game_tick(PluginState* const plugin_state) {
         } else {
             plugin_state->player.velocity = 0;
         }
+
+        updateEntities(sto_level_1, plugin_state);
     }
 }
 
@@ -1001,9 +998,11 @@ int32_t doom_app() {
             furi_mutex_acquire(plugin_state->music_instance->model_mutex, FuriWaitForever) ==
             FuriStatusOk);
 #endif
+        bool key_event = false;
         if(event_status == FuriStatusOk) {
             // press events
             if(event.type == EventTypeKey) {
+                key_event = true;
                 if(event.input.key == InputKeyBack) {
                     processing = false;
 #ifdef SOUND
@@ -1017,6 +1016,14 @@ int32_t doom_app() {
                 if(event.input.type == InputTypePress) {
                     if(plugin_state->scene == INTRO && event.input.key == InputKeyOk) {
                         plugin_state->scene = GAME_PLAY;
+                        // Fresh run: drop stale key flags and the old entity list
+                        plugin_state->up = false;
+                        plugin_state->down = false;
+                        plugin_state->left = false;
+                        plugin_state->right = false;
+                        plugin_state->fired = false;
+                        plugin_state->gun_fired = false;
+                        plugin_state->num_entities = 0;
                         initializeLevel(sto_level_1, plugin_state);
 #ifdef SOUND
                         furi_mutex_release(plugin_state->music_instance->model_mutex);
@@ -1059,19 +1066,18 @@ int32_t doom_app() {
                     }
                 }
                 if(event.input.type == InputTypeRelease) {
-                    if(plugin_state->player.health > 0) {
-                        //Player speed
-                        if(event.input.key == InputKeyUp) {
-                            plugin_state->up = false;
-                        } else if(event.input.key == InputKeyDown) {
-                            plugin_state->down = false;
-                        }
-                        // Player rotation
-                        if(event.input.key == InputKeyRight) {
-                            plugin_state->right = false;
-                        } else if(event.input.key == InputKeyLeft) {
-                            plugin_state->left = false;
-                        }
+                    // Always clear the flags, also when dead, so they cannot stay stuck
+                    //Player speed
+                    if(event.input.key == InputKeyUp) {
+                        plugin_state->up = false;
+                    } else if(event.input.key == InputKeyDown) {
+                        plugin_state->down = false;
+                    }
+                    // Player rotation
+                    if(event.input.key == InputKeyRight) {
+                        plugin_state->right = false;
+                    } else if(event.input.key == InputKeyLeft) {
+                        plugin_state->left = false;
                     }
                 }
             }
@@ -1086,7 +1092,11 @@ int32_t doom_app() {
 #endif
 
         furi_mutex_release(plugin_state->mutex);
-        view_port_update(view_port);
+        // The static intro logo only needs a redraw on key input, not on every 12 Hz tick
+        if(plugin_state->scene == GAME_PLAY ||
+           key_event) {
+            view_port_update(view_port);
+        }
     }
 #ifdef SOUND
     music_player_worker_free(plugin_state->music_instance->worker);

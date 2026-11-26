@@ -49,6 +49,10 @@ typedef struct {
 } MoveResult;
 
 #define MENU_ITEMS_COUNT 2
+#define MAX_TILE_VALUE   16 // digits[] has 16 glyphs
+
+// Set when the current run beat the stored top score (not part of the save file format)
+static bool new_top_score = false;
 static const char* popup_menu_strings[] = {"Resume", "New Game"};
 
 static void input_callback(InputEvent* input_event, void* ctx) {
@@ -158,7 +162,7 @@ static void draw_callback(Canvas* const canvas, void* ctx) {
     } else if(game_state->state == GameStateGameOver) {
         gray_canvas(canvas);
 
-        bool record_broken = game_state->score > game_state->top_score;
+        bool record_broken = new_top_score;
 
         canvas_set_color(canvas, ColorWhite);
         canvas_draw_rbox(canvas, 14, 12, 100, 40, 4);
@@ -296,6 +300,7 @@ void init_game(GameState* const game_state, bool clear_top_score) {
     game_state->moves = 0;
     game_state->state = GameStateInProgress;
     game_state->selected_menu_item = 0;
+    new_top_score = false;
     if(clear_top_score) {
         game_state->top_score = 0;
     }
@@ -315,7 +320,18 @@ bool load_game(GameState* game_state) {
 
     furi_record_close(RECORD_STORAGE);
 
-    return bytes_readed == sizeof(GameState);
+    if(bytes_readed != sizeof(GameState)) return false;
+
+    // Reject corrupt saves: out-of-range tiles/state/menu index would break drawing and input
+    if(game_state->state > GameStateGameOver) return false;
+    if(game_state->selected_menu_item < 0 || game_state->selected_menu_item >= MENU_ITEMS_COUNT)
+        return false;
+    for(uint8_t i = 0; i < CELLS_COUNT; i++) {
+        for(uint8_t j = 0; j < CELLS_COUNT; j++) {
+            if(game_state->table[i][j] > MAX_TILE_VALUE) return false;
+        }
+    }
+    return true;
 }
 
 void save_game(GameState* game_state) {
@@ -346,27 +362,31 @@ bool is_game_over(GameState* const game_state) {
     FURI_LOG_I("is_game_over", "no empty cells");
 
     uint8_t tmp_table[CELLS_COUNT][CELLS_COUNT];
-    MoveResult* tmp_move_result = malloc(sizeof(MoveResult));
+    MoveResult tmp_move_result = {.points = 0, .is_table_updated = false};
 
     // check if we can move to any direction
     memcpy(tmp_table, game_state->table, CELLS_COUNT * CELLS_COUNT * sizeof(uint8_t));
-    move_left(tmp_table, tmp_move_result);
-    if(tmp_move_result->is_table_updated) return false;
+    tmp_move_result.is_table_updated = false;
+    move_left(tmp_table, &tmp_move_result);
+    if(tmp_move_result.is_table_updated) return false;
     FURI_LOG_I("is_game_over", "can't move left");
 
     memcpy(tmp_table, game_state->table, CELLS_COUNT * CELLS_COUNT * sizeof(uint8_t));
-    move_right(tmp_table, tmp_move_result);
-    if(tmp_move_result->is_table_updated) return false;
+    tmp_move_result.is_table_updated = false;
+    move_right(tmp_table, &tmp_move_result);
+    if(tmp_move_result.is_table_updated) return false;
     FURI_LOG_I("is_game_over", "can't move right");
 
     memcpy(tmp_table, game_state->table, CELLS_COUNT * CELLS_COUNT * sizeof(uint8_t));
-    move_up(tmp_table, tmp_move_result);
-    if(tmp_move_result->is_table_updated) return false;
+    tmp_move_result.is_table_updated = false;
+    move_up(tmp_table, &tmp_move_result);
+    if(tmp_move_result.is_table_updated) return false;
     FURI_LOG_I("is_game_over", "can't move up");
 
     memcpy(tmp_table, game_state->table, CELLS_COUNT * CELLS_COUNT * sizeof(uint8_t));
-    move_down(tmp_table, tmp_move_result);
-    if(tmp_move_result->is_table_updated) return false;
+    tmp_move_result.is_table_updated = false;
+    move_down(tmp_table, &tmp_move_result);
+    if(tmp_move_result.is_table_updated) return false;
     FURI_LOG_I("is_game_over", "can't move down");
 
     return true;
@@ -470,6 +490,11 @@ int32_t game_2048_app() {
                     break;
                 }
                 game_state->score += move_result->points;
+                // Keep top score live so a run that beat it survives New Game / quit
+                if(game_state->score > game_state->top_score) {
+                    game_state->top_score = game_state->score;
+                    new_top_score = true;
+                }
 
                 if(move_result->is_table_updated) {
                     game_state->moves++;
@@ -478,9 +503,6 @@ int32_t game_2048_app() {
 
                 if(is_game_over(game_state)) {
                     game_state->state = GameStateGameOver;
-                    if(game_state->score >= game_state->top_score) {
-                        game_state->top_score = game_state->score;
-                    }
                 }
 
                 break;

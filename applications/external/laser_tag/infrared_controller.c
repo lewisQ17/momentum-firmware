@@ -28,6 +28,8 @@ const NotificationSequence sequence_bloop = {
 extern const NotificationSequence sequence_short_beep;
 
 static bool external_board_connected = false;
+// Controller that deferred timer callbacks may still touch; NULL once freed.
+static InfraredController* volatile active_controller = NULL;
 
 static void infrared_setup_external_board(bool enable) {
     if(enable) {
@@ -62,6 +64,12 @@ void update_infrared_board_status(InfraredController* controller) {
 static void infrared_reset(void* context, uint32_t arg) {
     UNUSED(arg);
     InfraredController* controller = (InfraredController*)context;
+    // Controller was freed (or RX stopped) before this deferred callback ran.
+    if(controller != active_controller) return;
+    if(!controller->worker_rx_active) {
+        controller->processing_signal = false;
+        return;
+    }
     // furi_stream_buffer_reset(instance->stream) not exposed to the API.
     // infrared_worker_rx_stop calls it internally.
     infrared_worker_rx_stop(controller->worker);
@@ -127,6 +135,7 @@ InfraredController* infrared_controller_alloc() {
     controller->notification = furi_record_open(RECORD_NOTIFICATION);
     controller->hit_received = false;
     controller->processing_signal = false;
+    controller->worker_rx_active = false;
 
     if(controller->worker && controller->signal && controller->notification) {
         FURI_LOG_I(
@@ -136,6 +145,7 @@ InfraredController* infrared_controller_alloc() {
         free(controller);
         return NULL;
     }
+    active_controller = controller;
 
     FURI_LOG_I(TAG, "Setting up RX callback");
     infrared_worker_rx_set_received_signal_callback(
@@ -149,10 +159,14 @@ void infrared_controller_free(InfraredController* controller) {
     FURI_LOG_I(TAG, "Freeing InfraredController");
 
     if(controller) {
+        // Invalidate, then drain the timer queue so no deferred infrared_reset sees freed memory.
+        active_controller = NULL;
         if(controller->worker_rx_active) {
             FURI_LOG_I(TAG, "Stopping RX worker");
             infrared_worker_rx_stop(controller->worker);
+            controller->worker_rx_active = false;
         }
+        furi_timer_flush();
 
         FURI_LOG_I(TAG, "Freeing InfraredWorker and InfraredSignal");
         infrared_worker_free(controller->worker);
@@ -166,6 +180,14 @@ void infrared_controller_free(InfraredController* controller) {
         FURI_LOG_I(TAG, "InfraredController freed successfully");
     } else {
         FURI_LOG_W(TAG, "Attempted to free NULL InfraredController");
+    }
+}
+
+void infrared_controller_release_board(void) {
+    // Undo the OTG 5V / PA7 TX setup this app enabled so it does not outlive the app.
+    if(external_board_connected) {
+        external_board_connected = false;
+        infrared_setup_external_board(false);
     }
 }
 

@@ -366,6 +366,10 @@ static void reset_level(GameState* state) {
     state->score = 0;
 
     state->collectedPickups = 0;
+    // drop leftover pickups from the previous game
+    for(int i = 0; i < CELLS_TOTAL; i++) {
+        state->pickups[i] = false;
+    }
     for(int i = 0, n = rand_range(PICKUPS_MIN, PICKUPS_MAX); i < n; i++) {
         int x = rand_range(0, CELLS_X);
         int y = rand_range(0, CELLS_Y);
@@ -747,7 +751,6 @@ int32_t roots_of_life_game_app(void* p) {
     view_port_enabled_set(view_port, false);
     gui_remove_view_port(gui, view_port);
     furi_record_close(RECORD_GUI);
-    furi_record_close(RECORD_NOTIFICATION);
     view_port_free(view_port);
     furi_mutex_free(state->mutex);
 

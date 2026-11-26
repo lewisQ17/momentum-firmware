@@ -120,5 +120,14 @@ Settings load_settings() {
     //        flipper_format_file_close(file);
     flipper_format_free(file);
     furi_record_close(RECORD_STORAGE);
+
+    // A hand-edited or corrupt file must not break the money logic or hang popups: clamp to UI ranges
+    if(settings.starting_money < 5) settings.starting_money = 5;
+    if(settings.starting_money > 399) settings.starting_money = 399;
+    if(settings.round_price < 5) settings.round_price = 5;
+    if(settings.round_price > settings.starting_money)
+        settings.round_price = settings.starting_money;
+    if(settings.animation_duration > 1999) settings.animation_duration = 1999;
+    if(settings.message_duration > 1999) settings.message_duration = 1999;
     return settings;
 }

@@ -70,6 +70,10 @@ void tamalib_set_exec_mode(exec_mode_t mode) {
     cpu_sync_ref_timestamp();
 }
 
+bool_t tamalib_is_paused(void) {
+    return exec_mode == EXEC_MODE_PAUSE;
+}
+
 void tamalib_step(void) {
     if(exec_mode == EXEC_MODE_PAUSE) {
         return;

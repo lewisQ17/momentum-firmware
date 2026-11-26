@@ -567,12 +567,19 @@ int32_t snake_20_app(void* p) {
     dolphin_deed(DolphinDeedPluginGameStart);
 
     SnakeEvent event;
+    bool backlight_forced = true;
     for(bool processing = true; processing;) {
-        FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
+        // Paused / game over: nothing changes without input, so sleep until an event arrives
+        bool idle_screen =
+            snake_state->state == GameStatePause || snake_state->state == GameStateGameOver;
+        FuriStatus event_status =
+            furi_message_queue_get(event_queue, &event, idle_screen ? FuriWaitForever : 100);
 
         furi_mutex_acquire(snake_state->mutex, FuriWaitForever);
+        bool redraw = false;
 
         if(event_status == FuriStatusOk) {
+            redraw = true;
             if(event.type == EventTypeKey) {
                 // press events
                 if(event.input.type == InputTypePress) {
@@ -712,14 +719,27 @@ int32_t snake_20_app(void* p) {
                     }
                 }
             } else if(event.type == EventTypeTick) {
+                // ticks keep arriving after game over but change nothing
+                redraw = snake_state->state != GameStateGameOver;
                 snake_game_process_game_step(snake_state, notification);
             }
         } else {
             // event timeout
         }
 
+        // Only keep the backlight forced on while actually playing
+        bool playing = snake_state->state == GameStateLife ||
+                       snake_state->state == GameStateLastChance;
+        if(playing != backlight_forced) {
+            backlight_forced = playing;
+            notification_message(
+                notification,
+                playing ? &sequence_display_backlight_enforce_on :
+                          &sequence_display_backlight_enforce_auto);
+        }
+
         furi_mutex_release(snake_state->mutex);
-        view_port_update(view_port);
+        if(redraw) view_port_update(view_port);
     }
 
     // Wait for all notifications to be played and return backlight to normal state

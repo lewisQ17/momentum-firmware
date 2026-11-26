@@ -87,7 +87,8 @@ void update_intro_screen(void* data) {
                     c->exposed = true;
                     curr_tableau++;
                 }
-                start_animation(state);
+                // tableau[7] does not exist: only start the next card while columns remain
+                if(curr_tableau < 7) start_animation(state);
             }
         }
     } else {
@@ -98,7 +99,7 @@ void update_intro_screen(void* data) {
 }
 
 static void quick_finish(GameState* state) {
-    if(state->animated_card.card) {
+    if(state->animated_card.card && curr_tableau < 7) {
         list_push_back(list_pop_back(state->deck), state->tableau[curr_tableau]);
     }
 

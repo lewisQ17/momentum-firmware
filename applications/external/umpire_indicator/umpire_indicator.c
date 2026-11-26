@@ -14,6 +14,7 @@ typedef struct {
     int strikes;
     int outs;
     bool exit;
+    FuriSemaphore* exit_sem; // signalled on exit so the main thread can sleep instead of polling
     AppState state;
     ViewPort* view_port;
     Gui* gui;
@@ -55,9 +56,10 @@ void draw_counter(Canvas* canvas, UmpireIndicatorState* state) {
 
     // Draw labels
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str(canvas, ball_x + 2, box_y - 2, "B");
-    canvas_draw_str(canvas, strike_x + 2, box_y - 2, "S");
-    canvas_draw_str(canvas, out_x + 2, box_y - 2, "O");
+    // baseline inside the frame (box_y - 2 put the labels above the screen)
+    canvas_draw_str(canvas, ball_x + 3, box_y + 11, "B");
+    canvas_draw_str(canvas, strike_x + 3, box_y + 11, "S");
+    canvas_draw_str(canvas, out_x + 3, box_y + 11, "O");
 
     // Draw counts
     canvas_set_font(canvas, FontBigNumbers);
@@ -163,6 +165,7 @@ void input_callback(InputEvent* input_event, void* ctx) {
         view_port_update(state->view_port);
     } else if(input_event->type == InputTypeLong && input_event->key == InputKeyBack) {
         state->exit = true;
+        furi_semaphore_release(state->exit_sem);
     }
 }
 
@@ -174,6 +177,7 @@ int32_t umpire_indicator_app(void* p) {
     state->strikes = 0;
     state->outs = 0;
     state->exit = false;
+    state->exit_sem = furi_semaphore_alloc(1, 0);
     state->state = StateInstructions;
 
     state->view_port = view_port_alloc();
@@ -184,7 +188,7 @@ int32_t umpire_indicator_app(void* p) {
     gui_add_view_port(state->gui, state->view_port, GuiLayerFullscreen);
 
     while(!state->exit) {
-        furi_delay_ms(100);
+        furi_semaphore_acquire(state->exit_sem, FuriWaitForever);
     }
 
     view_port_enabled_set(state->view_port, false);
@@ -192,6 +196,7 @@ int32_t umpire_indicator_app(void* p) {
     view_port_free(state->view_port);
     furi_record_close(RECORD_GUI);
 
+    furi_semaphore_free(state->exit_sem);
     free(state);
 
     return 0;

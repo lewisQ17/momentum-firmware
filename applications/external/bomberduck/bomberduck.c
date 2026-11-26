@@ -114,7 +114,9 @@ void init() {
     }
 
     world.enemies_count = 0;
-    for(int j = 0; j < rand() % 4 + world.level / 5; j++) {
+    // roll the enemy count once (re-rolling per iteration could pass 10 and overflow enemies[])
+    const int enemy_total = min(10, rand() % 4 + world.level / 5);
+    for(int j = 0; j < enemy_total; j++) {
         Enemy enemy;
         enemy.x = 4 + rand() % 7;
         enemy.y = rand() % 6;

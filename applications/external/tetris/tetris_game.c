@@ -291,8 +291,10 @@ static void tetris_game_init_state(TetrisState* tetris_state) {
 
 static void tetris_game_remove_curr_piece(TetrisState* tetris_state) {
     for(int i = 0; i < 4; i++) {
-        uint8_t x = tetris_state->currPiece.p[i].x;
-        uint8_t y = tetris_state->currPiece.p[i].y;
+        int8_t x = tetris_state->currPiece.p[i].x;
+        int8_t y = tetris_state->currPiece.p[i].y;
+        // Keep writes inside the field (a cell above/beside it would hit the heap)
+        if(y < 0 || y >= FIELD_HEIGHT || x < 0 || x >= FIELD_WIDTH) continue;
 
         tetris_state->playField[y][x] = false;
     }
@@ -300,8 +302,10 @@ static void tetris_game_remove_curr_piece(TetrisState* tetris_state) {
 
 static void tetris_game_render_curr_piece(TetrisState* tetris_state) {
     for(int i = 0; i < 4; i++) {
-        uint8_t x = tetris_state->currPiece.p[i].x;
-        uint8_t y = tetris_state->currPiece.p[i].y;
+        int8_t x = tetris_state->currPiece.p[i].x;
+        int8_t y = tetris_state->currPiece.p[i].y;
+        // Keep writes inside the field (a cell above/beside it would hit the heap)
+        if(y < 0 || y >= FIELD_HEIGHT || x < 0 || x >= FIELD_WIDTH) continue;
 
         tetris_state->playField[y][x] = true;
     }
@@ -335,7 +339,8 @@ static void tetris_game_apply_kick(Point points[], Point kick) {
 
 static bool tetris_game_is_valid_pos(TetrisState* tetris_state, Point* shape) {
     for(int i = 0; i < 4; i++) {
-        if(shape[i].y >= FIELD_HEIGHT || shape[i].x < 0 || shape[i].x > (FIELD_WIDTH - 1) ||
+        // y < 0: a wall kick above the field must be rejected, else playField[-1] is read
+        if(shape[i].y < 0 || shape[i].y >= FIELD_HEIGHT || shape[i].x < 0 || shape[i].x > (FIELD_WIDTH - 1) ||
            tetris_state->playField[shape[i].y][shape[i].x] == true) {
             return false;
         }
@@ -388,7 +393,10 @@ static void
 static bool tetris_game_piece_at_bottom(TetrisState* tetris_state, Piece* newPiece) {
     for(int i = 0; i < 4; i++) {
         Point* pos = (Point*)&newPiece->p;
-        if(pos[i].y >= FIELD_HEIGHT || tetris_state->playField[pos[i].y][pos[i].x] == true) {
+        if(pos[i].y >= FIELD_HEIGHT) return true;
+        // Out-of-field cells are not read (the playField index would leave the array)
+        if(pos[i].y < 0 || pos[i].x < 0 || pos[i].x >= FIELD_WIDTH) continue;
+        if(tetris_state->playField[pos[i].y][pos[i].x] == true) {
             return true;
         }
     }
@@ -506,7 +514,9 @@ int32_t tetris_game_app() {
 
     for(bool processing = true; processing;) {
         // This 10U implicitly sets the game loop speed. downRepeatCounter relies on this value
-        FuriStatus event_status = furi_message_queue_get(event_queue, &event, 10U);
+        // Slow poll while paused/game over: nothing moves, no need to wake at 100 Hz
+        uint32_t wait_ticks = (tetris_state->gameState == GameStatePlaying) ? 10U : 250U;
+        FuriStatus event_status = furi_message_queue_get(event_queue, &event, wait_ticks);
 
         furi_mutex_acquire(tetris_state->mutex, FuriWaitForever);
 
@@ -554,7 +564,10 @@ int32_t tetris_game_app() {
                             tetris_game_try_rotation(tetris_state, newPiece);
                             tetris_game_render_curr_piece(tetris_state);
                         } else {
-                            tetris_game_init_state(tetris_state);
+                            // Restart only after Game Over; OK while paused must not wipe the game
+                            if(tetris_state->gameState == GameStateGameOver) {
+                                tetris_game_init_state(tetris_state);
+                            }
                         }
                         break;
                     case InputKeyBack:
@@ -592,7 +605,10 @@ int32_t tetris_game_app() {
         tetris_game_process_step(tetris_state, newPiece, wasDownMove);
 
         furi_mutex_release(tetris_state->mutex);
-        view_port_update(view_port);
+        // Static screen (paused / game over, no event): skip the redundant redraw
+        if(event_status == FuriStatusOk || tetris_state->gameState == GameStatePlaying) {
+            view_port_update(view_port);
+        }
     }
 
     furi_timer_free(tetris_state->timer);

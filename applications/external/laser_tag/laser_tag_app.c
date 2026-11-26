@@ -259,6 +259,7 @@ void laser_tag_app_free(LaserTagApp* app) {
     if(app->ir_controller) {
         infrared_controller_free(app->ir_controller);
     }
+    infrared_controller_release_board();
     if(app->reader) {
         lfrfid_reader_free(app->reader);
         app->reader = NULL;
@@ -463,13 +464,6 @@ int32_t laser_tag_app(void* p) {
                 notification_message(app->notifications, &sequence_error);
                 // Stop game logic after game over
                 app->state = LaserTagStateGameOver;
-                app->need_redraw = true;
-            }
-        } else if(app->state == LaserTagStateGameOver) {
-            if(event.key == InputKeyOk) {
-                FURI_LOG_I(TAG, "OK key pressed, restarting game");
-                game_state_reset(app->game_state);
-                app->state = LaserTagStateSplashScreen;
                 app->need_redraw = true;
             }
         }

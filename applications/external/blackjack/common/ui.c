@@ -16,15 +16,19 @@ void ui_cleanup() {
         }
         free(tileMap);
     }
+    tileMap = NULL;
+    tileMapCount = 0;
 }
 
 void add_new_tilemap(uint8_t* data, unsigned long iconId) {
     TileMap* old = tileMap;
     tileMapCount++;
     tileMap = malloc(sizeof(TileMap) * tileMapCount);
-    if(tileMapCount > 1) {
-        for(uint8_t i = 0; i < tileMapCount; i++)
+    if(old != NULL) {
+        // copy only the previous entries, then drop the old array
+        for(uint8_t i = 0; i < tileMapCount - 1; i++)
             tileMap[i] = old[i];
+        free(old);
     }
     tileMap[tileMapCount - 1] = (TileMap){data, iconId};
 }

@@ -76,6 +76,8 @@ bool load_level_from_file(GeometryDashApp* app, const char* filename) {
 
                     int x = safe_atoi(commas[0] + 1);
                     int y = safe_atoi(commas[1] + 1);
+                    // grid_x/grid_y are uint8_t: skip out-of-range lines instead of wrapping them
+                    if (x < 0 || x > 255 || y < 0 || y > 255) continue;
 
                     int length_or_height = 1;
                     if (comma_count >= 3) {

@@ -109,6 +109,7 @@ typedef struct {
     BIRD bird;
     int points;
     int high_score;
+    bool new_best; // set when this run raised high_score (draw runs after the tick updated it)
     int pilars_count;
     PILAR pilars[FLAPPY_PILAR_MAX];
     bool debug;
@@ -191,6 +192,7 @@ static void flappy_game_state_init(GameState* const game_state) {
     game_state->bird = bird;
     game_state->pilars_count = 0;
     game_state->points = 0;
+    game_state->new_best = false;
     game_state->state = GameStateStart;
     game_state->collision_frame = 0;
     game_state->in_bird_select = false;
@@ -275,6 +277,7 @@ static void flappy_game_tick(GameState* const game_state) {
             if(game_state->points > game_state->high_score) {
                 game_state->high_score = game_state->points;
                 flappy_game_save_score(game_state->high_score);
+                game_state->new_best = true;
             }
             return;
         }
@@ -286,6 +289,7 @@ static void flappy_game_tick(GameState* const game_state) {
             if(game_state->points > game_state->high_score) {
                 game_state->high_score = game_state->points;
                 flappy_game_save_score(game_state->high_score);
+                game_state->new_best = true;
             }
             return;
         }
@@ -318,6 +322,7 @@ static void flappy_game_tick(GameState* const game_state) {
                     if(game_state->points > game_state->high_score) {
                         game_state->high_score = game_state->points;
                         flappy_game_save_score(game_state->high_score);
+                        game_state->new_best = true;
                     }
                     break;
                 }
@@ -500,7 +505,7 @@ static void flappy_game_render_callback(Canvas* const canvas, void* ctx) {
         canvas_draw_str_aligned(canvas, 64, 42, AlignCenter, AlignBottom, hi_buffer);
 
         // New Best! message (shown outside the box)
-        if(game_state->points > game_state->high_score) {
+        if(game_state->new_best) {
             canvas_draw_str_aligned(canvas, 64, 52, AlignCenter, AlignBottom, "New Best!");
         }
 

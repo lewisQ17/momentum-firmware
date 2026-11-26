@@ -31,7 +31,7 @@ void end_play_screen(GameState *state) {
     if (state->hand->count) {
         if (picked_from[1] == 1) {
             while (state->hand->tail) {
-                list_push_back(list_pop_front(state->hand), state->tableau[picked_from[1]]);
+                list_push_back(list_pop_front(state->hand), state->tableau[picked_from[0]]);
             }
         }
         if (picked_from[1] == 0) {

@@ -158,6 +158,8 @@ void flipcheckers_drawBoard(FlipCheckersScene1Model* model) {
 }
 
 uint8_t flipcheckers_saveState(FlipCheckers* app, FlipCheckersScene1Model* model) {
+    // Keep the last unfinished position: resuming a finished game has no legal moves to play
+    if(model->game.state != SCL_GAME_STATE_PLAYING) return 0;
     for(uint8_t i = 0; i < SCL_FEN_MAX_LENGTH; i++) {
         app->import_game_text[i] = '\0';
     }
@@ -264,8 +266,15 @@ uint8_t flipcheckers_turn(FlipCheckersScene1Model* model) {
             model->squareSelected = 255;
             flipcheckers_makeAIMove(
                 model->game.board, &(model->squareFrom), &(model->squareTo), &movePromote, model);
-            moveType = FlipCheckersStatusMoveAI;
             model->turnState = 0;
+            if(model->squareFrom == 255 || model->squareTo == 255) {
+                // CPU has no legal move: it lost; never apply the 255->255 null move
+                model->game.state = SCL_boardWhitesTurn(model->game.board) ?
+                                        SCL_GAME_STATE_BLACK_WIN :
+                                        SCL_GAME_STATE_WHITE_WIN;
+            } else {
+                moveType = FlipCheckersStatusMoveAI;
+            }
         }
 
         if(moveType == FlipCheckersStatusMovePlayer || moveType == FlipCheckersStatusMoveAI) {
@@ -349,19 +358,15 @@ uint8_t flipcheckers_turn(FlipCheckersScene1Model* model) {
                     model->msg = (whitesTurn ? "black played" : "white played");
                 }
 
-                uint8_t s0, s1;
-                char p;
-
-                SCL_recordGetMove(model->game.record, model->game.ply - 1, &s0, &s1, &p);
-                SCL_moveToString(model->game.board, s0, s1, p, model->moveString);
+                // moveString was already set by SCL_moveToString before the move was made
             }
             break;
-            model->paramExit = moveType;
         }
     }
 
     model->thinking = 0;
-    return model->paramExit;
+    // report the move type unless the game ended (paramExit == Return)
+    return (model->paramExit == FlipCheckersStatusNone) ? moveType : model->paramExit;
 }
 
 void flipcheckers_scene_1_set_callback(
@@ -505,6 +510,8 @@ static int flipcheckers_scene_1_model_init(
 #endif
 
     SCL_gameInit(&(model->game), model->startState);
+    // A resumed finished position must not look like a running game
+    model->game.state = _scl_checkState(model->game.board);
 
     if(model->paramAnalyze != 255) {
         char p;
@@ -636,7 +643,8 @@ bool flipcheckers_scene_1_input(InputEvent* event, void* context) {
                 },
                 true);
             break;
-        case InputKeyOk:
+        case InputKeyOk: {
+            bool first_turn_was_cpu = false;
             with_view_model(
                 instance->view,
                 FlipCheckersScene1Model * model,
@@ -658,6 +666,7 @@ bool flipcheckers_scene_1_input(InputEvent* event, void* context) {
                 {
                     // first turn of round, probably player but could be AI
                     uint8_t turn_res = flipcheckers_turn(model);
+                    first_turn_was_cpu = (turn_res == FlipCheckersStatusMoveAI);
                     if(turn_res == FlipCheckersStatusReturn) {
                         flipcheckers_play_long_bump(app);
                         flipcheckers_play_game_end_sound(
@@ -687,8 +696,17 @@ bool flipcheckers_scene_1_input(InputEvent* event, void* context) {
                 instance->view,
                 FlipCheckersScene1Model * model,
                 {
+                    // CPU vs CPU: play one CPU turn per OK press, not the whole game under the lock
+                    const bool both_cpu = model->paramPlayerW != 0 && model->paramPlayerB != 0;
+                    bool cpu_moved = first_turn_was_cpu;
                     while(!flipcheckers_isPlayerTurn(model) &&
                           model->game.state == SCL_GAME_STATE_PLAYING) {
+                        if(both_cpu && cpu_moved &&
+                           model->game.board[SCL_BOARD_MULTIJUMP_BYTE] == 255) {
+                            model->thinking = 0;
+                            break;
+                        }
+                        cpu_moved = true;
                         uint8_t ai_res = flipcheckers_turn(model);
                         if(ai_res == FlipCheckersStatusReturn) {
                             flipcheckers_play_long_bump(app);
@@ -703,6 +721,7 @@ bool flipcheckers_scene_1_input(InputEvent* event, void* context) {
                 },
                 true);
             break;
+        }
         case InputKeyMAX:
             break;
         }

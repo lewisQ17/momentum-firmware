@@ -159,6 +159,7 @@ void human_move(GameState* game_state) {
     }
 }
 
+// `player` is always the maximizing side (the computer); the mover follows is_maximizing.
 int minimax(
     GameState* game_state,
     int8_t board[BOARD_SIZE][BOARD_SIZE],
@@ -171,45 +172,35 @@ int minimax(
         return evaluate_board(board, player);
     }
 
-    if(is_maximizing) {
-        int max_eval = -1000000;
-        for(int i = 0; i < BOARD_SIZE; i++) {
-            for(int j = 0; j < BOARD_SIZE; j++) {
-                if(is_legal_move(board, i, j, player)) {
-                    int8_t temp_board[BOARD_SIZE][BOARD_SIZE];
-                    memcpy(temp_board, board, sizeof(temp_board));
-                    make_move(game_state, temp_board, i, j, player);
-                    int eval =
-                        minimax(game_state, temp_board, depth - 1, false, -player, alpha, beta);
-                    max_eval = max(max_eval, eval);
-                    alpha = max(alpha, eval);
-                    if(beta <= alpha) {
-                        break;
-                    }
-                }
-            }
-        }
-        return max_eval;
-    } else {
-        int min_eval = 1000000;
-        for(int i = 0; i < BOARD_SIZE; i++) {
-            for(int j = 0; j < BOARD_SIZE; j++) {
-                if(is_legal_move(board, i, j, -player)) {
-                    int8_t temp_board[BOARD_SIZE][BOARD_SIZE];
-                    memcpy(temp_board, board, sizeof(temp_board));
-                    make_move(game_state, temp_board, i, j, -player);
-                    int eval =
-                        minimax(game_state, temp_board, depth - 1, true, player, alpha, beta);
-                    min_eval = min(min_eval, eval);
-                    beta = min(beta, eval);
-                    if(beta <= alpha) {
-                        break;
-                    }
-                }
-            }
-        }
-        return min_eval;
+    int mover = is_maximizing ? player : -player;
+    // No legal move for the mover means a pass, not a sentinel score.
+    if(!has_legal_moves(board, mover)) {
+        return minimax(game_state, board, depth - 1, !is_maximizing, player, alpha, beta);
     }
+
+    int best_eval = is_maximizing ? -1000000 : 1000000;
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        for(int j = 0; j < BOARD_SIZE; j++) {
+            if(is_legal_move(board, i, j, mover)) {
+                int8_t temp_board[BOARD_SIZE][BOARD_SIZE];
+                memcpy(temp_board, board, sizeof(temp_board));
+                make_move(game_state, temp_board, i, j, mover);
+                int eval =
+                    minimax(game_state, temp_board, depth - 1, !is_maximizing, player, alpha, beta);
+                if(is_maximizing) {
+                    best_eval = max(best_eval, eval);
+                    alpha = max(alpha, eval);
+                } else {
+                    best_eval = min(best_eval, eval);
+                    beta = min(beta, eval);
+                }
+                if(beta <= alpha) {
+                    return best_eval;
+                }
+            }
+        }
+    }
+    return best_eval;
 }
 
 void computer_move(GameState* game_state) {
@@ -228,10 +219,11 @@ void computer_move(GameState* game_state) {
                     temp_board,
                     3,
                     false,
-                    -game_state->current_player,
+                    game_state->current_player,
                     -1000000,
                     1000000);
-                if(score > best_score) {
+                // Seeded with INT_MIN so a legal move is always picked.
+                if(best_row == -1 || score > best_score) {
                     best_score = score;
                     best_row = i;
                     best_col = j;

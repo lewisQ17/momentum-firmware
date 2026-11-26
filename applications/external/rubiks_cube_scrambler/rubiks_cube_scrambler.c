@@ -26,13 +26,17 @@ void split_array(char original[], int size, char first[], char second[]) {
     if(size % 2 != 0) {
         mid++;
     }
+    // Cut on a move boundary (space) so a move's ' or 2 modifier is never dropped
+    while(mid < size && original[mid] != ' ') {
+        mid++;
+    }
     int32_t first_index = 0, second_index = 0;
     for(int32_t i = 0; i < size; i++) {
         if(i < mid) {
             first[first_index++] = original[i];
         } else {
-            if(i == mid && (original[i] == '2' || original[i] == '\'')) {
-                continue;
+            if(i == mid && original[i] == ' ') {
+                continue; // separator at the cut
             }
             second[second_index++] = original[i];
         }
@@ -103,11 +107,11 @@ int32_t rubiks_cube_scrambler_main(void* p) {
         view_port_update(view_port);
     }
 
-    furi_message_queue_free(event_queue);
-
+    // Remove the view port before freeing the queue its input callback writes to
     gui_remove_view_port(gui, view_port);
 
     view_port_free(view_port);
+    furi_message_queue_free(event_queue);
     furi_record_close(RECORD_GUI);
     return 0;
 }

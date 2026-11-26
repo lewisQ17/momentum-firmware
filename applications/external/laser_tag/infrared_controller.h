@@ -22,6 +22,7 @@ void infrared_controller_set_team(InfraredController* controller, LaserTagTeam t
 void infrared_controller_send(InfraredController* controller);
 bool infrared_controller_receive(InfraredController* controller);
 void update_infrared_board_status(InfraredController* controller);
+void infrared_controller_release_board(void);
 void infrared_controller_pause(InfraredController* controller);
 void infrared_controller_resume(InfraredController* controller);
 

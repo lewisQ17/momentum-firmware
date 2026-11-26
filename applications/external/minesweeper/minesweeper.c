@@ -139,6 +139,9 @@ static void app_free(MineSweeperApp* app) {
     furi_string_free(app->settings_info.width_str);
     furi_string_free(app->settings_info.height_str);
 
+    // Win/lose LED uses do_not_reset; clear it so it does not stay lit after exit.
+    mine_sweeper_led_reset(app);
+
     furi_record_close(RECORD_NOTIFICATION);
 
     // Free app structure

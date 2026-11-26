@@ -318,6 +318,8 @@ bool minesweeper_scene_settings_screen_on_event(void* context, SceneManagerEvent
             break;
 
         case MineSweeperSettingsScreenEventInfoChange:
+            scene_manager_next_scene(app->scene_manager, MineSweeperSceneInfoScreen);
+            break;
 
         case MineSweeperSettingsScreenEventFeedbackChange:
             // If only the feedback option is changed we can just save without restarting

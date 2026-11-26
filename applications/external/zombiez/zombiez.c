@@ -197,13 +197,19 @@ static void input_callback(InputEvent* input_event, void* ctx) {
 
 static void tick(PluginState* const plugin_state) {
     if(plugin_state->input_shoot && (plugin_state->projectiles_count < PROJECTILES_MAX)) {
-        Projectile* p = (Projectile*)malloc(sizeof(Projectile));
-        p->position.x = plugin_state->player.position.x;
-        p->position.y = plugin_state->player.position.y;
+        // projectiles_count is the ammo used since the last reload; shots from before a reload
+        // may still be in flight, so put the new one in a free slot instead of at that index
+        size_t idx = 0;
+        while(idx < PROJECTILES_MAX && plugin_state->projectiles[idx] != NULL) idx++;
 
-        size_t idx = plugin_state->projectiles_count;
-        plugin_state->projectiles[idx] = p;
-        plugin_state->projectiles_count += 1;
+        if(idx < PROJECTILES_MAX) {
+            Projectile* p = (Projectile*)malloc(sizeof(Projectile));
+            p->position.x = plugin_state->player.position.x;
+            p->position.y = plugin_state->player.position.y;
+
+            plugin_state->projectiles[idx] = p;
+            plugin_state->projectiles_count += 1;
+        }
     }
 
     for(int i = 0; i < ZOMBIES_MAX; ++i) {
@@ -223,8 +229,8 @@ static void tick(PluginState* const plugin_state) {
         if(p != NULL) {
             p->position.x += 2;
 
-            for(int i = 0; i < ZOMBIES_MAX; ++i) {
-                Zombie* z = plugin_state->zombies[i];
+            for(int j = 0; j < ZOMBIES_MAX; ++j) {
+                Zombie* z = plugin_state->zombies[j];
                 if(z != NULL) {
                     if( // projectile close enough to zombie
                         (((z->position.x - p->position.x) <= 2) &&
@@ -235,21 +241,10 @@ static void tick(PluginState* const plugin_state) {
                         //if(z->hp <= 0) {
                         plugin_state->zombies_count -= 1;
                         free(z);
-                        plugin_state->zombies[i] = NULL;
+                        plugin_state->zombies[j] = NULL;
                         plugin_state->score++;
                         //if(plugin_state->score % 15 == 0) dolphin_deed(getRandomDeed());
                         //}
-                    } else if(z->position.x <= WALL_X && z->position.x > 0) { // zombie got to the wall
-                        plugin_state->zombies_count -= 1;
-                        free(z);
-                        plugin_state->zombies[i] = NULL;
-                        if(plugin_state->player.hp > 0) {
-                            plugin_state->player.hp--;
-                        } else {
-                            plugin_state->game_state = GameStateGameOver;
-                        }
-                    } else {
-                        if(furi_get_tick() % 2 == 0) z->position.x--;
                     }
                 }
             }
@@ -257,6 +252,25 @@ static void tick(PluginState* const plugin_state) {
             if(p->position.x >= 128) {
                 free(p);
                 plugin_state->projectiles[i] = NULL;
+            }
+        }
+    }
+
+    // Zombies move / hit the wall once per tick, independent of any projectile in flight
+    for(int i = 0; i < ZOMBIES_MAX; ++i) {
+        Zombie* z = plugin_state->zombies[i];
+        if(z != NULL) {
+            if(z->position.x <= WALL_X && z->position.x > 0) { // zombie got to the wall
+                plugin_state->zombies_count -= 1;
+                free(z);
+                plugin_state->zombies[i] = NULL;
+                if(plugin_state->player.hp > 0) {
+                    plugin_state->player.hp--;
+                } else {
+                    plugin_state->game_state = GameStateGameOver;
+                }
+            } else {
+                if(furi_get_tick() % 2 == 0) z->position.x--;
             }
         }
     }
@@ -269,6 +283,19 @@ static void timer_callback(void* ctx) {
     FuriMessageQueue* event_queue = ctx;
     PluginEvent event = {.type = EventTypeTick};
     furi_message_queue_put(event_queue, &event, 0);
+}
+
+// Free the zombies and projectiles still alive (call before re-init and before free(plugin_state))
+static void zombiez_free_entities(PluginState* const plugin_state) {
+    for(int i = 0; i < PROJECTILES_MAX; i++) {
+        free(plugin_state->projectiles[i]);
+        plugin_state->projectiles[i] = NULL;
+    }
+
+    for(int i = 0; i < ZOMBIES_MAX; i++) {
+        free(plugin_state->zombies[i]);
+        plugin_state->zombies[i] = NULL;
+    }
 }
 
 static void zombiez_state_init(PluginState* const plugin_state) {
@@ -374,6 +401,7 @@ int32_t zombiez_game_app(void* p) {
                 } else if(event.input.type == InputTypeLong) {
                     if(event.input.key == InputKeyOk) {
                         if(plugin_state->game_state == GameStateGameOver) {
+                            zombiez_free_entities(plugin_state);
                             zombiez_state_init(plugin_state);
                         } else if(plugin_state->projectiles_count >= PROJECTILES_MAX) {
                             plugin_state->projectiles_count = 0;
@@ -400,6 +428,8 @@ int32_t zombiez_game_app(void* p) {
     furi_mutex_free(plugin_state->mutex);
 
 free_and_exit:
+    // goto path: plugin_state was initialised above, entities are NULL or live
+    zombiez_free_entities(plugin_state);
     free(plugin_state);
     furi_message_queue_free(event_queue);
 

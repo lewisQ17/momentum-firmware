@@ -67,6 +67,7 @@ typedef struct {
     uint16_t flags_left;
     uint16_t tiles_left;
     uint32_t start_tick;
+    uint32_t end_tick;
     FuriString* info_str;
     bool ensure_solvable_board;
     bool is_restart_triggered;
@@ -94,6 +95,9 @@ static const int8_t offsets[8][2] = {
 };
 
 static MineSweeperTile board_t[MINESWEEPER_BOARD_MAX_TILES];
+
+// Cap on "Ensure Solvable" regeneration attempts so the UI thread cannot hang forever.
+#define MINESWEEPER_SOLVABLE_MAX_ATTEMPTS 100
 
 /****************************************************************
  * Function declarations
@@ -278,6 +282,7 @@ static void setup_board(MineSweeperGameScreen* instance) {
             model->bottom_boundary = MINESWEEPER_SCREEN_TILE_HEIGHT;
             model->is_restart_triggered = false;
             model->has_lost_game = false;
+            model->end_tick = 0;
         },
         true);
 }
@@ -1143,7 +1148,9 @@ static void mine_sweeper_game_screen_view_end_draw_callback(Canvas* canvas, void
         canvas, 0, 64 - 7, AlignLeft, AlignTop, furi_string_get_cstr(model->info_str));
 
     // Draw time text
-    uint32_t ticks_elapsed = furi_get_tick() - model->start_tick;
+    // Freeze the clock at the first end-screen draw so it stops on win/lose.
+    if(model->end_tick == 0) model->end_tick = furi_get_tick();
+    uint32_t ticks_elapsed = model->end_tick - model->start_tick;
     uint32_t sec = ticks_elapsed / furi_kernel_get_tick_frequency();
     uint32_t minutes = sec / 60;
     sec = sec % 60;
@@ -1315,8 +1322,13 @@ static bool mine_sweeper_game_screen_view_end_input_callback(InputEvent* event, 
 
                 size_t memsz = sizeof(MineSweeperTile) * MINESWEEPER_BOARD_MAX_TILES;
 
+                uint16_t attempts = 0;
+
                 do {
                     setup_board(instance);
+
+                    // Verifier result only matters when "Ensure Solvable" is on.
+                    if(!model->ensure_solvable_board) break;
 
                     memset(board_t, 0, memsz);
                     memcpy(
@@ -1327,7 +1339,11 @@ static bool mine_sweeper_game_screen_view_end_input_callback(InputEvent* event, 
                     is_valid_board = check_board_with_verifier(
                         board_t, model->board_width, model->board_height, model->mines_left);
 
-                } while(model->ensure_solvable_board && !is_valid_board);
+                    // Yield now and then; give up after the cap and keep the last board.
+                    attempts++;
+                    if(!is_valid_board && (attempts % 4) == 0) furi_delay_tick(1);
+
+                } while(!is_valid_board && attempts < MINESWEEPER_SOLVABLE_MAX_ATTEMPTS);
 
                 consumed = true;
 
@@ -1509,8 +1525,13 @@ MineSweeperGameScreen* mine_sweeper_game_screen_alloc(
     bool is_valid_board = false;
     size_t memsz = sizeof(MineSweeperTile) * MINESWEEPER_BOARD_MAX_TILES;
 
+    uint16_t attempts = 0;
+
     do {
         setup_board(mine_sweeper_game_screen);
+
+        // Verifier result only matters when "Ensure Solvable" is on.
+        if(!ensure_solvable) break;
 
         uint16_t num_mines = 1;
 
@@ -1533,7 +1554,11 @@ MineSweeperGameScreen* mine_sweeper_game_screen_alloc(
 
         is_valid_board = check_board_with_verifier(board_t, board_width, board_height, num_mines);
 
-    } while(ensure_solvable && !is_valid_board);
+        // Yield now and then; give up after the cap and keep the last board.
+        attempts++;
+        if(!is_valid_board && (attempts % 4) == 0) furi_delay_tick(1);
+
+    } while(!is_valid_board && attempts < MINESWEEPER_SOLVABLE_MAX_ATTEMPTS);
 
     return mine_sweeper_game_screen;
 }
@@ -1578,8 +1603,13 @@ void mine_sweeper_game_screen_reset(
     bool is_valid_board = false;
     size_t memsz = sizeof(MineSweeperTile) * MINESWEEPER_BOARD_MAX_TILES;
 
+    uint16_t attempts = 0;
+
     do {
         setup_board(instance);
+
+        // Verifier result only matters when "Ensure Solvable" is on.
+        if(!ensure_solvable) break;
 
         uint16_t num_mines = 1;
 
@@ -1602,7 +1632,11 @@ void mine_sweeper_game_screen_reset(
 
         is_valid_board = check_board_with_verifier(board_t, board_width, board_height, num_mines);
 
-    } while(ensure_solvable && !is_valid_board);
+        // Yield now and then; give up after the cap and keep the last board.
+        attempts++;
+        if(!is_valid_board && (attempts % 4) == 0) furi_delay_tick(1);
+
+    } while(!is_valid_board && attempts < MINESWEEPER_SOLVABLE_MAX_ATTEMPTS);
 }
 
 // This function should be called when you want to reset the game clock

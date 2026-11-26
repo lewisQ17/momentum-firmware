@@ -54,6 +54,9 @@
 #define SCL_GAME_STATE_DRAW           6
 #define SCL_GAME_STATE_DRAW_50        7
 
+// Draw after this many plies without a capture or man move (40 moves each)
+#define SCL_DRAW_QUIET_PLIES 80
+
 // Phase (unused but referenced in comments)
 #define SCL_PHASE_OPENING  0
 #define SCL_PHASE_ENDGAME  2
@@ -407,9 +410,19 @@ static inline void SCL_gameMakeMove(SCL_Game* game, uint8_t from, uint8_t to, ch
         game->record[0].to[game->ply] = to;
         memcpy(game->undoStack[game->ply], game->board, sizeof(SCL_Board));
     }
+    // Count plies without a capture or man move (draw rule; stops endless king shuffles)
+    const char movedPiece = game->board[from];
+    const uint8_t isCapture = (from / 8 > to / 8 ? from / 8 - to / 8 : to / 8 - from / 8) == 2;
+    const uint8_t isManMove = (movedPiece == 'P' || movedPiece == 'p');
+    uint8_t quietPlies = game->board[SCL_BOARD_MOVE_COUNT_BYTE];
     _scl_applyMove(game->board, from, to);
+    quietPlies = (isCapture || isManMove) ? 0 : (uint8_t)(quietPlies < 255 ? quietPlies + 1 : 255);
+    game->board[SCL_BOARD_MOVE_COUNT_BYTE] = quietPlies;
     game->ply++;
     game->state = _scl_checkState(game->board);
+    if(game->state == SCL_GAME_STATE_PLAYING && quietPlies >= SCL_DRAW_QUIET_PLIES) {
+        game->state = SCL_GAME_STATE_DRAW_50;
+    }
 }
 
 static inline void SCL_gameUndoMove(SCL_Game* game) {

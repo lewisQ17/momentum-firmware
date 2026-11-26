@@ -475,6 +475,10 @@ static void tama_p1_update_timer_callback(void* ctx) {
 }
 
 #define TAMA_ROM_MAX_BYTES (6144 * 2)
+// Exact size tama_p1_save_state writes: header 5 + pc/x/y 6 + a,b,np,sp,flags 5 + 3 counters 12 +
+// timer 3 + call_depth 4 + interrupts + RAM + I/O
+#define TAMA_SAVE_MIN_BYTES \
+    ((uint64_t)(5 + 6 + 5 + 12 + 3 + 4 + 3 * INT_SLOT_NUM + MEM_RAM_SIZE + MEM_IO_SIZE))
 static size_t tama_rom_words = 0;
 
 static void tama_p1_load_state() {
@@ -486,6 +490,11 @@ static void tama_p1_load_state() {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* file = storage_file_alloc(storage);
     if(storage_file_open(file, TAMA_SAVE_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
+        // A save cut short (power loss mid-write) would be read with stale bytes: ignore it
+        if(storage_file_size(file) < TAMA_SAVE_MIN_BYTES) {
+            FURI_LOG_E(TAG, "Truncated state file, ignoring");
+            error = true;
+        }
         storage_file_read(file, &buf, 4);
         if(buf[0] != (uint8_t)STATE_FILE_MAGIC[0] || buf[1] != (uint8_t)STATE_FILE_MAGIC[1] ||
            buf[2] != (uint8_t)STATE_FILE_MAGIC[2] || buf[3] != (uint8_t)STATE_FILE_MAGIC[3]) {
@@ -716,6 +725,15 @@ static int32_t tama_p1_worker(void* context) {
             // FURI_LOG_D(TAG, "Stepping"); // enabling this cause blank screen somehow
             // for (int i = 0; i < 100; ++i)
             tamalib_step(); // tamalib_mainloop();
+            if(tamalib_is_paused()) {
+                // CPU stopped (bad opcode / PC out of ROM): show "Halted" and idle with the
+                // mutex released, otherwise this loop spins holding it and freezes the GUI
+                g_ctx->halted = true;
+                furi_mutex_release(mutex);
+                furi_delay_ms(50);
+                while(furi_mutex_acquire(mutex, FuriWaitForever) != FuriStatusOk)
+                    furi_delay_tick(1);
+            }
         }
     }
     // Stop and release the speaker on the thread that owns it (no-op if the buzzer is off)

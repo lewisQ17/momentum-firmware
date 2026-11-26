@@ -35,6 +35,7 @@ bool new_game = true;
 bool game_over = false;
 bool bonus_added = false;
 int8_t num_bonus_yatzees = 0;
+bool bonus_taken_this_turn = false; // one Yahtzee bonus per turn, reset by clear_board
 
 // struct to hold image posistion for dice
 typedef struct {
@@ -308,7 +309,8 @@ static uint8_t largestraight() {
 
     // Check if there is a sequence of 4 consecutive die faces with at least one die
     bool found_large_straight = false;
-    for (int i = 0; i < 3 && !found_large_straight; i++) {
+    // only runs 1-5 and 2-6 exist (i < 3 read frequencies[6], past the array)
+    for (int i = 0; i < 2 && !found_large_straight; i++) {
       if (frequencies[i] > 0 && frequencies[i + 1] > 0 && frequencies[i + 2] > 0 && frequencies[i + 3] > 0 && frequencies[i + 4] > 0) {
         found_large_straight = true;
       }
@@ -530,10 +532,8 @@ static void app_draw_callback(Canvas* canvas, void* ctx) {
 
       // Check for then handle end of game
 
-      // add num_bonus_yatzees to total rounds so that multiple
-      // yatzees can be scored without impacting the number of rounds before
-      // the game is over
-      int8_t total_rounds = num_bonus_yatzees;
+      // bonus yatzees do not fill a box, so only used boxes count (no int8 wrap-around)
+      int8_t total_rounds = 0;
       // add up number of scores counted so far
       for (int8_t i = 0; i<NUM_SCORES; i++) {
           if (scorecard[i].used) {
@@ -541,9 +541,8 @@ static void app_draw_callback(Canvas* canvas, void* ctx) {
           }
       }
 
-      // if total rounds is 13 + the number of bonus rounds,
-      // thats it, game over.
-      if (total_rounds == NUM_SCORES+num_bonus_yatzees) {
+      // if all 13 boxes are used, thats it, game over.
+      if (total_rounds == NUM_SCORES) {
           // if scores of 1-6 add up to 63, a 35 point bonus is bonus_added
           // bonus_added = true keeps the game loop from
           // adding bonuses indefinetly
@@ -590,6 +589,7 @@ static void clear_board() {
   }
   scoreCursor.index = -1;
   cursor.index = 0;
+  bonus_taken_this_turn = false;
 }
 
 static void add_score() {
@@ -600,10 +600,16 @@ static void add_score() {
 
   // extra yatzee scores
   if (scoreCursor.index == SCORE_YATZEE && scorecard[scoreCursor.index].used) {
-    uint8_t yatzee_score = (*scorecard[SCORE_YATZEE].fn)();
-    scorecard[SCORE_YATZEE].value += 2*yatzee_score;
-    lowerScore+=100;
-    num_bonus_yatzees++;
+    // bonus only for a real Yahtzee on top of a Yahtzee that scored (not a scratched 0), once per turn
+    if (!bonus_taken_this_turn && scorecard[SCORE_YATZEE].value > 0 && (*scorecard[SCORE_YATZEE].fn)() == 50) {
+      scorecard[SCORE_YATZEE].value += 100;
+      lowerScore+=100;
+      num_bonus_yatzees++;
+      bonus_taken_this_turn = true;
+      totalScore = lowerScore + upperScore;
+    }
+    // the turn goes on: the player still has to fill another box with this roll (joker rule)
+    return;
   }
 
   // upper score

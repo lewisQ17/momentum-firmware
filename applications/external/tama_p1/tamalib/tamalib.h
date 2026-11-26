@@ -54,6 +54,7 @@ u8_t tamalib_get_framerate(void);
 void tamalib_register_hal(hal_t* hal);
 
 void tamalib_set_exec_mode(exec_mode_t mode);
+bool_t tamalib_is_paused(void);
 
 /* NOTE: Only one of these two functions must be used in the main application
  * (tamalib_step() should be used only if tamalib_mainloop() does not fit the

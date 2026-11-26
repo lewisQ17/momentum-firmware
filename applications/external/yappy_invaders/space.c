@@ -230,6 +230,7 @@ void handle_collisions(GameState* state) {
                    abs(state->projectiles[p].position.x - state->barriers[b].position.x) < 3 &&
                    abs(state->projectiles[p].position.y - state->barriers[b].position.y) < 3) {
                     state->projectiles[p].active = false;
+                    state->projectiles_count--; // slot is free again (was leaked per barrier hit)
                     state->barriers[b].active = false;
                     break;
                 }
@@ -328,8 +329,11 @@ void update_game_state(GameState* state) {
 
     for(int i = 0; i < ENEMIES_MAX; ++i) {
         if(state->enemies[i].active) {
-            if(abs(state->enemies[i].position.x - state->player.position.x) < 10 &&
-               abs(state->enemies[i].position.y - state->player.position.y) < 10) {
+            // An enemy that reached the player's row also ends the game: below it nothing can
+            // hit it any more, so the wave could never be cleared
+            if((abs(state->enemies[i].position.x - state->player.position.x) < 10 &&
+                abs(state->enemies[i].position.y - state->player.position.y) < 10) ||
+               state->enemies[i].position.y >= state->player.position.y) {
                 deactivate_all_enemies(state);
                 state->game_over = true;
                 return;

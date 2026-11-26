@@ -225,6 +225,7 @@ static void pinball_draw_callback(Canvas* const canvas, void* ctx) {
         // strtok is disabled - whyyy
         char buf[256];
         strncpy(buf, pb->text, 256);
+        buf[255] = '\0'; // strncpy does not terminate on overflow
         char* str = buf;
         char* p = buf;
         bool at_end = false;
@@ -361,6 +362,7 @@ PinballApp::PinballApp() {
 
     table = NULL;
     tick = 0;
+    text[0] = '\0'; // error screen reads this; never leave it uninitialized
 
     game_mode = GM_TableSelect;
     keys[InputKeyUp] = false;
@@ -654,6 +656,7 @@ extern "C" int32_t pinball0_app(void* p) {
         uint32_t time_lapsed = current_tick - last_frame_time;
         dt = time_lapsed / 1000.0f;
         while(dt < 1.0f / GAME_FPS) {
+            furi_delay_ms(1); // sleep instead of busy-spinning so the CPU can idle
             time_lapsed = furi_get_tick() - last_frame_time;
             dt = time_lapsed / 1000.0f;
         }

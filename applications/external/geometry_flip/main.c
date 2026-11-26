@@ -16,6 +16,19 @@
 // Function prototypes
 static void input_callback(InputEvent* input_event, void* ctx);
 
+// Rescan before the state flips to Menu so the draw thread never sees a half-rebuilt list.
+static void return_to_menu(GeometryDashApp* app) {
+    scan_level_files(app);
+    size_t file_count = LevelFileArray_size(app->level_files);
+    // Re-clamp the selection: files may have been removed meanwhile
+    if(file_count == 0) {
+        app->selected_menu_item = 0;
+    } else if((size_t)app->selected_menu_item >= file_count) {
+        app->selected_menu_item = (int)(file_count - 1);
+    }
+    app->state = GameStateMenu;
+}
+
 static void input_callback(InputEvent* input_event, void* ctx) {
     furi_assert(ctx);
     FuriMessageQueue* event_queue = ctx;
@@ -85,7 +98,9 @@ int32_t geometry_dash_app(void* p) {
         FuriStatus event_status = furi_message_queue_get(event_queue, &event, 50);
         if(event_status == FuriStatusOk) {
             // Обрабатываем нажатие или удержание кнопки
-            if(event.type == InputTypePress || event.type == InputTypeRepeat) {
+            // Back acts on Press only: a held Back would otherwise cascade Playing -> Menu -> exit
+            if(event.type == InputTypePress ||
+               (event.type == InputTypeRepeat && event.key != InputKeyBack)) {
                 if (app->state == GameStateMenu) {
                     // Логика навигации по меню
                     size_t file_count = LevelFileArray_size(app->level_files);
@@ -141,14 +156,16 @@ int32_t geometry_dash_app(void* p) {
                         }
                     } else if(event.key == InputKeyBack) {
                          // Возврат в меню по кнопке Back во время игры
-                         app->state = GameStateMenu;
-                         scan_level_files(app); // Пересканируем файлы на случай изменений
+                         return_to_menu(app); // Пересканируем файлы на случай изменений
                     }
                 } else if (app->state == GameStateGameOver || app->state == GameStateWin) {
                      // Логика в состояниях Game Over и Win
                      if(event.key == InputKeyOk) {
                          // Перезапуск текущего уровня
-                         char** selected_filename_ptr = LevelFileArray_get(app->level_files, app->selected_menu_item);
+                         char** selected_filename_ptr =
+                             (size_t)app->selected_menu_item < LevelFileArray_size(app->level_files) ?
+                                 LevelFileArray_get(app->level_files, app->selected_menu_item) :
+                                 NULL;
                          // Проверка указателя перед использованием
                          if(selected_filename_ptr && *selected_filename_ptr) {
                              char* selected_filename = *selected_filename_ptr;
@@ -161,8 +178,7 @@ int32_t geometry_dash_app(void* p) {
                          }
                      } else if(event.key == InputKeyBack) {
                          // Возврат в меню
-                         app->state = GameStateMenu;
-                         scan_level_files(app); // Пересканируем файлы
+                         return_to_menu(app); // Пересканируем файлы
                      }
                 }
             } else if (event.type == InputTypeRelease && event.key == InputKeyOk) {
@@ -175,13 +191,17 @@ int32_t geometry_dash_app(void* p) {
         // Обновляем логику игры
         uint32_t current_tick = furi_get_tick(); // Получаем текущее время
         uint32_t dt_ms = current_tick - app->last_tick; // Вычисляем дельту времени
-        // Обновляем игру только если дельта времени положительна и разумна
-        if (dt_ms > 0 && dt_ms < 100) {
+        bool was_playing = (app->state == GameStatePlaying);
+        // Clamp instead of skipping: a >=100 ms stall must not freeze the game for good
+        if (dt_ms > 0) {
+            if (dt_ms > 99) dt_ms = 99; // same max step as before
             process_game_logic(app, dt_ms); // Обрабатываем игровую логику
             app->last_tick = current_tick; // Обновляем время последнего обновления
         }
-        // Обновляем отображение на экране
-        view_port_update(view_port);
+        // Redraw only when something can have changed (input handled or game running)
+        if (was_playing || event_status == FuriStatusOk) {
+            view_port_update(view_port);
+        }
     }
 
     // --- Завершение работы приложения ---

@@ -309,19 +309,14 @@ int32_t jetpack_game_app(void* p) {
     for(bool processing = true; processing;) {
         FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
         furi_mutex_acquire(game_state->mutex, FuriWaitForever);
+        // Game-over screen is static: skip redraws on idle ticks.
+        bool was_game_over = game_state->state == GameStateGameOver;
 
         if(event_status == FuriStatusOk) {
             // press events
             if(event.type == EventTypeKey) {
                 if(event.input.type == InputTypeRelease && event.input.key == InputKeyOk) {
                     game_state->barry.isBoosting = false;
-                }
-
-                // Reset highscore, for debug purposes
-                if(event.input.type == InputTypeLong && event.input.key == InputKeyLeft) {
-                    save_game.max_distance = 0;
-                    save_game.total_coins = 0;
-                    storage_game_state_save();
                 }
 
                 if(event.input.type == InputTypePress) {
@@ -336,6 +331,10 @@ int32_t jetpack_game_app(void* p) {
                         break;
                     case InputKeyOk:
                         if(game_state->state == GameStateGameOver) {
+                            // Release the previous run's animations (and their timers) before re-init.
+                            icon_animation_free(game_state->sprites.barry);
+                            icon_animation_free(game_state->sprites.missile);
+                            icon_animation_free(game_state->sprites.alert);
                             jetpack_game_state_init(game_state);
                         }
 
@@ -357,8 +356,11 @@ int32_t jetpack_game_app(void* p) {
             }
         }
 
+        bool idle_tick =
+            was_game_over && event_status == FuriStatusOk && event.type == EventTypeTick;
+
         furi_mutex_release(game_state->mutex);
-        view_port_update(view_port);
+        if(!idle_tick) view_port_update(view_port);
     }
 
     furi_timer_free(timer);

@@ -70,10 +70,11 @@ static void dice_render_callback(Canvas* const canvas, void* ctx) {
         uint8_t hour = state->datetime.hour;
         char strAMPM[3];
         snprintf(strAMPM, sizeof(strAMPM), "%s", "AM");
-        if(hour > 12) {
-            hour -= 12;
+        if(hour >= 12) {
             snprintf(strAMPM, sizeof(strAMPM), "%s", "PM");
         }
+        hour %= 12;
+        if(hour == 0) hour = 12;
         snprintf(
             state->rollTime[0],
             sizeof(state->rollTime[0]),
@@ -155,12 +156,8 @@ static void dice_render_callback(Canvas* const canvas, void* ctx) {
                                      "8S", "9H", "9C", "9D", "9S", "10H", "10C", "10D", "10S",
                                      "JH", "JC", "JD", "JS", "QH", "QC",  "QD",  "QS",  "KH",
                                      "KC", "KD", "KS", "AH", "AC", "AD",  "AS"};
-            char* deckTwo[] = {"2H", "2C", "2D", "2S", "3H", "3C",  "3D",  "3S",  "4H",
-                               "4C", "4D", "4S", "5H", "5C", "5D",  "5S",  "6H",  "6C",
-                               "6D", "6S", "7H", "7C", "7D", "7S",  "8H",  "8C",  "8D",
-                               "8S", "9H", "9C", "9D", "9S", "10H", "10C", "10D", "10S",
-                               "JH", "JC", "JD", "JS", "QH", "QC",  "QD",  "QS",  "KH",
-                               "KC", "KD", "KS", "AH", "AC", "AD"}; // ONE LESS SINCE ONE WILL BE REMOVED
+            // Writable copy (not string literals); one less since one card is removed.
+            char deckTwo[COUNT_OF(deckOne) - 1][4] = {{0}};
             state->diceRoll =
                 ((rand() % state->diceSelect) + 1); // JUST TO GET IT GOING? AND FIX BUG
             snprintf(state->diceType[0], sizeof(state->diceType[0]), "%s", "WAR!");
@@ -174,9 +171,9 @@ static void dice_render_callback(Canvas* const canvas, void* ctx) {
             // INITIALIZE WITH PLACEHOLDERS TO AVOID MAYBE UNINITIALIZED ERROR
             for(uint8_t i = 0; i < COUNT_OF(deckOne); i++) {
                 if(i < d1_i) {
-                    snprintf(deckTwo[i], 8, "%s", deckOne[i]);
+                    snprintf(deckTwo[i], sizeof(deckTwo[i]), "%s", deckOne[i]);
                 } else if(i > d1_i) {
-                    snprintf(deckTwo[i - 1], 8, "%s", deckOne[i]);
+                    snprintf(deckTwo[i - 1], sizeof(deckTwo[i - 1]), "%s", deckOne[i]);
                 }
             }
             uint8_t d2_i = rand() % COUNT_OF(deckTwo);
@@ -433,6 +430,8 @@ int32_t dice_app(void* p) {
     for(bool processing = true; processing;) {
         FuriStatus event_status = furi_message_queue_get(plugin_state->event_queue, &event, 100);
         if(event_status == FuriStatusOk) {
+            // Hold the state mutex while mutating state (released below), pairing the release.
+            furi_mutex_acquire(plugin_state->mutex, FuriWaitForever);
             if(event.type == EventTypeKey) {
                 if(event.input.type == InputTypeShort || event.input.type == InputTypeRepeat) {
                     switch(event.input.key) {

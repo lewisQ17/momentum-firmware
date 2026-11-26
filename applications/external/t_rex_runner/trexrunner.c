@@ -239,8 +239,14 @@ int32_t trexrunner_app() {
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
 
     PluginEvent event;
+    bool timer_stopped = false;
     for(bool processing = true; processing;) {
-        FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
+        // On the "You lost" screen nothing changes without input, so sleep until an event arrives
+        FuriStatus event_status =
+            furi_message_queue_get(event_queue, &event, timer_stopped ? FuriWaitForever : 100);
+        bool restart_timer = false;
+        // key handling writes lost/y_speed/reinit: take the mutex the timer thread uses
+        furi_mutex_acquire(game_state->mutex, FuriWaitForever);
         if(event_status == FuriStatusOk) {
             // press events
             if(event.type == EventTypeKey) {
@@ -257,6 +263,7 @@ int32_t trexrunner_app() {
                     case InputKeyOk:
                         if(game_state->lost) {
                             game_state_reinit(game_state);
+                            restart_timer = true;
                             break;
                         }
                         if(game_state->y_position == DINO_START_Y)
@@ -273,7 +280,17 @@ int32_t trexrunner_app() {
             }
         }
 
-        // the main loop never takes the game mutex, so it must not release it either
+        bool lost = game_state->lost;
+        furi_mutex_release(game_state->mutex);
+
+        // timer calls stay outside the mutex (the timer thread takes it in its callback)
+        if(restart_timer) {
+            furi_timer_start(game_state->timer, (uint32_t)furi_kernel_get_tick_frequency() / FPS);
+            timer_stopped = false;
+        } else if(lost && !timer_stopped) {
+            furi_timer_stop(game_state->timer); // stop simulating the hidden game once lost
+            timer_stopped = true;
+        }
         view_port_update(view_port);
     }
 

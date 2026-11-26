@@ -190,6 +190,16 @@ static bool is_board_has_solution() {
     return inv % 2 == 0;
 }
 
+// A saved board must be a permutation of 0..15 that is solvable, else it is unplayable/OOB.
+static bool is_board_valid() {
+    uint16_t seen = 0;
+    for(int i = 0; i < 16; i++) {
+        if(game_state.board[i] > 15) return false;
+        seen |= (uint16_t)(1u << game_state.board[i]);
+    }
+    return seen == 0xFFFF && is_board_has_solution();
+}
+
 static void board_init() {
     for(int i = 0; i < 16; i++) {
         game_state.board[i] = (i + 1) % 16;
@@ -250,6 +260,7 @@ static void game_tick() {
                     storage_game_state_save();
                 }
                 game_state.scene = SceneWin;
+                key_stack_init(); // keys buffered during the last slide must not dismiss the win screen
             }
         }
         break;
@@ -454,7 +465,7 @@ int32_t game15_app() {
 
     loaded_saving_ticks = 0;
     if(storage_game_state_load()) {
-        if(game_state.scene != ScenePlay)
+        if(game_state.scene != ScenePlay || !is_board_valid())
             game_init();
         else
             loaded_saving_ticks = FPS;

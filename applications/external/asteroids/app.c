@@ -7,6 +7,7 @@
 #include <input/input.h>
 #include <gui/gui.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
 #include <gui/scene_manager.h>
@@ -29,7 +30,7 @@
 #define POWERUPSTTL 400 /* Max powerup time to live, in ticks. */
 #define MAXDRONES 1 /* Max drone buddies allowed */
 #define DRONE_TTL 300 /* Drone time to live, in ticks. */
-#define DRONE_FIRE_RATE 20 /* Drone fire rate in ticks. */
+#define DRONE_FIRE_RATE 500 /* Minimum time between drone shots, in ms. */
 #define SHIP_HIT_ANIMATION_LEN 15
 #define SAVING_DIRECTORY STORAGE_APP_DATA_PATH_PREFIX
 #define SAVING_FILENAME SAVING_DIRECTORY "/game_asteroids.save"
@@ -75,6 +76,7 @@ typedef struct Ship {
 typedef struct Bullet {
     float x, y, vx, vy; /* Fields like in ship. */
     uint32_t ttl; /* Time to live, in ticks. */
+    bool from_drone; /* Fired by a drone buddy: not counted against the player's bullet cap. */
 } Bullet;
 
 typedef struct Asteroid {
@@ -766,11 +768,17 @@ bool objects_are_colliding(float x1, float y1, float r1, float x2, float y2, flo
 //@todo ship_fire_bullet
 /* Create a new bullet headed in the same direction of the ship. */
 void ship_fire_bullet(AsteroidsApp* app) {
-    // No power ups, only 5 bullets allowed
-    if(isPowerUpActive(app, PowerUpTypeFirePower) == false && app->bullets_num >= 5) return;
+    // Never overflow the bullet array (drone bullets share it)
+    if(app->bullets_num >= MAXBUL) return;
 
-    // Double the Fire Power
-    if(isPowerUpActive(app, PowerUpTypeFirePower) && (app->bullets_num >= (MAXBUL))) return;
+    // No power ups, only 5 player bullets allowed (drone bullets don't count)
+    if(isPowerUpActive(app, PowerUpTypeFirePower) == false) {
+        int player_bullets = 0;
+        for(int i = 0; i < app->bullets_num; i++) {
+            if(!app->bullets[i].from_drone) player_bullets++;
+        }
+        if(player_bullets >= 5) return;
+    }
 
     notification_message(furi_record_open(RECORD_NOTIFICATION), &sequence_bullet_fired);
     Bullet* b = &app->bullets[app->bullets_num];
@@ -795,6 +803,7 @@ void ship_fire_bullet(AsteroidsApp* app) {
     b->vy += app->ship.vy;
 
     b->ttl = TTLBUL; /* The bullet will disappear after N ticks. */
+    b->from_drone = false;
     app->bullets_num++;
 }
 
@@ -1007,7 +1016,7 @@ void powerUp_was_hit(AsteroidsApp* app, int id) {
     case PowerUpTypeLife:
         if(app->lives < MAXLIVES) app->lives++;
         remove_powerUp(app, id);
-        break;
+        return; // slot id now holds another power-up; don't touch it below
     case PowerUpTypeFirePower:
         p->ttl = POWERUPSTTL / 2;
         app->bullet_min_period = 100;
@@ -1022,7 +1031,7 @@ void powerUp_was_hit(AsteroidsApp* app, int id) {
         // Spawn a drone buddy
         spawn_drone_buddy(app);
         remove_powerUp(app, id);
-        break;
+        return; // slot id now holds another power-up; don't touch it below
     default:
         break;
     }
@@ -1098,6 +1107,7 @@ void drone_fire_bullet(AsteroidsApp* app, Drone* drone) {
         b->vx = (dx / dist) * 3.0f; /* Bullet speed */
         b->vy = (dy / dist) * 3.0f;
         b->ttl = TTLBUL;
+        b->from_drone = true;
 
         /* Update drone rotation to face target */
         drone->rot = atan2(-dx, dy);
@@ -1352,7 +1362,9 @@ void detect_collisions(AsteroidsApp* app) {
     for(int j = 0; j < app->powerUps_num; j++) {
         PowerUp* p = &app->powerUps[j];
         if(objects_are_colliding(p->x, p->y, p->size, app->ship.x, app->ship.y, 4, 1)) {
+            const int powerUps_before = app->powerUps_num;
             powerUp_was_hit(app, j);
+            if(app->powerUps_num < powerUps_before) j--; // slot j was refilled: scan it too
             // break;
         }
     }
@@ -1480,7 +1492,7 @@ bool load_game(AsteroidsApp* app) {
     storage_common_migrate(storage, EXT_PATH("apps/Games/game_asteroids.save"), SAVING_FILENAME);
 
     File* file = storage_file_alloc(storage);
-    uint16_t bytes_readed = 0;
+    size_t bytes_readed = 0;
     if(storage_file_open(file, SAVING_FILENAME, FSAM_READ, FSOM_OPEN_EXISTING)) {
         bytes_readed = storage_file_read(file, app, sizeof(AsteroidsApp));
     }
@@ -1489,7 +1501,13 @@ bool load_game(AsteroidsApp* app) {
 
     furi_record_close(RECORD_STORAGE);
 
-    return bytes_readed == sizeof(AsteroidsApp);
+    // Only the fields up to highscore matter; a file too short to hold it is not a valid save
+    const size_t highscore_end = offsetof(AsteroidsApp, highscore) + sizeof(app->highscore);
+    if(bytes_readed < highscore_end) {
+        memset(app, 0, sizeof(AsteroidsApp));
+        return false;
+    }
+    return true;
 }
 
 void save_game(AsteroidsApp* app) {
@@ -1515,9 +1533,12 @@ void input_callback(InputEvent* input_event, void* ctx) {
 /* Allocate the application state and initialize a number of stuff.
  * This is called in the entry point to create the application state. */
 AsteroidsApp* asteroids_app_alloc() {
-    AsteroidsApp* app = malloc(sizeof(AsteroidsApp));
+    AsteroidsApp* app = calloc(1, sizeof(AsteroidsApp)); // zeroed: no garbage highscore if no save
 
     load_game(app);
+    // runtime flags must not come back from the save file
+    app->paused = false;
+    app->fire = false;
 
     app->gui = furi_record_open(RECORD_GUI);
     app->view_port = view_port_alloc();

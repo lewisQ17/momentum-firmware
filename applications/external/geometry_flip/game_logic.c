@@ -54,6 +54,7 @@ bool check_collision(GeometryDashApp* app, float scroll_offset) {
                                         obstacle->type == ObstacleTypePortalCube ||
                                         obstacle->type == ObstacleTypePortalBall ||
                                         obstacle->type == ObstacleTypePortalUfo ||
+                                        obstacle->type == ObstacleTypeGravityUp ||
                                         obstacle->type == ObstacleTypeGravityDown);
                 bool collision = false;
 

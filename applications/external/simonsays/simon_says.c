@@ -224,6 +224,31 @@ void stop_sound() {
     }
 }
 
+/* Sync the speaker with the board. Runs on the app thread only: the speaker mutex
+ * must be owned by the thread that later stops it (draw callback runs on the GUI thread). */
+static void simon_update_sound(const SimonData* simon_state) {
+    if(simon_state->gameState == inGame && !simon_state->set_board_neutral) {
+        switch(simon_state->selectedShape) {
+        case up:
+            play_sound_up(simon_state);
+            break;
+        case down:
+            play_sound_down(simon_state);
+            break;
+        case left:
+            play_sound_left(simon_state);
+            break;
+        case right:
+            play_sound_right(simon_state);
+            break;
+        default:
+            break;
+        }
+    } else {
+        stop_sound();
+    }
+}
+
 /* Main Render Function */
 void simon_draw_callback(Canvas* canvas, void* ctx) {
     furi_assert(ctx);
@@ -282,27 +307,19 @@ void simon_draw_callback(Canvas* canvas, void* ctx) {
         if(simon_state->set_board_neutral) {
             // Draw Neutral Board
             canvas_draw_icon(canvas, BOARD_X, BOARD_Y, &I_board); // Draw Board
-
-            // Stop Sound TODO: Move this to a better place
-            //@todo Sound
-            stop_sound();
         } else {
             switch(simon_state->selectedShape) {
             case up:
                 canvas_draw_icon(canvas, BOARD_X, BOARD_Y, &I_up); // Draw Up
-                play_sound_up(simon_state);
                 break;
             case down:
                 canvas_draw_icon(canvas, BOARD_X, BOARD_Y, &I_down); // Draw Down
-                play_sound_down(simon_state);
                 break;
             case left:
                 canvas_draw_icon(canvas, BOARD_X, BOARD_Y, &I_left); // Draw Left
-                play_sound_left(simon_state);
                 break;
             case right:
                 canvas_draw_icon(canvas, BOARD_X, BOARD_Y, &I_right); // Draw Right
-                play_sound_right(simon_state);
                 break;
             default:
                 if(DEBUG_MSG)
@@ -315,7 +332,6 @@ void simon_draw_callback(Canvas* canvas, void* ctx) {
 
     // ######################### Game Over #########################
     if(simon_state->gameState == gameOver) {
-        stop_sound(); //TODO: Make a game over sequence
         canvas_set_color(canvas, ColorXOR);
         canvas_set_font(canvas, FontPrimary);
 
@@ -412,13 +428,13 @@ int getRandomIntInRange(int lower, int upper) {
     return (rand() % (upper - lower + 1)) + lower;
 }
 
-void play_sound_sequence_correct() {
-    notification_message(furi_record_open(RECORD_NOTIFICATION), &sequence_success);
+void play_sound_sequence_correct(NotificationApp* notification) {
+    notification_message(notification, &sequence_success);
 }
 
-void play_sound_wrong_move() {
+void play_sound_wrong_move(NotificationApp* notification) {
     //TODO: play wrong sound: Try sequence_audiovisual_alert
-    notification_message(furi_record_open(RECORD_NOTIFICATION), &sequence_error);
+    notification_message(notification, &sequence_error);
 }
 
 /* Restart game and give player a chance to try again on same sequence */
@@ -474,7 +490,7 @@ void onPlayerAnsweredWrong(SimonData* app) {
 
         // Play the wrong sound
         if(app->sound_enabled) {
-            play_sound_wrong_move();
+            play_sound_wrong_move(app->notification);
         }
         resetGame(app);
     } else {
@@ -537,7 +553,7 @@ void game_tick(SimonData* simon_state) {
                     simon_state->is_new_highscore = true;
                 }
                 if(simon_state->sound_enabled) {
-                    play_sound_sequence_correct();
+                    play_sound_sequence_correct(simon_state->notification);
                 }
                 startNewRound(simon_state);
             }
@@ -552,6 +568,7 @@ int32_t simon_says_app_entry(void* p) {
     FuriMessageQueue* event_queue = furi_message_queue_alloc(8, sizeof(InputEvent));
 
     SimonData* simon_state = malloc(sizeof(SimonData));
+    memset(simon_state, 0, sizeof(SimonData)); // malloc'd flags/highScore were uninitialised
 
     simon_state->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     if(!simon_state->mutex) {
@@ -594,6 +611,7 @@ int32_t simon_says_app_entry(void* p) {
                 //if(simon_state->is_new_highscore) {
                 //  save_game(simon_state);
                 //}
+                furi_mutex_release(simon_state->mutex); // don't free the mutex while locked
                 break;
             }
 
@@ -646,6 +664,7 @@ int32_t simon_says_app_entry(void* p) {
         //     simon_state->set_board_neutral = !simon_state->set_board_neutral;
         // }
 
+        simon_update_sound(simon_state);
         furi_mutex_release(simon_state->mutex);
         view_port_update(view_port);
     }

@@ -15,7 +15,7 @@ ObstacleType char_to_obstacle_type(char c) {
         case '8': return ObstacleTypePortalBall;
         case '9': return ObstacleTypePortalUfo;
         case 'a': return ObstacleTypeGravityUp;
-        case 'b': return ObstacleTypeGravityDown;
+        case 'c': return ObstacleTypeGravityDown; // 'b' is the block-platform command in the loader
         default: return ObstacleTypeNone;
     }
 }

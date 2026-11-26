@@ -62,6 +62,8 @@ static void quick_solve(GameState* state) {
     }
     list_free_data(state->hand);
 
+    // in-flight card was already removed from its list, so it is ours to free
+    free(state->animated_card.card);
     state->animated_card.card = NULL;
 
     //fill up the foundations with cards

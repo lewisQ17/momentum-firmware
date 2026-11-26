@@ -150,16 +150,19 @@ int32_t flipper_pong_app(void* p) {
 
         if(event_status == FuriStatusOk) {
             if(event.type == EventTypeInput) {
+                // Move the paddle on Press/Repeat only, not also on Short/Release of the same tap
+                bool move_event = event.input.type == InputTypePress ||
+                                  event.input.type == InputTypeRepeat;
                 if(event.input.key == InputKeyBack) {
                     furi_mutex_release(players.mutex);
                     notification_message(notification, &sequence_set_only_green_255);
                     break;
-                } else if(event.input.key == InputKeyUp) {
+                } else if(event.input.key == InputKeyUp && move_event) {
                     if(players.player1_Y >= 1 + PLAYER1_PAD_SPEED)
                         players.player1_Y -= PLAYER1_PAD_SPEED;
                     else
                         players.player1_Y = 1;
-                } else if(event.input.key == InputKeyDown) {
+                } else if(event.input.key == InputKeyDown && move_event) {
                     if(players.player1_Y <= SCREEN_SIZE_Y - PAD_SIZE_Y - PLAYER1_PAD_SPEED - 1)
                         players.player1_Y += PLAYER1_PAD_SPEED;
                     else

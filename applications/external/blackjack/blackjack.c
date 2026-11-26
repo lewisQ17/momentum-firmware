@@ -22,6 +22,8 @@ void start_round(GameState* game_state);
 
 void init(GameState* game_state);
 
+void ui_cleanup();
+
 static void draw_ui(Canvas* const canvas, const GameState* game_state) {
     draw_money(canvas, game_state->player_score);
 
@@ -34,9 +36,12 @@ static void draw_ui(Canvas* const canvas, const GameState* game_state) {
 
 static void render_callback(Canvas* const canvas, void* ctx) {
     const GameState* game_state = ctx;
-    furi_mutex_acquire(game_state->mutex, 25);
-
     if(game_state == NULL) {
+        return;
+    }
+
+    // Wait for the lock: drawing unlocked (or releasing a lock we don't hold) breaks the mutex
+    if(furi_mutex_acquire(game_state->mutex, FuriWaitForever) != FuriStatusOk) {
         return;
     }
 
@@ -446,10 +451,12 @@ void start_round(GameState* game_state) {
     game_state->doubled = false;
     game_state->bet = game_state->settings.round_price;
     if(game_state->player_score < game_state->settings.round_price) {
+        // can't afford the bet: game over, don't play an unpaid round
+        game_state->queue_state.running = false;
         game_state->state = GameStateGameOver;
-    } else {
-        game_state->player_score -= game_state->settings.round_price;
+        return;
     }
+    game_state->player_score -= game_state->settings.round_price;
     game_state->state = GameStatePlay;
 }
 
@@ -574,14 +581,19 @@ int32_t blackjack_app(void* p) {
 
     Gui* gui = furi_record_open(RECORD_GUI);
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
+    view_port_update(view_port); // first frame; later frames only when something changed
 
     AppEvent event;
 
     for(bool processing = true; processing;) {
         FuriStatus event_status = furi_message_queue_get(event_queue, &event, 100);
         furi_mutex_acquire(game_state->mutex, FuriWaitForever);
+        // redraw only when something can change: timeout, key, animation/play states or state switch
+        bool redraw = (event_status != FuriStatusOk);
+        const PlayState state_before = game_state->state;
         if(event_status == FuriStatusOk) {
             if(event.type == EventTypeKey) {
+                redraw = true;
                 if(event.input.type == InputTypePress) {
                     switch(event.input.key) {
                     case InputKeyUp:
@@ -613,11 +625,16 @@ int32_t blackjack_app(void* p) {
             } else if(event.type == EventTypeTick) {
                 tick(game_state);
                 processing = game_state->processing;
+                if(game_state->state == GameStatePlay || game_state->state == GameStateDealer ||
+                   game_state->queue_state.current != NULL) {
+                    redraw = true;
+                }
             }
         }
+        if(game_state->state != state_before) redraw = true;
 
         furi_mutex_release(game_state->mutex);
-        view_port_update(view_port);
+        if(redraw) view_port_update(view_port);
     }
 
     furi_timer_free(timer);
@@ -628,6 +645,7 @@ int32_t blackjack_app(void* p) {
     furi_mutex_free(game_state->mutex);
 
 free_and_exit:
+    ui_cleanup(); // free the card-graphics tile map (no draw can run any more)
     free(game_state->deck.cards);
     free_menu(game_state->menu);
     queue_clear(&(game_state->queue_state));

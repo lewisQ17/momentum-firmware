@@ -40,6 +40,7 @@ void mine_sweeper_save_settings(void* context) {
 
     if(!flipper_format_file_open_new(fff_file, MINESWEEPER_SETTINGS_SAVE_PATH)) {
         FURI_LOG_E(TAG, "Error creating new file %s", MINESWEEPER_SETTINGS_SAVE_PATH);
+        mine_sweeper_close_config_file(fff_file);
         mine_sweeper_close_storage();
         return;
     }
@@ -85,6 +86,7 @@ bool mine_sweeper_read_settings(void* context) {
 
     if(!flipper_format_file_open_existing(fff_file, MINESWEEPER_SETTINGS_SAVE_PATH)) {
         FURI_LOG_E(TAG, "Cannot open file %s", MINESWEEPER_SETTINGS_SAVE_PATH);
+        furi_string_free(temp_str);
         mine_sweeper_close_config_file(fff_file);
         mine_sweeper_close_storage();
         return false;
@@ -92,6 +94,7 @@ bool mine_sweeper_read_settings(void* context) {
 
     if(!flipper_format_read_header(fff_file, temp_str, &file_version)) {
         FURI_LOG_E(TAG, "Missing Header Data");
+        furi_string_free(temp_str);
         mine_sweeper_close_config_file(fff_file);
         mine_sweeper_close_storage();
         return false;

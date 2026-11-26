@@ -185,7 +185,20 @@ bool load_game(GameState* game_state) {
 
     furi_record_close(RECORD_STORAGE);
 
-    return bytes_readed == sizeof(GameState);
+    if(bytes_readed != sizeof(GameState)) return false;
+
+    // Reject corrupt/foreign saves: out-of-range values would index the board out of bounds.
+    if(game_state->cursor_x >= BOARD_SIZE || game_state->cursor_y >= BOARD_SIZE) return false;
+    if(game_state->current_player != BLACK && game_state->current_player != WHITE) return false;
+    if(game_state->human_color != BLACK && game_state->human_color != WHITE) return false;
+    for(int i = 0; i < BOARD_SIZE; i++) {
+        for(int j = 0; j < BOARD_SIZE; j++) {
+            int8_t cell = game_state->board[i][j];
+            if(cell != 0 && cell != BLACK && cell != WHITE) return false;
+        }
+    }
+    game_state->is_game_over = game_state->is_game_over ? 1 : 0;
+    return true;
 }
 
 void save_game(const GameState* game_state) {
@@ -260,6 +273,10 @@ bool handle_key_menu(AppState* app_state, InputKey key) {
         if(app_state->selected_menu_item < MENU_ITEMS_COUNT - 1) {
             app_state->selected_menu_item++;
         }
+        break;
+    case InputKeyBack:
+        // Back closes the pause menu (resume the game).
+        app_state->screen = AppScreenGame;
         break;
     case InputKeyOk:
         if(app_state->selected_menu_item == 1) {

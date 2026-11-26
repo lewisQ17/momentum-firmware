@@ -326,21 +326,22 @@ const Icon card_face[5] = {I_Ten_7x8, I_Jack_7x8, I_Queen_7x8, I_King_7x8, I_Ace
 /* Sanity check: check that there are no duplicate cards in hand */
 
 static void playcard(PokerPlayer* app) {
-    int i, c, crd;
+    int i, j, crd;
 
-    int hold[5];
-    hold[5] = 2;
-    // int digit;
-    c = 1;
-    c++;
-    c = hold[5]; /* FIX for unused-but-set-variable */
     /* initialize deck */
     for(i = 0; i < 52; i++)
         deck[i].gone = 0;
 
-    /* initialize hold[] */
-    for(i = 0; i < 5; i++)
-        hold[i] = 1;
+    /* held cards stay in the hand: mark them dealt so a draw cannot duplicate them */
+    for(i = 0; i < 5; i++) {
+        if(!app->held[i]) continue;
+        for(j = 0; j < 52; j++) {
+            if(deck[j].index == app->hand[i].index && deck[j].suit == app->hand[i].suit) {
+                deck[j].gone = 1;
+                break;
+            }
+        }
+    }
 
     /* app->score -= bet; */
     if(app->score > app->highscore) {
@@ -352,7 +353,6 @@ static void playcard(PokerPlayer* app) {
         do
             crd = random() % 52;
         while(deck[crd].gone);
-        hold[i] = 1;
         deck[crd].gone = 1;
         if(!app->held[i]) {
             app->hand[i] = deck[crd];

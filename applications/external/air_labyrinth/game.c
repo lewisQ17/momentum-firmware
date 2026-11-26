@@ -156,7 +156,12 @@ static void player_render(Entity* self, GameManager* manager, Canvas* canvas, vo
     //canvas_draw_sprite(canvas, player->sprite, pos.x - 5, pos.y - 5);
 
     // Collision box is 2x2 but image is 10x10.
-    canvas_draw_sprite(canvas, player->sprite, pos.x - 5, pos.y - 5);
+    if(player->sprite) {
+        canvas_draw_sprite(canvas, player->sprite, pos.x - 5, pos.y - 5);
+    } else {
+        // sprite file missing/corrupt: draw a plain disc instead of dereferencing NULL
+        canvas_draw_disc(canvas, (int32_t)pos.x, (int32_t)pos.y, 3);
+    }
 
     // Get game context
     GameContext* game_context = game_manager_game_context_get(manager);

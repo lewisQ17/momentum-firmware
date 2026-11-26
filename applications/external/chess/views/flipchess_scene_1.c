@@ -171,6 +171,24 @@ uint8_t flipchess_saveState(FlipChess* app, FlipChessScene1Model* model) {
     return res;
 }
 
+// Derive the game state from the board (a resumed finished game must not look like a running one)
+static void flipchess_syncGameState(FlipChessScene1Model* model) {
+    switch(SCL_boardGetPosition(model->game.board)) {
+    case SCL_POSITION_MATE:
+        model->game.state = SCL_boardWhitesTurn(model->game.board) ? SCL_GAME_STATE_BLACK_WIN :
+                                                                     SCL_GAME_STATE_WHITE_WIN;
+        break;
+    case SCL_POSITION_STALEMATE:
+        model->game.state = SCL_GAME_STATE_DRAW_STALEMATE;
+        break;
+    case SCL_POSITION_DEAD:
+        model->game.state = SCL_GAME_STATE_DRAW_DEAD;
+        break;
+    default:
+        break;
+    }
+}
+
 uint8_t flipchess_turn(FlipChessScene1Model* model) {
     // 0: none, 1: player, 2: AI, 3: undo
     uint8_t moveType = FlipChessStatusNone;
@@ -265,10 +283,17 @@ uint8_t flipchess_turn(FlipChessScene1Model* model) {
 
         } else {
             model->squareSelected = 255;
+            model->squareFrom = 0;
+            model->squareTo = 0;
             flipchess_makeAIMove(
                 model->game.board, &(model->squareFrom), &(model->squareTo), &movePromote, model);
-            moveType = FlipChessStatusMoveAI;
             model->turnState = 0;
+            if(model->squareFrom == model->squareTo) {
+                // CPU has no legal move (mate/stalemate): never apply the null move a1->a1
+                flipchess_syncGameState(model);
+            } else {
+                moveType = FlipChessStatusMoveAI;
+            }
         }
 
         if(moveType == FlipChessStatusMovePlayer || moveType == FlipChessStatusMoveAI) {
@@ -468,6 +493,7 @@ static int flipchess_scene_1_model_init(
 #endif
 
     SCL_gameInit(&(model->game), model->startState);
+    flipchess_syncGameState(model);
 
     if(model->paramAnalyze != 255) {
         char p;
@@ -596,7 +622,8 @@ bool flipchess_scene_1_input(InputEvent* event, void* context) {
                 },
                 true);
             break;
-        case InputKeyOk:
+        case InputKeyOk: {
+            bool speak_game_end = false; // voice runs outside the model lock so the GUI stays live
             with_view_model(
                 instance->view,
                 FlipChessScene1Model * model,
@@ -618,13 +645,17 @@ bool flipchess_scene_1_input(InputEvent* event, void* context) {
                 {
                     // first turn of round, probably player but could be AI
                     if(flipchess_turn(model) == FlipChessStatusReturn) {
-                        if(app->sound == 1) flipchess_voice_a_strange_game();
+                        speak_game_end = true;
                         flipchess_play_long_bump(app);
                     }
                     flipchess_saveState(app, model);
                     flipchess_drawBoard(model);
                 },
                 true);
+            if(speak_game_end) {
+                speak_game_end = false;
+                if(app->sound == 1) flipchess_voice_a_strange_game();
+            }
 
             with_view_model(
                 instance->view,
@@ -644,7 +675,7 @@ bool flipchess_scene_1_input(InputEvent* event, void* context) {
                     // if player played, let AI play
                     if(!flipchess_isPlayerTurn(model)) {
                         if(flipchess_turn(model) == FlipChessStatusReturn) {
-                            if(app->sound == 1) flipchess_voice_a_strange_game();
+                            speak_game_end = true;
                             flipchess_play_long_bump(app);
                         }
                         flipchess_saveState(app, model);
@@ -652,7 +683,11 @@ bool flipchess_scene_1_input(InputEvent* event, void* context) {
                     }
                 },
                 true);
+            if(speak_game_end) {
+                if(app->sound == 1) flipchess_voice_a_strange_game();
+            }
             break;
+        }
         case InputKeyMAX:
             break;
         }
@@ -674,6 +709,11 @@ void flipchess_scene_1_enter(void* context) {
 
     flipchess_play_happy_bump(app);
 
+    // new game: speak before taking the model lock so the GUI is not blocked meanwhile
+    if(!(app->import_game == 1 && strlen(app->import_game_text) > 0)) {
+        if(app->sound == 1) flipchess_voice_how_about_chess();
+    }
+
     with_view_model(
         instance->view,
         FlipChessScene1Model * model,
@@ -682,8 +722,6 @@ void flipchess_scene_1_enter(void* context) {
             char* import_game_text = NULL;
             if(app->import_game == 1 && strlen(app->import_game_text) > 0) {
                 import_game_text = app->import_game_text;
-            } else {
-                if(app->sound == 1) flipchess_voice_how_about_chess();
             }
 
             int init = flipchess_scene_1_model_init(

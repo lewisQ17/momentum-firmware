@@ -43,6 +43,7 @@ typedef struct {
 
 uint8_t DEFAULT_SPINNING_TIMES = 10;
 static SlotsHighscore highscore;
+static bool highscore_save_pending = false; // set in draw callback, saved by the app thread
 
 static bool highscores_load() {
     Storage* storage = furi_record_open(RECORD_STORAGE);
@@ -101,7 +102,7 @@ void game_results(SlotMachineApp* app) {
 
         if(total > highscore.highscore) {
             highscore.highscore = total;
-            highscores_save();
+            highscore_save_pending = true; // no SD write inside the draw callback
         }
     }
 
@@ -290,9 +291,16 @@ int32_t slotmachine_app(void* p) {
     if(!highscores_load()) {
         memset(&highscore, 0, sizeof(highscore));
     }
+    // Redraw only while spinning (animation advances in the draw callback) or on input.
+    // One extra pass after the spin ends shows the win/lose result set by that last draw.
+    bool spinning = true;
     // endless input cycle
     while(1) {
-        if(furi_message_queue_get(slotmachine->input_queue, &input, 100) == FuriStatusOk) {
+        bool redraw = spinning;
+        if(furi_message_queue_get(
+               slotmachine->input_queue, &input, spinning ? 100 : FuriWaitForever) ==
+           FuriStatusOk) {
+            redraw = true;
             // if thread idle - take it
             furi_check(
                 furi_mutex_acquire(slotmachine->model_mutex, FuriWaitForever) == FuriStatusOk);
@@ -306,6 +314,11 @@ int32_t slotmachine_app(void* p) {
                 } else if(
                     input.key == InputKeyOk && input.type == InputTypeShort &&
                     (slotmachine->winview || slotmachine->loseview)) {
+                    if(slotmachine->loseview) {
+                        // out of money: start a fresh round instead of getting stuck
+                        slotmachine->money = START_MONEY;
+                        slotmachine->bet = START_BET;
+                    }
                     slotmachine->winview = false;
                     slotmachine->loseview = false;
                 } else if(
@@ -319,11 +332,15 @@ int32_t slotmachine_app(void* p) {
                         slotmachine->columns[i]->times = DEFAULT_SPINNING_TIMES;
                         slotmachine->columns[i]->speed = DEFAULT_SPEED;
                     }
-                } else if(input.key == InputKeyUp) {
+                } else if(
+                    input.key == InputKeyUp &&
+                    (input.type == InputTypeShort || input.type == InputTypeRepeat)) {
                     if(slotmachine->bet + 10 <= slotmachine->money) {
                         slotmachine->bet += 10;
                     }
-                } else if(input.key == InputKeyDown) {
+                } else if(
+                    input.key == InputKeyDown &&
+                    (input.type == InputTypeShort || input.type == InputTypeRepeat)) {
                     if(slotmachine->bet - 10 > 0) {
                         slotmachine->bet -= 10;
                     }
@@ -336,8 +353,17 @@ int32_t slotmachine_app(void* p) {
             // release thread
             furi_mutex_release(slotmachine->model_mutex);
         }
+        if(highscore_save_pending) {
+            highscore_save_pending = false;
+            highscores_save();
+        }
+
+        furi_check(furi_mutex_acquire(slotmachine->model_mutex, FuriWaitForever) == FuriStatusOk);
+        spinning = checkIsSpinning(slotmachine);
+        furi_mutex_release(slotmachine->model_mutex);
+
         // redraw viewport
-        view_port_update(slotmachine->view_port);
+        if(redraw) view_port_update(slotmachine->view_port);
     }
 
     slotmachine_app_free(slotmachine);

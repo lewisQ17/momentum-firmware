@@ -2,6 +2,7 @@
 #include <gui/gui.h>
 #include <input/input.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <notification/notification.h>
 #include <notification/notification_messages.h>
@@ -190,14 +191,16 @@ void scorched_tanks_calculate_trajectory(Game* game_state) {
 
         if(totalDistanceToEnemy <= TANK_COLLIDER_SIZE) {
             game_state->isShooting = false;
+            bool nextIsPlayerTurn = !game_state->isPlayerTurn; // init_game resets the turn flag
             scorched_tanks_init_game(game_state);
-            game_state->isPlayerTurn = !game_state->isPlayerTurn;
+            game_state->isPlayerTurn = nextIsPlayerTurn;
             return;
         }
 
-        if(game_state->bulletPosition.x > SCREEN_WIDTH ||
-           game_state->bulletPosition.y >
-               game_state->ground[(int)round(game_state->bulletPosition.x)].y) {
+        // Bounds-check x before indexing ground[]: player 2 shoots leftwards, off screen
+        int bulletColumn = (int)round(game_state->bulletPosition.x);
+        if(bulletColumn < 0 || bulletColumn >= SCREEN_WIDTH ||
+           game_state->bulletPosition.y > game_state->ground[bulletColumn].y) {
             game_state->isShooting = false;
             game_state->bulletPosition.x = 0;
             game_state->bulletPosition.y = 0;
@@ -367,48 +370,32 @@ static void scorched_tanks_update_timer_callback(void* ctx) {
 }
 
 static void scorched_tanks_increase_power(Game* game_state) {
-    if(game_state->player.firePower < MAX_FIRE_POWER && !game_state->isShooting) {
-        if(game_state->isPlayerTurn && game_state->player.firePower < MAX_FIRE_POWER) {
-            game_state->player.firePower++;
-        }
-
-        if(!game_state->isPlayerTurn && game_state->enemy.firePower < MAX_FIRE_POWER) {
-            game_state->enemy.firePower++;
-        }
+    // Bound the tank whose turn it is, not always the player
+    Tank* tank = game_state->isPlayerTurn ? &game_state->player : &game_state->enemy;
+    if(!game_state->isShooting && tank->firePower < MAX_FIRE_POWER) {
+        tank->firePower++;
     }
 }
 
 static void scorched_tanks_decrease_power(Game* game_state) {
-    if(game_state->player.firePower > MIN_FIRE_POWER && !game_state->isShooting) {
-        if(game_state->isPlayerTurn && game_state->player.firePower > MIN_FIRE_POWER) {
-            game_state->player.firePower--;
-        }
-
-        if(!game_state->isPlayerTurn && game_state->enemy.firePower > MIN_FIRE_POWER) {
-            game_state->enemy.firePower--;
-        }
+    Tank* tank = game_state->isPlayerTurn ? &game_state->player : &game_state->enemy;
+    if(!game_state->isShooting && tank->firePower > MIN_FIRE_POWER) {
+        tank->firePower--;
     }
 }
 
 static void scorched_tanks_aim_up(Game* game_state) {
-    if(!game_state->isShooting) {
-        if(game_state->isPlayerTurn && game_state->player.aimAngle < 90) {
-            game_state->player.aimAngle++;
-        }
-
-        if(!game_state->isPlayerTurn && game_state->enemy.aimAngle < 90) {
-            game_state->enemy.aimAngle++;
-        }
+    Tank* tank = game_state->isPlayerTurn ? &game_state->player : &game_state->enemy;
+    if(!game_state->isShooting && tank->aimAngle < 90) {
+        tank->aimAngle++;
     }
 }
 
 static void scorched_tanks_aim_down(Game* game_state) {
-    if(game_state->player.aimAngle > 0 && !game_state->isShooting) {
-        if(game_state->isPlayerTurn) {
-            game_state->player.aimAngle--;
-        } else {
-            game_state->enemy.aimAngle--;
-        }
+    // aimAngle indexes the sin/cos tables, so it must never go below 0
+    Tank* tank = game_state->isPlayerTurn ? &game_state->player : &game_state->enemy;
+    if(!game_state->isShooting && tank->aimAngle > 0) {
+        tank->aimAngle--;
     }
 }
 
@@ -475,6 +462,7 @@ int32_t scorched_tanks_game_app(void* p) {
     FuriMessageQueue* event_queue = furi_message_queue_alloc(8, sizeof(ScorchedTanksEvent));
 
     Game* game_state = malloc(sizeof(Game));
+    memset(game_state, 0, sizeof(Game)); // isShooting etc. were uninitialised
     scorched_tanks_init_game(game_state);
 
     game_state->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
@@ -491,18 +479,26 @@ int32_t scorched_tanks_game_app(void* p) {
 
     FuriTimer* timer =
         furi_timer_alloc(scorched_tanks_update_timer_callback, FuriTimerTypePeriodic, event_queue);
-    furi_timer_start(timer, 2000);
+    // 20 Hz tick drives the bullet; it only advances on real tick events
+    furi_timer_start(timer, furi_kernel_get_tick_frequency() / 20);
 
     // Open GUI and register view_port
     Gui* gui = furi_record_open(RECORD_GUI);
     gui_add_view_port(gui, view_port, GuiLayerFullscreen);
 
-    ScorchedTanksEvent event;
-    for(bool processing = true; processing;) {
-        furi_message_queue_get(event_queue, &event, 50);
-        furi_mutex_acquire(game_state->mutex, FuriWaitForever);
+    view_port_update(view_port);
 
-        if(event.type == EventTypeKey) { // && game->isPlayerTurn
+    ScorchedTanksEvent event = {.type = EventTypeTick};
+    for(bool processing = true; processing;) {
+        // On timeout `event` is stale: only act on a real event
+        FuriStatus event_status = furi_message_queue_get(event_queue, &event, 50);
+        furi_mutex_acquire(game_state->mutex, FuriWaitForever);
+        bool redraw = false;
+
+        if(event_status != FuriStatusOk) {
+            // nothing to do
+        } else if(event.type == EventTypeKey) { // && game->isPlayerTurn
+            redraw = true;
             if(event.input.type == InputTypeRepeat || event.input.type == InputTypeShort) {
                 switch(event.input.key) {
                 case InputKeyUp:
@@ -528,11 +524,14 @@ int32_t scorched_tanks_game_app(void* p) {
                 }
             }
         } else if(event.type == EventTypeTick) {
-            scorched_tanks_calculate_trajectory(game_state);
+            if(game_state->isShooting) {
+                scorched_tanks_calculate_trajectory(game_state);
+                redraw = true;
+            }
         }
 
         furi_mutex_release(game_state->mutex);
-        view_port_update(view_port);
+        if(redraw) view_port_update(view_port);
     }
 
     furi_timer_free(timer);

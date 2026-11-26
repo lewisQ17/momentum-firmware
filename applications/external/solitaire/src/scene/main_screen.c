@@ -79,7 +79,7 @@ void update_main_screen(void* data) {
     UNUSED(state);
     size_t t = curr_time();
     //Play the menu music one note at a time to not block the app
-    if((last_start - t) > 250) {
+    if((t - last_start) > 250 * 64000) { // DWT cycles at 64 MHz = 250 ms
         if(note >= 0) {
             music[0] = music_notes[note];
 

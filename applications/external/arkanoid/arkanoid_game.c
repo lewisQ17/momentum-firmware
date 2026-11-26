@@ -353,6 +353,7 @@ static void arkanoid_draw_callback(Canvas* const canvas, void* ctx) {
         arkanoid_state->initialDraw = false;
         arkanoid_state->lives = 3;
         arkanoid_state->score = 0;
+        arkanoid_state->level = 1; // new game starts at level 1 (score per brick = level)
     }
 
     furi_mutex_release(arkanoid_state->mutex);

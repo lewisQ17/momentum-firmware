@@ -39,13 +39,26 @@ void color_guess_play_set_callback(
     instance->context = context;
 }
 
-void play_haptic(void* context, ColorGuessPlayModel* model) {
-    ColorGuess* app = context;
+// Decide the haptic pattern while the model is locked; play it after unlocking.
+static int play_haptic_kind(ColorGuessPlayModel* model) {
     if(model->success == 1) {
-        color_guess_play_long_bump(app);
+        return 3;
     } else if(model->closeness > model->prev_closeness) {
-        color_guess_play_happy_bump(app);
+        return 1;
     } else if(model->closeness < model->prev_closeness) {
+        return 2;
+    }
+    return 0;
+}
+
+// Haptics sleep; running them outside with_view_model keeps the draw thread unblocked.
+static void play_haptic(void* context, int kind) {
+    ColorGuess* app = context;
+    if(kind == 3) {
+        color_guess_play_long_bump(app);
+    } else if(kind == 1) {
+        color_guess_play_happy_bump(app);
+    } else if(kind == 2) {
         color_guess_play_bad_bump(app);
     }
 }
@@ -159,10 +172,10 @@ void color_guess_play_draw(Canvas* canvas, ColorGuessPlayModel* model) {
     uint32_t time_elapsed = timestamp - model->timestamp_start;
     model->time_spent = time_elapsed;
 
-    char closeness_string[4];
+    char closeness_string[CLOSENESS_LENGTH]; // "100%" needs 5 bytes incl. NUL
 
     parse_time_str(timer_string, time_elapsed);
-    snprintf(closeness_string, CLOSENESS_LENGTH, CLOSENESS_FORMAT, model->closeness);
+    snprintf(closeness_string, sizeof(closeness_string), CLOSENESS_FORMAT, model->closeness);
 
     canvas_clear(canvas);
     canvas_set_color(canvas, ColorBlack);
@@ -197,6 +210,7 @@ static void color_guess_play_model_init(ColorGuessPlayModel* const model) {
 bool color_guess_play_input(InputEvent* event, void* context) {
     furi_assert(context);
     ColorGuessPlay* instance = context;
+    int haptic_kind = 0;
     if(event->type == InputTypeRelease) {
         switch(event->key) {
         case InputKeyBack:
@@ -248,7 +262,7 @@ bool color_guess_play_input(InputEvent* event, void* context) {
                             model->digit[model->cursorpos] = 0;
                         }
                         color_guess_play_calculate_closeness(instance, model);
-                        play_haptic(instance->context, model);
+                        haptic_kind = play_haptic_kind(model);
                     }
                 },
                 true);
@@ -264,7 +278,7 @@ bool color_guess_play_input(InputEvent* event, void* context) {
                             model->digit[model->cursorpos] = 15;
                         }
                         color_guess_play_calculate_closeness(instance, model);
-                        play_haptic(instance->context, model);
+                        haptic_kind = play_haptic_kind(model);
                     }
                 },
                 true);
@@ -289,6 +303,7 @@ bool color_guess_play_input(InputEvent* event, void* context) {
         case InputKeyMAX:
             break;
         }
+        play_haptic(instance->context, haptic_kind);
     }
     return true;
 }

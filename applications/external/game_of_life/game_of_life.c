@@ -32,8 +32,9 @@ int current = 0;
 int next = 1;
 
 unsigned char get_cell(int x, int y) {
-    if(x <= 0 || x >= SCREEN_WIDTH) return 0;
-    if(y <= 0 || y >= SCREEN_HEIGHT) return 0;
+    // row/column 0 are real cells, only out-of-range is dead
+    if(x < 0 || x >= SCREEN_WIDTH) return 0;
+    if(y < 0 || y >= SCREEN_HEIGHT) return 0;
 
     int pix = (y * SCREEN_WIDTH) + x;
     return fields[current][pix];
@@ -51,9 +52,10 @@ static void update_field(State* state) {
             if((random() % 100) == 1) {
                 fields[current][i] = 1;
             }
-            state->revive = false;
         }
+        state->revive = false;
     }
+    state->evo = 0; // count changes per generation, not cumulatively
 
     for(int i = 0; i < TOTAL_PIXELS; ++i) {
         int x = i % SCREEN_WIDTH;
@@ -79,9 +81,9 @@ static void update_field(State* state) {
     current ^= next;
     next ^= current;
 
-    if(state->evo < TOTAL_PIXELS) {
+    // Only reseed when the field is stagnant (no cell changed), not on every generation.
+    if(state->evo == 0) {
         state->revive = true;
-        state->evo = 0;
     }
 }
 
@@ -116,6 +118,8 @@ int32_t game_of_life_app(void* p) {
     furi_check(event_queue);
 
     State* _state = malloc(sizeof(State));
+    _state->revive = true; // seed the empty start field
+    _state->evo = 0;
 
     _state->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     if(!_state->mutex) {

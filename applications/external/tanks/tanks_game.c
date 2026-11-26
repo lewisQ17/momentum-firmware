@@ -96,6 +96,7 @@ typedef struct {
     Mode mode;
     bool server;
     GameState state;
+    GameState last_mode; // mode of the running game, so OK after Game Over restarts it
     MenuState menu_state;
     ProjectileState* projectiles[100];
     PlayerState* bots[6];
@@ -717,6 +718,19 @@ static void tanks_game_init_game(TanksState* const tanks_state, GameState type) 
     srand(DWT->CYCCNT);
 
     tanks_state->state = type;
+    tanks_state->last_mode = type;
+    // Client render path keys off mode; it was never set
+    tanks_state->mode = (type == GameStateSingle) ? ModeSingle : ModeCooperative;
+
+    // A restart re-enters here: release the previous round's players and bots first
+    free(tanks_state->p1);
+    tanks_state->p1 = NULL;
+    free(tanks_state->p2);
+    tanks_state->p2 = NULL;
+    for(uint8_t i = 0; i < 6; i++) {
+        free(tanks_state->bots[i]);
+        tanks_state->bots[i] = NULL;
+    }
 
     for(int8_t x = 0; x < 100; x++) {
         if(tanks_state->projectiles[x] != NULL) {
@@ -1178,6 +1192,12 @@ static void tanks_game_process_game_step(TanksState* const tanks_state) {
         tanks_game_shoot(tanks_state, tanks_state->p1, true, false);
     }
 
+    // Co-op player 2 (client) shot request was stored but never acted on
+    if(tanks_state->p2 != NULL && tanks_state->p2->live && tanks_state->p2->shooting &&
+       tanks_state->p2->cooldown == 0) {
+        tanks_game_shoot(tanks_state, tanks_state->p2, false, true);
+    }
+
     tanks_state->p1->moving = false;
     tanks_state->p1->shooting = false;
 
@@ -1361,7 +1381,7 @@ int32_t tanks_game_app(void* p) {
                                 break;
                             }
                         } else if(tanks_state->state == GameStateGameOver) {
-                            tanks_game_init_game(tanks_state, tanks_state->state);
+                            tanks_game_init_game(tanks_state, tanks_state->last_mode);
                         } else if(tanks_state->state == GameStateCooperativeClient) {
                             FuriString* shoots = furi_string_alloc();
                             char arr[2];
