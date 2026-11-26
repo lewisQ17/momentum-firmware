@@ -169,6 +169,9 @@ int32_t infrared_remote_app(char* p) {
         flipper_format_free(ff);
         furi_record_close(RECORD_STORAGE);
 
+        // Detach the view port first: its draw callback reads these strings
+        view_port_enabled_set(app->view_port, false);
+        gui_remove_view_port(gui, app->view_port);
         furi_string_free(app->up_button);
         furi_string_free(app->down_button);
         furi_string_free(app->left_button);
@@ -180,9 +183,6 @@ int32_t infrared_remote_app(char* p) {
         furi_string_free(app->left_hold_button);
         furi_string_free(app->right_hold_button);
         furi_string_free(app->ok_hold_button);
-
-        view_port_enabled_set(app->view_port, false);
-        gui_remove_view_port(gui, app->view_port);
         view_port_free(app->view_port);
         infrared_worker_free(app->infrared_worker); // was leaked on cancel
         free(app);
@@ -578,6 +578,10 @@ int32_t infrared_remote_app(char* p) {
         }
     }
 
+    // Detach the view port first: its draw callback reads the button strings
+    view_port_enabled_set(app->view_port, false);
+    gui_remove_view_port(gui, app->view_port);
+
     // Free all things
     furi_string_free(app->up_button);
     furi_string_free(app->down_button);
@@ -598,8 +602,6 @@ int32_t infrared_remote_app(char* p) {
     infrared_worker_free(app->infrared_worker);
 
     infrared_remote_free(remote);
-    view_port_enabled_set(app->view_port, false);
-    gui_remove_view_port(gui, app->view_port);
     view_port_free(app->view_port);
     free(app);
     furi_message_queue_free(event_queue);
