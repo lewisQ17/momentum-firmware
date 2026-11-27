@@ -112,6 +112,11 @@ bool mifare_fuzzer_scene_attack_on_event(void* context, SceneManagerEvent event)
             bool res = dialog_file_browser_show(
                 app->dialogs, app->uid_file_path, app->app_folder, &browser_options);
             if(res) {
+                // free a stream left from an earlier pick
+                if(app->uids_stream != NULL) {
+                    buffered_file_stream_close(app->uids_stream);
+                    stream_free(app->uids_stream);
+                }
                 app->uids_stream = buffered_file_stream_alloc(app->storage);
                 res = buffered_file_stream_open(
                     app->uids_stream,
@@ -122,7 +127,10 @@ bool mifare_fuzzer_scene_attack_on_event(void* context, SceneManagerEvent event)
                     // open next scene
                     scene_manager_next_scene(app->scene_manager, MifareFuzzerSceneEmulator);
                 } else {
+                    // stream was never freed
                     buffered_file_stream_close(app->uids_stream);
+                    stream_free(app->uids_stream);
+                    app->uids_stream = NULL;
                 }
             }
             consumed = true;

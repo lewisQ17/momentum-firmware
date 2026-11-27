@@ -89,7 +89,8 @@ bool mifare_fuzzer_scene_start_on_event(void* context, SceneManagerEvent event) 
 
     if(event.type == SceneManagerEventTypeCustom) {
         //FURI_LOG_D(TAG, "mifare_fuzzer_scene_start_on_event() :: event.event = %ld", event.event);
-        app->card_file_path = NULL;
+        // keep the string (setting NULL orphaned it); just clear it
+        if(app->card_file_path) furi_string_reset(app->card_file_path);
         app->nfc_device_parsed = false;
         if(event.event == MifareFuzzerEventClassic1k) {
             // save selected item
@@ -131,7 +132,7 @@ bool mifare_fuzzer_scene_start_on_event(void* context, SceneManagerEvent event) 
             dialog_file_browser_set_basic_options(
                 &browser_options, MIFARE_FUZZER_CARD_FILE_EXT, NULL);
             browser_options.hide_ext = false;
-            app->card_file_path = furi_string_alloc();
+            if(app->card_file_path == NULL) app->card_file_path = furi_string_alloc();
             bool wasFileSelected = dialog_file_browser_show(
                 app->dialogs, app->card_file_path, initial_path, &browser_options);
             furi_string_free(initial_path);

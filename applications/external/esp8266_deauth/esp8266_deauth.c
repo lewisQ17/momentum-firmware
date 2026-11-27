@@ -383,6 +383,8 @@ int32_t esp8266_deauth_app(void* p) {
     if(!app->mutex) {
         DEAUTH_APP_LOG_E("cannot create mutex\r\n");
         free(app);
+        // event_queue was allocated above this check and was otherwise never freed on this path
+        furi_message_queue_free(event_queue);
         // Return previous state of expansion
         expansion_enable(expansion);
         furi_record_close(RECORD_EXPANSION);

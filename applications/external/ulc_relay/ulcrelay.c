@@ -1245,6 +1245,9 @@ int32_t ulc_relay_app(void* p) {
 
     furi_string_free(app->data->message);
     free(app->data);
+    // help_state->text and help_state itself were never freed on exit
+    furi_string_free(app->help_state->text);
+    free(app->help_state);
     furi_message_queue_free(app->event_queue);
     furi_record_close(RECORD_NOTIFICATION);
     furi_mutex_free(app->nfc_mutex);

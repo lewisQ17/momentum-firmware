@@ -716,12 +716,16 @@ int32_t ble_spam(void* p) {
     byte_input_free(state->ctx.byte_input);
 
     view_dispatcher_remove_view(state->ctx.view_dispatcher, ViewSubmenu);
+    // Loader/RPC close can skip a model-select scene's on_exit; reset is a no-op if already done
+    submenu_reset(state->ctx.submenu);
     submenu_free(state->ctx.submenu);
 
     view_dispatcher_remove_view(state->ctx.view_dispatcher, ViewTextInput);
     text_input_free(state->ctx.text_input);
 
     view_dispatcher_remove_view(state->ctx.view_dispatcher, ViewVariableItemList);
+    // Loader/RPC close can skip SceneConfig's on_exit; reset is a no-op if already done
+    variable_item_list_reset(state->ctx.variable_item_list);
     variable_item_list_free(state->ctx.variable_item_list);
 
     view_dispatcher_remove_view(state->ctx.view_dispatcher, ViewMain);

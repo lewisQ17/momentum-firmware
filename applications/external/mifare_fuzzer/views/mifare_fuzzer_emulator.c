@@ -151,6 +151,7 @@ static void mifare_fuzzer_emulator_enter_callback(void* context) {
 /// @return
 MifareFuzzerEmulator* mifare_fuzzer_emulator_alloc() {
     MifareFuzzerEmulator* mifare_fuzzer_emulator = malloc(sizeof(MifareFuzzerEmulator));
+    mifare_fuzzer_emulator->card_name = NULL;
     mifare_fuzzer_emulator->view = view_alloc();
     view_set_context(mifare_fuzzer_emulator->view, mifare_fuzzer_emulator);
     view_allocate_model(
@@ -186,6 +187,8 @@ void mifare_fuzzer_emulator_free(MifareFuzzerEmulator* context) {
     */
 
     view_free(mifare_fuzzer_emulator->view);
+    // card name string was never freed
+    if(mifare_fuzzer_emulator->card_name) furi_string_free(mifare_fuzzer_emulator->card_name);
     free(mifare_fuzzer_emulator);
 }
 
@@ -228,7 +231,13 @@ void mifare_fuzzer_emulator_set_card(
                     break;
                 }
             } else {
-                FuriString* card_name = furi_string_alloc_set(name);
+                // reuse one string instead of leaking a new one per call
+                FuriString* card_name = mifare_fuzzer_emulator->card_name;
+                if(card_name == NULL) {
+                    card_name = furi_string_alloc();
+                    mifare_fuzzer_emulator->card_name = card_name;
+                }
+                furi_string_set(card_name, name);
                 size_t filename_start = furi_string_search_rchar(card_name, '/') + 1;
                 furi_string_right(card_name, filename_start);
                 model->mifare_card_dsc = furi_string_get_cstr(card_name);

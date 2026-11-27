@@ -29,6 +29,7 @@ typedef struct MifareFuzzerEmulator {
     void* context;
     bool is_attacking;
     uint8_t ticks_between_cards;
+    FuriString* card_name; // backs model->mifare_card_dsc for file cards
 } MifareFuzzerEmulator;
 
 typedef struct MifareFuzzerEmulatorModel {

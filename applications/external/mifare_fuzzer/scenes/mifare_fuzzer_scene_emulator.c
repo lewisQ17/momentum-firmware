@@ -254,9 +254,12 @@ void mifare_fuzzer_scene_emulator_on_exit(void* context) {
     notification_message(app->notifications, &sequence_blink_stop);
     mifare_fuzzer_worker_stop(app->worker);
 
-    if(app->attack == MifareFuzzerAttackLoadUidsFromFile) {
+    if(app->attack == MifareFuzzerAttackLoadUidsFromFile && app->uids_stream != NULL) {
         furi_string_reset(app->uid_str);
         stream_rewind(app->uids_stream);
         buffered_file_stream_close(app->uids_stream);
+        // stream was never freed
+        stream_free(app->uids_stream);
+        app->uids_stream = NULL;
     }
 }

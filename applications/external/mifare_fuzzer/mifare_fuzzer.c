@@ -84,6 +84,7 @@ MifareFuzzerApp* mifare_fuzzer_alloc() {
     app->uid_str = furi_string_alloc();
     app->uid_file_path = furi_string_alloc();
     app->card_file_path = furi_string_alloc();
+    app->uids_stream = NULL;
     app->app_folder = furi_string_alloc_set(MIFARE_FUZZER_APP_FOLDER);
 
     return app;
@@ -99,6 +100,17 @@ void mifare_fuzzer_free(MifareFuzzerApp* app) {
     view_dispatcher_remove_view(app->view_dispatcher, MifareFuzzerViewSelectCard);
     view_dispatcher_remove_view(app->view_dispatcher, MifareFuzzerViewSelectAttack);
     view_dispatcher_remove_view(app->view_dispatcher, MifareFuzzerViewEmulator);
+
+    // emulator view was never freed
+    mifare_fuzzer_emulator_free(app->emulator_view);
+    app->emulator_view = NULL;
+
+    // uids stream (if a scene exit was skipped)
+    if(app->uids_stream != NULL) {
+        buffered_file_stream_close(app->uids_stream);
+        stream_free(app->uids_stream);
+        app->uids_stream = NULL;
+    }
 
     // Submenus
     //FURI_LOG_D(TAG, "mifare_fuzzer_free() :: Submenus");
