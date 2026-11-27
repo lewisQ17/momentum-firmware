@@ -17,8 +17,15 @@ void blackhat_console_output_handle_rx_data_cb(
 
     // We gotta parse the output
     if (app->is_script_scan) {
-        memcpy(&app->script_text[app->script_text_ptr], buf, len);
-        app->script_text_ptr += len;
+        // clamp to the script_text allocation (BLACKHAT_TEXT_BOX_STORE_SIZE) to avoid heap overflow;
+        // leave room for the ptr++ / NUL-write done elsewhere (SIZE-2)
+        size_t space =
+            (app->script_text_ptr < BLACKHAT_TEXT_BOX_STORE_SIZE - 2)
+            ? (BLACKHAT_TEXT_BOX_STORE_SIZE - 2 - app->script_text_ptr)
+            : 0;
+        size_t copy_len = (len < space) ? len : space;
+        memcpy(&app->script_text[app->script_text_ptr], buf, copy_len);
+        app->script_text_ptr += copy_len;
     }
 
     // Null-terminate buf and append to text box store

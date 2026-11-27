@@ -15,11 +15,16 @@ void meal_pager_scene_set_last_station_on_enter(void* context) {
     IntInput* int_input = app->int_input;
     size_t enter_name_length = 5;
     meal_pager_set_max_values(app);
-    char* str = "Set Last Station (0 - 9999)";
-    const char* constStr = str;
-    snprintf(str, 36, "Set Last Station (%lu - %lu)", app->first_station, app->max_station);
+    // app->header is a writable buffer, unlike a string literal, so large first_station/
+    // max_station values cannot overflow past it into neighbouring .rodata.
+    snprintf(
+        app->header,
+        sizeof(app->header),
+        "Set Last Station (%lu - %lu)",
+        app->first_station,
+        app->max_station);
 
-    int_input_set_header_text(int_input, constStr);
+    int_input_set_header_text(int_input, app->header);
 
     int_input_set_result_callback(
         int_input,

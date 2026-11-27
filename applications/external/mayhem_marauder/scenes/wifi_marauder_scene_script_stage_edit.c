@@ -107,6 +107,9 @@ static void
                     app->script->last_stage = NULL;
                 }
             }
+            // unlinked above but never freed: leaked the stage's data (filter/indexes/ssids/
+            // command) and the node itself on every delete
+            wifi_marauder_script_stage_free(current_stage);
         }
         app->script_edit_selected_stage = NULL;
 

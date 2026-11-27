@@ -435,7 +435,11 @@ static int32_t uart_worker(void* context) {
             }
         }
 
-        // Process PCAP data if stream is still valid
+        // Process PCAP data if stream is still valid. Locked: uart_cleanup_capture_streams()/
+        // uart_receive_data() can free or realloc pcap_stream from the app thread (e.g. Back
+        // pressed mid-capture) concurrently with this drain, which is otherwise a
+        // use-after-free or a NULL deref.
+        furi_mutex_acquire(uart->capture_streams_mutex, FuriWaitForever);
         if((events & WorkerEvtPcapDone) && uart->pcap_stream) {
             size_t total = 0;
             size_t len = 0;
@@ -461,7 +465,7 @@ static int32_t uart_worker(void* context) {
             }
         }
 
-        // Process CSV data if stream is still valid
+        // Process CSV data if stream is still valid (same lock, same reason as above)
         if((events & WorkerEvtCsvDone) && uart->csv_stream) {
             size_t len =
                 furi_stream_buffer_receive(uart->csv_stream, uart->rx_buf, RX_BUF_SIZE, 0);
@@ -471,6 +475,7 @@ static int32_t uart_worker(void* context) {
                 uart->handle_rx_csv_cb(uart->rx_buf, len, uart);
             }
         }
+        furi_mutex_release(uart->capture_streams_mutex);
     }
 
     FURI_LOG_I("Worker", "Worker thread exited");
@@ -517,8 +522,9 @@ UartContext* uart_init(AppState* state) {
     uart->rx_stream = furi_stream_buffer_alloc(RX_BUF_SIZE, 1);
     uart->pcap_stream = NULL; // Allocate on demand
     uart->csv_stream = NULL; // Allocate on demand
+    uart->capture_streams_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
 
-    if(!uart->rx_stream) {
+    if(!uart->rx_stream || !uart->capture_streams_mutex) {
         FURI_LOG_E("UART", "Failed to allocate rx stream buffer");
         uart_free(uart);
         return NULL;
@@ -636,6 +642,11 @@ void uart_free(UartContext* uart) {
         uart->csv_stream = NULL;
     }
 
+    if(uart->capture_streams_mutex) {
+        furi_mutex_free(uart->capture_streams_mutex);
+        uart->capture_streams_mutex = NULL;
+    }
+
     // Clean up storage context
     if(uart->storageContext) {
         uart_storage_free(uart->storageContext);
@@ -749,6 +760,8 @@ void uart_cleanup_capture_streams(UartContext* uart) {
         furi_hal_serial_async_rx_stop(uart->serial_handle);
     }
 
+    // locked: the worker thread may still be draining these streams (see uart_worker)
+    furi_mutex_acquire(uart->capture_streams_mutex, FuriWaitForever);
     if(uart->pcap_stream) {
         furi_stream_buffer_free(uart->pcap_stream);
         uart->pcap_stream = NULL;
@@ -759,6 +772,7 @@ void uart_cleanup_capture_streams(UartContext* uart) {
         uart->csv_stream = NULL;
         FURI_LOG_I("UART", "Freed CSV stream on exit");
     }
+    furi_mutex_release(uart->capture_streams_mutex);
 
     uart->pcap = false;
     uart->csv = false;
@@ -804,6 +818,10 @@ bool uart_receive_data(
         furi_hal_serial_async_rx_stop(uart->serial_handle);
     }
 
+    // locked: the worker thread may still be draining these streams (see uart_worker). Covers
+    // the reset/alloc/free below, since the RX IRQ being stopped does not stop that thread.
+    furi_mutex_acquire(uart->capture_streams_mutex, FuriWaitForever);
+
     // Reset or free streams
     if(uart->pcap_stream) {
         furi_stream_buffer_reset(uart->pcap_stream);
@@ -838,6 +856,7 @@ bool uart_receive_data(
             FURI_LOG_I("UART", "Freed CSV stream");
         }
     }
+    furi_mutex_release(uart->capture_streams_mutex);
 
     // Restart RX if it was active
     if(uart->is_serial_active) {

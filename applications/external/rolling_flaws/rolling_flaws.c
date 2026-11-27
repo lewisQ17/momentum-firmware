@@ -437,6 +437,11 @@ RollingFlaws* rolling_flaws_alloc() {
 }
 
 void rolling_flaws_free(RollingFlaws* app) {
+    // Stop a still-active RX before the views/subghz are torn down: loader/RPC close
+    // during Receive Signals/Sync Remote otherwise leaves the RX thread and the async RX
+    // ISR callback running on memory this function is about to free, and leaves charging
+    // suppressed and the radio in RX. stop_listening() already no-ops if not listening.
+    stop_listening(app->subghz);
 #ifdef BACKLIGHT_ALWAYS_ON
     notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
 #endif
@@ -456,6 +461,11 @@ void rolling_flaws_free(RollingFlaws* app) {
     furi_record_close(RECORD_GUI);
 
     rolling_flaws_subghz_free(app->subghz);
+
+    furi_string_free(app->model->key);
+    furi_string_free(app->model->custom_mf);
+    furi_string_free(app->model->status);
+    free(app->model);
 
     free(app);
 }

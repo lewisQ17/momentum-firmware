@@ -44,7 +44,7 @@ static void meal_pager_retekess_td157_generate_pager(
     char pagerId[11];
     char* fullId = (char*)malloc(25 * sizeof(char));
     uint32_t action = 2;
-    char actionId[4];
+    char actionId[5];
     app->current_pager = pager;
     meal_pager_transmit_model_set_pager(app->meal_pager_transmit, app->current_pager);
     FURI_LOG_D(TAG, "Generating TD157 Data for Pager %lu", pager);
@@ -60,6 +60,7 @@ static void meal_pager_retekess_td157_generate_pager(
     }
     free(manchester);
     free(rawSignal);
+    free(fullId);
 }
 
 static void

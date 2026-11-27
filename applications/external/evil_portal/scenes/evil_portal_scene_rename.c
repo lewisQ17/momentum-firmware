@@ -14,6 +14,12 @@ void evil_portal_scene_rename_on_enter(void* context) {
     evil_portal_read_ap_name(app);
     text_input_set_header_text(text_input, "AP Name/SSID");
     strncpy(app->text_store[0], (char*)app->ap_name, enter_name_length);
+    // strncpy does not NUL-terminate when the source is >= enter_name_length long
+    app->text_store[0][enter_name_length - 1] = '\0';
+    // ap_name is always heap-owned (malloc or strdup) now; free it to avoid leaking on every
+    // entry into this scene
+    free(app->ap_name);
+    app->ap_name = NULL;
     text_input_set_result_callback(
         text_input,
         evil_portal_text_input_callback,

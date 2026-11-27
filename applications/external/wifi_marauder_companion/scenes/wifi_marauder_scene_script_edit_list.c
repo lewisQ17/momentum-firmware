@@ -40,6 +40,10 @@ static void wifi_marauder_scene_script_stage_edit_list_deallocate_items(WifiMara
 static void wifi_marauder_scene_script_stage_edit_list_save_strings(WifiMarauderApp* app) {
     WifiMarauderScriptStageListItem* current_item = app->script_stage_edit_first_item;
     int array_size = 0;
+    // remember how many of the existing slots hold a live pointer, so the fill loop below
+    // can free them before overwriting (old_count, not array_size: slots beyond old_count may
+    // still be uninitialized after the realloc)
+    int old_count = *app->script_stage_edit_string_count_reference;
 
     // Calculates the required array size
     while(current_item != NULL) {
@@ -59,6 +63,11 @@ static void wifi_marauder_scene_script_stage_edit_list_save_strings(WifiMarauder
     while(current_item != NULL) {
         char* current_str = malloc(strlen(current_item->value) + 1);
         strncpy(current_str, current_item->value, strlen(current_item->value) + 1);
+        if(i < old_count) {
+            // old_count was never freed before being overwritten; free(NULL) is safe for
+            // any index that was genuinely never populated
+            free((*app->script_stage_edit_strings_reference)[i]);
+        }
         (*app->script_stage_edit_strings_reference)[i] = current_str;
         current_item = current_item->next_item;
         i++;

@@ -36,10 +36,12 @@ void wifi_marauder_scene_user_input_ok_callback(void* context) {
     // Writes the string value of the reference
     case WifiMarauderUserInputTypeString:
         if(app->user_input_string_reference != NULL) {
-            strncpy(
-                *app->user_input_string_reference,
-                app->text_input_store,
-                strlen(app->text_input_store) + 1);
+            // *ref points at allocations sized for the OLD value (e.g. strdup("all"), 4
+            // bytes); strncpy of up to 511 chars from text_input_store overflowed that heap
+            // block. Give it a fresh, correctly-sized allocation instead.
+            char* new_value = strdup(app->text_input_store);
+            free(*app->user_input_string_reference);
+            *app->user_input_string_reference = new_value;
             app->user_input_string_reference = NULL;
         }
         break;

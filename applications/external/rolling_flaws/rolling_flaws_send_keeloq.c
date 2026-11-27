@@ -69,6 +69,11 @@ static void send_keeloq(
     SubGhzProtocolStatus status = subghz_transmitter_deserialize(transmitter, flipper_format);
     furi_assert(status == SubGhzProtocolStatusOk);
 
+    // preset is no longer needed past this point: create_data/deserialize only copied the
+    // values out of it, so it can be freed now instead of leaking on every Transmit press.
+    furi_string_free(preset->name);
+    free(preset);
+
     // Currently unused for internal radio, but good idea to still invoke it.
     subghz_devices_begin(device);
 

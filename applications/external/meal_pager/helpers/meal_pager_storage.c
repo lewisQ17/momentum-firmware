@@ -184,6 +184,11 @@ void meal_pager_read_settings(void* context) {
     }
 
     flipper_format_read_uint32(fff_file, MEAL_PAGER_SETTINGS_KEY_PAGER_TYPE, &app->pager_type, 1);
+    // Clamp a corrupt/hand-edited config value: an out-of-range pager_type is used to index
+    // pager_type_text_long[] in the transmit view's draw callback (wild pointer read).
+    if(app->pager_type > Meal_PagerPagerTypeTD174) {
+        app->pager_type = Meal_PagerPagerTypeT119;
+    }
     meal_pager_set_max_values(app);
     flipper_format_read_uint32(
         fff_file, MEAL_PAGER_SETTINGS_KEY_FIRST_STATION, &app->first_station, 1);
@@ -193,6 +198,11 @@ void meal_pager_read_settings(void* context) {
         fff_file, MEAL_PAGER_SETTINGS_KEY_FIRST_PAGER, &app->first_pager, 1);
     flipper_format_read_uint32(fff_file, MEAL_PAGER_SETTINGS_KEY_LAST_PAGER, &app->last_pager, 1);
     flipper_format_read_uint32(fff_file, MEAL_PAGER_SETTINGS_KEY_REPEATS, &app->repeats, 1);
+    // Clamp a corrupt/hand-edited config value: an unbounded repeats makes every pager
+    // write that many RAW_Data lines per call. 0 is a legal UI choice, so only cap above.
+    if(app->repeats > 10) {
+        app->repeats = 10;
+    }
     flipper_format_read_uint32(fff_file, MEAL_PAGER_SETTINGS_KEY_HAPTIC, &app->haptic, 1);
     flipper_format_read_uint32(fff_file, MEAL_PAGER_SETTINGS_KEY_SPEAKER, &app->speaker, 1);
     flipper_format_read_uint32(fff_file, MEAL_PAGER_SETTINGS_KEY_LED, &app->led, 1);

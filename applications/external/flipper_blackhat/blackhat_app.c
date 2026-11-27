@@ -114,6 +114,18 @@ void blackhat_app_free(BlackhatApp* app)
             free(app->cmd[i]);
     }
 
+    // Stop any running attack/AP/kismet/evil-twin on the Linux board before tearing down the
+    // UART: loader/RPC close skips the console scene's on_exit, which is otherwise the only
+    // place this gets sent
+    blackhat_uart_tx(app->uart, "\x03", 1);
+
+    // Free the UART before the views: this stops the RX IRQ and joins the worker thread, so
+    // the RX callback (which may still be registered if loader/RPC close skipped the owning
+    // scene's on_exit) can no longer touch views/text_box_store freed below
+    blackhat_uart_free(app->uart);
+
+    free(app->script_text);
+
     // Views
     view_dispatcher_remove_view(
         app->view_dispatcher, BlackhatAppViewVarItemList
@@ -139,8 +151,6 @@ void blackhat_app_free(BlackhatApp* app)
     // View dispatcher
     view_dispatcher_free(app->view_dispatcher);
     scene_manager_free(app->scene_manager);
-
-    blackhat_uart_free(app->uart);
 
     // Close records
     furi_record_close(RECORD_GUI);

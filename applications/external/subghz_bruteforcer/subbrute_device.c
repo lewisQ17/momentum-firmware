@@ -29,12 +29,9 @@ SubBruteDevice* subbrute_device_alloc(const SubGhzDevice* radio_device) {
 void subbrute_device_free(SubBruteDevice* instance) {
     furi_assert(instance);
 
-    // I don't know how to free this
-    // instance->decoder_result = NULL;
-    if(instance->decoder_result != NULL) {
-        free(instance->decoder_result);
-        instance->decoder_result = NULL;
-    }
+    // decoder_result is a pointer into the receiver's (or the loaded file's) slots, never a
+    // separately-owned allocation; it must only be NULLed here, not freed.
+    instance->decoder_result = NULL;
 
     if(instance->receiver != NULL) {
         subghz_receiver_free(instance->receiver);
@@ -203,6 +200,9 @@ SubBruteFileResult subbrute_device_attack_set(
 
     subghz_receiver_free(instance->receiver);
     instance->receiver = NULL;
+    // decoder_result pointed into the receiver's slots, just freed above; it must not be
+    // dereferenced or freed again (it is not a separately-owned allocation).
+    instance->decoder_result = NULL;
 
     if(protocol_check_result != SubBruteFileResultOk) {
         return SubBruteFileResultProtocolNotFound;

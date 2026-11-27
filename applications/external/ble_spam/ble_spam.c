@@ -707,6 +707,11 @@ int32_t ble_spam(void* p) {
     scene_manager_next_scene(state->ctx.scene_manager, SceneMain);
     view_dispatcher_run(state->ctx.view_dispatcher);
 
+    // Loader/RPC close can exit the dispatcher without Back; stop & join the adv thread before freeing
+    if(state->advertising) {
+        toggle_adv(state);
+    }
+
     view_dispatcher_remove_view(state->ctx.view_dispatcher, ViewByteInput);
     byte_input_free(state->ctx.byte_input);
 

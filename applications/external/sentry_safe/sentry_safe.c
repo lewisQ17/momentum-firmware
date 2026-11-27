@@ -122,6 +122,11 @@ void send_request(uint8_t command, const uint8_t* code) {
 
     // Prepare and send serial packet
     FuriHalSerialHandle* serial = furi_hal_serial_control_acquire(FuriHalSerialIdLpuart);
+    if(!serial) {
+        // LPUART already held by another consumer; skip the send instead of crashing on furi_check(NULL)
+        furi_hal_gpio_write(&gpio_ext_pc1, false);
+        return;
+    }
     furi_hal_serial_init(serial, 4800);
     uint8_t data[] = {0x00, command, code[0], code[1], code[2], code[3], code[4], checksum};
     furi_hal_serial_tx(serial, data, 8);

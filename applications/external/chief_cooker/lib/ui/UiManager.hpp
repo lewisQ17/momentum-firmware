@@ -114,9 +114,13 @@ public:
     }
 
     void RunEventLoop() {
-        while(!viewStack.empty()) {
-            view_dispatcher_run(viewDispatcher);
-        }
+        // A single run only: on a normal Back exit the stack is already empty when this
+        // returns (switch_to_view(VIEW_NONE) stops the dispatcher). Looping here on a
+        // FuriSignalExit re-entered view_dispatcher_run and reinstalled the default signal
+        // callback after it had already consumed the signal, so loader/RPC close could
+        // never stop the app (radio/OTG kept running). ~UiManager tears down any views
+        // still on the stack after this returns.
+        view_dispatcher_run(viewDispatcher);
     }
 
     ~UiManager() {

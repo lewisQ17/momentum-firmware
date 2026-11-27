@@ -145,6 +145,22 @@ void wifi_marauder_load_settings(WifiMarauderApp* app) {
 void wifi_marauder_app_free(WifiMarauderApp* app) {
     furi_assert(app);
 
+    // Backstop: loader/RPC close runs scene_manager_stop() (see wifi_marauder_app()) which
+    // normally makes console_output's on_exit send this, but send it again here in case that
+    // scene was never entered (e.g. closed from a menu while a non-command attack is running)
+    wifi_marauder_uart_tx(app->uart, (uint8_t*)"stopscan\n", strlen("stopscan\n"));
+
+    // Free the UART before the views: this stops the RX IRQ and joins the worker thread, so
+    // the RX/pcap callbacks (which may still be registered if loader/RPC close skipped the
+    // owning scene's on_exit) can no longer touch views/files freed below
+    wifi_marauder_uart_free(app->uart);
+
+    // The parsed script (if any) is otherwise only freed from specific scene transitions
+    // (delete/options), not if the app closes while one is loaded/running
+    if(app->script != NULL) {
+        wifi_marauder_script_free(app->script);
+    }
+
     // Views
     view_dispatcher_remove_view(app->view_dispatcher, WifiMarauderAppViewVarItemList);
     view_dispatcher_remove_view(app->view_dispatcher, WifiMarauderAppViewConsoleOutput);
@@ -166,8 +182,6 @@ void wifi_marauder_app_free(WifiMarauderApp* app) {
     // View dispatcher
     view_dispatcher_free(app->view_dispatcher);
     scene_manager_free(app->scene_manager);
-
-    wifi_marauder_uart_free(app->uart);
 
     // Close records
     furi_record_close(RECORD_GUI);
@@ -199,6 +213,9 @@ int32_t wifi_marauder_app(void* p) {
     wifi_marauder_app->uart = wifi_marauder_usart_init(wifi_marauder_app);
 
     view_dispatcher_run(wifi_marauder_app->view_dispatcher);
+    // ensure the active scene's on_exit runs (unregisters RX/pcap callbacks, sends "stopscan",
+    // frees the script worker) even on a loader/RPC close, which otherwise skips it
+    scene_manager_stop(wifi_marauder_app->scene_manager);
 
     wifi_marauder_app_free(wifi_marauder_app);
 

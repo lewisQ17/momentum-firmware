@@ -12,6 +12,9 @@ void evil_portal_read_index_html(void* context) {
     Evil_PortalApp* app = context;
     Storage* storage = evil_portal_open_storage();
     FileInfo fi;
+    // NULL so the "no file / open failed" check below always runs, regardless of whatever
+    // app->index_html held on entry (freed by the caller, or uninitialized on first call)
+    app->index_html = NULL;
 
     if(!storage_common_exists(storage, EVIL_PORTAL_INDEX_SAVE_PATH)) {
         FuriString* tmp = furi_string_alloc_set(EVIL_PORTAL_INDEX_DEFAULT_PATH);
@@ -30,20 +33,30 @@ void evil_portal_read_index_html(void* context) {
                 size_t to_read = fi.size - read;
                 if(to_read > UINT16_MAX) to_read = UINT16_MAX;
                 uint16_t now_read = storage_file_read(index_html, buf_ptr, (uint16_t)to_read);
+                // a short read (0 bytes) with the SD pulled or an I/O error would otherwise
+                // spin this loop forever, blocking the dispatcher thread
+                if(now_read == 0) break;
                 read += now_read;
                 buf_ptr += now_read;
             }
             *buf_ptr = '\0';
+        } else {
+            // open failed though stat succeeded: fall through to the same heap-owned default
+            // as the "file missing" case below, so the caller can always free() it
+            app->index_html = NULL;
         }
         storage_file_close(index_html);
         storage_file_free(index_html);
-    } else {
+    }
+    if(app->index_html == NULL) {
+        // strdup (not a string literal) so console_output.c's free(app->index_html) is always
+        // valid, whether this is the default text or a file read above
         char* html_error = "<b>Evil portal</b><br>"
                            "Unable to read the html file.<br>"
                            "Is the SD Card set up correctly?<br>"
                            "Place HTML files in <code>apps_data/evil_portal/html<code><br>"
                            "Then use <code>Select HTML<code> in app!";
-        app->index_html = (uint8_t*)html_error;
+        app->index_html = (uint8_t*)strdup(html_error);
     }
 
     evil_portal_close_storage();
@@ -80,6 +93,9 @@ void evil_portal_read_ap_name(void* context) {
     Evil_PortalApp* app = context;
     Storage* storage = evil_portal_open_storage();
     FileInfo fi;
+    // NULL so the "no file / open failed" check below always runs, regardless of whatever
+    // app->ap_name held on entry (freed by the caller, or uninitialized on first call)
+    app->ap_name = NULL;
 
     if(storage_common_stat(storage, EVIL_PORTAL_AP_SAVE_PATH, &fi) == FSE_OK) {
         File* ap_name = storage_file_alloc(storage);
@@ -91,6 +107,9 @@ void evil_portal_read_ap_name(void* context) {
                 size_t to_read = fi.size - read;
                 if(to_read > UINT16_MAX) to_read = UINT16_MAX;
                 uint16_t now_read = storage_file_read(ap_name, buf_ptr, (uint16_t)to_read);
+                // a short read (0 bytes) with the SD pulled or an I/O error would otherwise
+                // spin this loop forever, blocking the dispatcher thread
+                if(now_read == 0) break;
                 read += now_read;
                 buf_ptr += now_read;
             }
@@ -98,9 +117,11 @@ void evil_portal_read_ap_name(void* context) {
         }
         storage_file_close(ap_name);
         storage_file_free(ap_name);
-    } else {
-        char* app_default = "Evil Portal";
-        app->ap_name = (uint8_t*)app_default;
+    }
+    if(app->ap_name == NULL) {
+        // strdup (not a string literal) so console_output.c's free(app->ap_name) and the
+        // rename scene's strncpy are always working on a heap-owned, writable buffer
+        app->ap_name = (uint8_t*)strdup("Evil Portal");
     }
     evil_portal_close_storage();
 }
@@ -154,10 +175,13 @@ void write_logs(FuriString* portal_logs) {
 
     File* file = storage_file_alloc(storage);
 
-    if(storage_file_open(file, seq_file_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+    if(seq_file_path != NULL &&
+       storage_file_open(file, seq_file_path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
         storage_file_write(file, furi_string_get_cstr(portal_logs), furi_string_size(portal_logs));
     }
     storage_file_close(file);
     storage_file_free(file);
+    // sequential_file_resolve_path() strdup()s the path; free it (was leaked on every log write)
+    free(seq_file_path);
     evil_portal_close_storage();
 }

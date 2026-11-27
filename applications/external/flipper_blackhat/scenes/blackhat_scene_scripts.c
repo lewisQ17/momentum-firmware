@@ -33,23 +33,31 @@ void blackhat_scene_scripts_on_enter(void* context)
     VariableItemList* var_item_list = app->script_item_list;
     size_t i = 0;
     int start = 0;
-    app->num_scripts = 0;
 
     console = false;
 
-    while (app->script_text[i++]) {
+    // free every leftover entry from a previous scan (not just up to the new
+    // num_scripts) so a rescan with fewer lines does not leak the tail
+    for(int j = 0; j < 64; j++) {
+        if(app->cmd[j]) {
+            free(app->cmd[j]);
+            app->cmd[j] = NULL;
+        }
+    }
+    app->num_scripts = 0;
+
+    // stop at cmd[64] to avoid writing past the array
+    while (app->script_text[i++] && app->num_scripts < 64) {
         if (app->script_text[i] == '\n') {
             i++;
 
-            if(app->cmd[app->num_scripts]) {
-                free(app->cmd[app->num_scripts]);
-            }
-
-            app->cmd[app->num_scripts] = malloc(i - start);
+            // +1 for NUL terminator; the stored line is used as a %s string elsewhere
+            app->cmd[app->num_scripts] = malloc(i - start + 1);
 
             memcpy(
                 app->cmd[app->num_scripts], &app->script_text[start], i - start
             );
+            app->cmd[app->num_scripts][i - start] = '\0';
             start = i;
             app->num_scripts++;
         }

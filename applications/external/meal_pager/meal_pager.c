@@ -47,16 +47,19 @@ Meal_Pager* meal_pager_app_alloc() {
     app->save_settings = 1;
     app->pager_type = 0;
     app->first_station = 0;
-    app->first_station_char = "0";
+    // These point into app->text_store (writable), not string literals: settings/set_*
+    // scenes snprintf into them with values that can exceed what a literal's bytes allow,
+    // which would otherwise corrupt neighbouring .rodata.
+    app->first_station_char = app->text_store[0];
     app->last_station = 10;
-    app->last_station_char = "10";
+    app->last_station_char = app->text_store[1];
     app->first_pager = 0;
-    app->first_pager_char = "0";
+    app->first_pager_char = app->text_store[2];
     app->last_pager = 31;
-    app->last_pager_char = "31";
+    app->last_pager_char = app->text_store[3];
     app->stop_transmit = false;
     app->repeats = 1;
-    app->repeats_char = "1";
+    app->repeats_char = app->text_store[4];
     app->max_station = 8191;
     app->max_pager = 999;
 
@@ -100,12 +103,17 @@ Meal_Pager* meal_pager_app_alloc() {
     snprintf(app->text_store[1], 20, "%lu", app->last_station);
     snprintf(app->text_store[2], 20, "%lu", app->first_pager);
     snprintf(app->text_store[3], 20, "%lu", app->last_pager);
+    snprintf(app->text_store[4], 20, "%lu", app->repeats);
 
     return app;
 }
 
 void meal_pager_app_free(Meal_Pager* app) {
     furi_assert(app);
+
+    // Stop a still-active TX before anything else is torn down (loader/RPC close during
+    // Send Data skips the view's own stop, since Back is swallowed on that screen).
+    subghz_txrx_stop(app->subghz->txrx);
 
     // Scene manager
     scene_manager_free(app->scene_manager);

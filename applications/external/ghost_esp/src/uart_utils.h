@@ -92,6 +92,11 @@ typedef struct UartContext {
     bool is_serial_active;
     TextBufferManager* text_manager;
     size_t pcap_buf_len; // Current PCAP buffer length
+    // Guards pcap_stream/csv_stream against the worker thread draining them concurrently with
+    // uart_cleanup_capture_streams()/uart_receive_data() freeing or reallocating them (Back
+    // pressed, or a new capture started, mid-drain). Separate from text_manager->mutex, which
+    // the RX path already uses with short timeouts for a different purpose.
+    FuriMutex* capture_streams_mutex;
 } UartContext;
 
 // Function prototypes

@@ -72,7 +72,9 @@ void wifi_marauder_script_stage_menu_scan_load(WifiMarauderScriptStageMenu* stag
         .name = strdup("Type"),
         .type = WifiMarauderScriptMenuItemTypeOptionsString,
         .num_options = 2,
-        .options = {"ap", "station"},
+        // heap-owned (strdup): wifi_marauder_script_stage_menu_free() calls free() on every
+        // options[] entry, which is undefined behaviour on a string literal
+        .options = {strdup("ap"), strdup("station")},
         .setup_callback = wifi_marauder_scan_stage_type_setup_callback,
         .change_callback = wifi_marauder_scan_stage_type_change_callback,
     };
@@ -80,7 +82,19 @@ void wifi_marauder_script_stage_menu_scan_load(WifiMarauderScriptStageMenu* stag
         .name = strdup("Channel"),
         .type = WifiMarauderScriptMenuItemTypeOptionsNumber,
         .num_options = 12,
-        .options = {"none", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"},
+        // heap-owned (strdup), same reason as above
+        .options = {strdup("none"),
+                    strdup("1"),
+                    strdup("2"),
+                    strdup("3"),
+                    strdup("4"),
+                    strdup("5"),
+                    strdup("6"),
+                    strdup("7"),
+                    strdup("8"),
+                    strdup("9"),
+                    strdup("10"),
+                    strdup("11")},
         .setup_callback = wifi_marauder_scan_stage_channel_setup_callback,
         .change_callback = wifi_marauder_scan_stage_channel_change_callback,
     };

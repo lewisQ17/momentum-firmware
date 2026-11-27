@@ -2315,9 +2315,11 @@ static bool handle_ir_command_feedback_ex(
 
                     if(strncmp(p, "raw ", 4) == 0 || strncmp(p, "raw len=", 8) == 0 ||
                        strstr(p, " raw ") || strstr(p, " raw len=")) {
+                        // %31s could write up to 32 bytes into freq_str[24] (8-byte stack
+                        // overflow) if the ESP's reply has a 24+ char freq token
                         if(sscanf(
                                line,
-                               "IR: signal raw len=%15s freq=%31s duty=%15s",
+                               "IR: signal raw len=%15s freq=%23s duty=%15s",
                                len_str,
                                freq_str,
                                duty_str) == 3) {
@@ -2545,9 +2547,15 @@ static bool handle_ir_command_feedback_ex(
             confirmation_view_set_text(state->confirmation_view, message);
         }
     } else if(have_output) {
-        char display[256];
-        snprintf(display, sizeof(display), "No match.\nRaw:\n%.180s", raw_buffer);
-        confirmation_view_set_text(state->confirmation_view, display);
+        // confirmation_view_set_text() only stores the pointer (not a copy), so the buffer
+        // must outlive this function; state->confirmation_message does, a local stack array
+        // does not, which left the view drawing from a dead stack frame
+        snprintf(
+            state->confirmation_message,
+            sizeof(state->confirmation_message),
+            "No match.\nRaw:\n%.180s",
+            raw_buffer);
+        confirmation_view_set_text(state->confirmation_view, state->confirmation_message);
     } else {
         confirmation_view_set_text(state->confirmation_view, "No response from ESP.");
     }

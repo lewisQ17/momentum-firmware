@@ -18,14 +18,27 @@ void evil_portal_console_output_handle_rx_data_cb(uint8_t* buf, size_t len, void
     furi_string_cat_printf(app->text_box_store, "%s", buf);
 
     if(app->capture_line) {
+        // locked: the app thread reads/resets captured_line in the wait loops below without
+        // synchronization otherwise, and a realloc here mid-search is a use-after-free
+        furi_mutex_acquire(app->portal_logs_mutex, FuriWaitForever);
         furi_string_cat_printf(app->captured_line, "%s", buf);
+        furi_mutex_release(app->portal_logs_mutex);
     }
 
     text_box_set_text(app->text_box, furi_string_get_cstr(app->text_box_store));
 }
 
 static inline bool captured(Evil_PortalApp* app, const char* str) {
-    return furi_string_search_str(app->captured_line, str) != STRING_FAILURE;
+    furi_mutex_acquire(app->portal_logs_mutex, FuriWaitForever);
+    bool found = furi_string_search_str(app->captured_line, str) != STRING_FAILURE;
+    furi_mutex_release(app->portal_logs_mutex);
+    return found;
+}
+
+static inline void captured_line_reset(Evil_PortalApp* app) {
+    furi_mutex_acquire(app->portal_logs_mutex, FuriWaitForever);
+    furi_string_reset(app->captured_line);
+    furi_mutex_release(app->portal_logs_mutex);
 }
 
 void evil_portal_scene_console_output_on_enter(void* context) {
@@ -119,7 +132,7 @@ void evil_portal_scene_console_output_on_enter(void* context) {
             evil_portal_read_ap_name(context);
             // Test evil portal syntax and response, marauder ignores it
             furi_string_printf(data, "setap=%s\n", (char*)app->ap_name);
-            furi_string_reset(app->captured_line);
+            captured_line_reset(app);
             evil_portal_uart_tx(
                 app->uart, (uint8_t*)(furi_string_get_cstr(data)), furi_string_size(data));
             // TODO: move timeouts and commands elsewhere, can't block input cycle
@@ -130,7 +143,7 @@ void evil_portal_scene_console_output_on_enter(void* context) {
             // Not evil portal, set up marauder
             if(icanhazmarauder) {
                 furi_string_printf(data, "clearlist -a -s -c\nssid -a -n '%s'\n", app->ap_name);
-                furi_string_reset(app->captured_line);
+                captured_line_reset(app);
                 evil_portal_uart_tx(
                     app->uart, (uint8_t*)(furi_string_get_cstr(data)), furi_string_size(data));
                 // Marauder echoes the command, maybe still init so wait a while for echo
@@ -138,10 +151,11 @@ void evil_portal_scene_console_output_on_enter(void* context) {
                     furi_delay_ms(100);
             }
             free(app->ap_name);
+            app->ap_name = NULL;
 
             evil_portal_read_index_html(context);
             if(icanhazmarauder) {
-                furi_string_reset(app->captured_line);
+                captured_line_reset(app);
                 evil_portal_uart_tx(
                     app->uart,
                     (uint8_t*)("evilportal -c sethtmlstr\n"),
@@ -152,7 +166,7 @@ void evil_portal_scene_console_output_on_enter(void* context) {
                     furi_delay_ms(100);
                 // Check for active attack
                 if(!(captured(app, "\n>") && !captured(app, "Setting HTML from serial..."))) {
-                    furi_string_reset(app->captured_line);
+                    captured_line_reset(app);
                     evil_portal_uart_tx(
                         app->uart, app->index_html, strlen((char*)app->index_html));
                     evil_portal_uart_tx(app->uart, (uint8_t*)("\n"), 1);
@@ -174,8 +188,9 @@ void evil_portal_scene_console_output_on_enter(void* context) {
             }
 
             free(app->index_html);
+            app->index_html = NULL;
             app->capture_line = false;
-            furi_string_reset(app->captured_line);
+            captured_line_reset(app);
             furi_string_free(data);
         } else if(0 == strncmp(RESET_CMD, app->selected_tx_string, strlen(RESET_CMD))) {
             evil_portal_uart_tx(

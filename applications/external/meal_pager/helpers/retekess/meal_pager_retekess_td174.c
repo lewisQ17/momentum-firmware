@@ -44,7 +44,7 @@ static void meal_pager_retekess_td174_generate_pager(
     char pagerId[11];
     char* fullId = (char*)malloc(25 * sizeof(char));
     uint32_t action = 0; // 0 = ring, 1 = mute
-    char actionId[2];
+    char actionId[3];
     //FURI_LOG_D(TAG, "Generating TD174 Data for Pager %lu", pager);
     app->current_pager = pager;
     meal_pager_transmit_model_set_pager(app->meal_pager_transmit, app->current_pager);
@@ -65,6 +65,7 @@ static void meal_pager_retekess_td174_generate_pager(
     }
     free(manchester);
     free(rawSignal);
+    free(fullId);
 }
 
 static void

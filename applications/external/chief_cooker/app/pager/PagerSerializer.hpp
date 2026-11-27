@@ -38,6 +38,13 @@ public:
     ) {
         String* fileName = GetFilename(pager);
         FlipperFile* stationFile = fileManager->OpenWrite(dir, fileName->cstr());
+        if(stationFile == NULL) {
+            // OpenWrite fails when the SD is full/read-only/removed or the directory
+            // couldn't be created; AutoSave runs on every new signal, so this is reachable
+            // in normal use and must not crash.
+            delete fileName;
+            return;
+        }
 
         stationFile->WriteString(KEY_PAGER_STATION_NAME, stationName);
         stationFile->WriteUInt32(KEY_PAGER_FREQUENCY, frequency);
@@ -64,14 +71,25 @@ public:
         return stationName;
     }
 
+    // *valid is set to false (and the caller must not use the returned data) when the
+    // file can't be opened (missing/non-.fff entry in the directory) or names an unknown
+    // Protocol/Decoder (hand-edited or other-version file); both previously fell through
+    // to a NULL dereference.
     StoredPagerData LoadPagerData(
         FileManager* fileManager,
         String* stationName,
         const char* dir,
         const char* fileName,
-        ProtocolAndDecoderProvider* pdProvider
+        ProtocolAndDecoderProvider* pdProvider,
+        bool* valid
     ) {
+        StoredPagerData pager = {};
+        *valid = false;
+
         FlipperFile* stationFile = fileManager->OpenRead(dir, fileName);
+        if(stationFile == NULL) {
+            return pager;
+        }
 
         uint32_t te = 0;
         uint64_t hex = 0;
@@ -88,13 +106,19 @@ public:
 
         delete stationFile;
 
-        StoredPagerData pager;
+        PagerProtocol* protocol = pdProvider->GetProtocolByName(protocolName.cstr());
+        PagerDecoder* decoder = pdProvider->GetDecoderByName(decoderName.cstr());
+        if(protocol == NULL || decoder == NULL) {
+            return pager;
+        }
+
         pager.data = hex;
         pager.te = te;
         pager.edited = false;
         pager.frequency = FrequencyManager::GetInstance()->GetFrequencyIndex(frequency);
-        pager.protocol = pdProvider->GetProtocolByName(protocolName.cstr())->id;
-        pager.decoder = pdProvider->GetDecoderByName(decoderName.cstr())->id;
+        pager.protocol = protocol->id;
+        pager.decoder = decoder->id;
+        *valid = true;
         return pager;
     }
 };

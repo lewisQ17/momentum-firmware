@@ -77,7 +77,9 @@ void wifi_marauder_script_stage_menu_select_load(WifiMarauderScriptStageMenu* st
         .name = strdup("Type"),
         .type = WifiMarauderScriptMenuItemTypeOptionsString,
         .num_options = 2,
-        .options = {"ap", "station"},
+        // heap-owned (strdup): wifi_marauder_script_stage_menu_free() calls free() on every
+        // options[] entry, which is undefined behaviour on a string literal
+        .options = {strdup("ap"), strdup("station")},
         .setup_callback = wifi_marauder_select_stage_type_setup_callback,
         .change_callback = wifi_marauder_select_stage_type_change_callback};
     stage_menu->items[1] = (WifiMarauderScriptMenuItem){

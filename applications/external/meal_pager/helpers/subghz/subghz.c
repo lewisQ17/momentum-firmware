@@ -41,7 +41,7 @@ void subghz_send(void* context) {
     //SubGhz* subghz = subghz_alloc();
 
     FURI_LOG_D(TAG, "loading protocol from file");
-    subghz_load_protocol_from_file(app->subghz);
+    bool loaded = subghz_load_protocol_from_file(app->subghz);
 
     /*Storage* storage = furi_record_open(RECORD_STORAGE);
     FlipperFormat* ff = flipper_format_file_alloc(storage);
@@ -55,15 +55,27 @@ void subghz_send(void* context) {
 
     //subghz_txrx_tx_start(subghz->txrx, ff);
 
-    FURI_LOG_D(TAG, "Starting Transmission");
-    subghz_txrx_tx_start(
-        app->subghz->txrx,
-        subghz_txrx_get_fff_data(app->subghz->txrx)); //Seems like it must be done this way
+    SubGhzTxRxStartTxState tx_state = SubGhzTxRxStartTxStateErrorParserOthers;
+    if(loaded) {
+        FURI_LOG_D(TAG, "Starting Transmission");
+        tx_state = subghz_txrx_tx_start(
+            app->subghz->txrx,
+            subghz_txrx_get_fff_data(app->subghz->txrx)); //Seems like it must be done this way
+    } else {
+        FURI_LOG_E(TAG, "Failed to load protocol from file, not starting TX");
+    }
 
-    FURI_LOG_D(TAG, "setting sugbhz raw file encoder worker callback");
-    subghz_txrx_set_raw_file_encoder_worker_callback_end(
-        app->subghz->txrx, subghz_scene_transmit_callback_end_tx, app);
-    app->state_notifications = SubGhzNotificationStateTx;
+    if(loaded && tx_state == SubGhzTxRxStartTxStateOk) {
+        FURI_LOG_D(TAG, "setting sugbhz raw file encoder worker callback");
+        subghz_txrx_set_raw_file_encoder_worker_callback_end(
+            app->subghz->txrx, subghz_scene_transmit_callback_end_tx, app);
+        app->state_notifications = SubGhzNotificationStateTx;
+    } else {
+        // TX never started (or the transmitter alloc/deserialize/set_tx failed): leave the
+        // Transmit view a way out instead of a dead end on "Generating Data".
+        view_dispatcher_send_custom_event(
+            app->view_dispatcher, Meal_PagerCustomEventViewTransmitterSendStop);
+    }
 
     /*flipper_format_rewind(ff);
     flipper_format_file_close(ff);

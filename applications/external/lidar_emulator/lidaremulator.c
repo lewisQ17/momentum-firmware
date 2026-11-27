@@ -4,6 +4,7 @@
 #include <gui/modules/variable_item_list.h>
 #include <gui/scene_manager.h>
 #include <gui/view_dispatcher.h>
+#include <furi_hal_light.h>
 
 #include "lidaremulator_app_i.h"
 
@@ -60,6 +61,17 @@ static LidarEmulatorApp* LidarEmulatorApp_alloc() {
 }
 
 static void LidarEmulatorApp_free(LidarEmulatorApp* lidaremulator) {
+
+    // Loader/RPC close can skip the scene's on_exit; join the IR thread and release the hijacked view here too
+    if(lidaremulator->transmit_thread) {
+        furi_thread_join(lidaremulator->transmit_thread);
+        furi_thread_free(lidaremulator->transmit_thread);
+        lidaremulator->transmit_thread = NULL;
+        furi_hal_light_set(LightRed, 0);
+        furi_hal_light_set(LightGreen, 0);
+        furi_hal_light_set(LightBlue, 0);
+    }
+    view_hijacker_detach_from_view(lidaremulator->view_hijacker);
 
     view_dispatcher_remove_view(lidaremulator->view_dispatcher, LidarEmulatorViewVariableList);
     variable_item_list_free(lidaremulator->variable_item_list);

@@ -26,7 +26,9 @@ void _wifi_marauder_script_load_meta(WifiMarauderScript* script, cJSON* meta_sec
     if(meta_section != NULL) {
         // Script description
         cJSON* description = cJSON_GetObjectItem(meta_section, "description");
-        if(description != NULL) {
+        // Must be a JSON string: a non-string value leaves valuestring == NULL, so
+        // strdup(NULL) would crash. cJSON_IsString null-checks internally.
+        if(cJSON_IsString(description)) {
             script->description = strdup(description->valuestring);
         }
         // Enable LED
@@ -56,7 +58,9 @@ WifiMarauderScriptStageScan* _wifi_marauder_script_get_stage_scan(cJSON* stages)
         return NULL;
     }
     cJSON* type = cJSON_GetObjectItem(stage_scan, "type");
-    if(type == NULL) {
+    // Reject a non-string "type": strcmp(type->valuestring,...) below would else
+    // dereference NULL when the value is a number/object.
+    if(!cJSON_IsString(type)) {
         return NULL;
     }
     WifiMarauderScriptScanType scan_type;
@@ -117,7 +121,9 @@ WifiMarauderScriptStageSelect* _wifi_marauder_script_get_stage_select(cJSON* sta
 
     if(cJSON_IsArray(indexes_json)) {
         int indexes_size = cJSON_GetArraySize(indexes_json);
-        int* indexes = (int*)malloc(indexes_size * sizeof(int));
+        // calloc: non-number entries are skipped below, so unfilled slots must be 0, not
+        // garbage; indexes_size>0 ? ... : 1 avoids malloc(0) == furi_check crash on "indexes":[]
+        int* indexes = (int*)calloc(indexes_size > 0 ? indexes_size : 1, sizeof(int));
         for(int i = 0; i < indexes_size; i++) {
             cJSON* index_item = cJSON_GetArrayItem(indexes_json, i);
             if(cJSON_IsNumber(index_item)) {
@@ -301,17 +307,22 @@ WifiMarauderScriptStageBeaconList* _wifi_marauder_script_get_stage_beacon_list(c
     }
     cJSON* ssids = cJSON_GetObjectItem(stage_beaconlist, "ssids");
     if(ssids == NULL) {
+        free(beaconlist_stage);
         return NULL;
     }
     // SSID count
     int ssid_count = cJSON_GetArraySize(ssids);
     if(ssid_count == 0) {
+        free(beaconlist_stage);
         return NULL;
     }
     beaconlist_stage->ssid_count = ssid_count;
     // SSIDs
-    beaconlist_stage->ssids = (char**)malloc(sizeof(char*) * ssid_count);
+    // calloc, not malloc: the fill loop below skips non-string array elements, so unfilled
+    // slots must be NULL (else free()/use of garbage pointers). free(NULL) is safe.
+    beaconlist_stage->ssids = (char**)calloc(ssid_count, sizeof(char*));
     if(beaconlist_stage->ssids == NULL) {
+        free(beaconlist_stage);
         return NULL;
     }
     for(int i = 0; i < ssid_count; i++) {
@@ -526,6 +537,9 @@ WifiMarauderScript* wifi_marauder_script_parse_json(Storage* storage, const char
     if(script == NULL) {
         script = wifi_marauder_script_create(furi_string_get_cstr(script_name));
     }
+    // wifi_marauder_script_create() above already strdup'd a name; free it before
+    // overwriting (free(NULL) is a no-op for the parse-succeeded path, where name is NULL)
+    free(script->name);
     script->name = strdup(furi_string_get_cstr(script_name));
 
     furi_string_free(script_name);
@@ -873,9 +887,12 @@ void wifi_marauder_script_save_json(
 
         // Write JSON to file
         char* json_str = cJSON_Print(root_json);
-        storage_file_write(script_file, json_str, strlen(json_str));
+        if(json_str != NULL) {
+            storage_file_write(script_file, json_str, strlen(json_str));
+            free(json_str); // cJSON_Print uses its own allocator hook, which is free() here
+        }
 
-        //free(json_str);
+        cJSON_Delete(root_json); // was leaked on every save
         storage_file_close(script_file);
     }
     storage_file_free(script_file);
@@ -897,6 +914,72 @@ bool wifi_marauder_script_has_stage(
     return false;
 }
 
+void wifi_marauder_script_stage_free(WifiMarauderScriptStage* current_stage) {
+    if(current_stage == NULL) {
+        return;
+    }
+    switch(current_stage->type) {
+    case WifiMarauderScriptStageTypeScan:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeSelect:
+        if(((WifiMarauderScriptStageSelect*)current_stage->stage)->filter != NULL) {
+            free(((WifiMarauderScriptStageSelect*)current_stage->stage)->filter);
+        }
+        if(((WifiMarauderScriptStageSelect*)current_stage->stage)->indexes != NULL) {
+            free(((WifiMarauderScriptStageSelect*)current_stage->stage)->indexes);
+        }
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeDeauth:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeProbe:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeSniffRaw:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeSniffBeacon:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeSniffDeauth:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeSniffEsp:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeSniffPmkid:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeSniffPwn:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeBeaconList:
+        for(int i = 0;
+            i < ((WifiMarauderScriptStageBeaconList*)current_stage->stage)->ssid_count;
+            i++) {
+            free(((WifiMarauderScriptStageBeaconList*)current_stage->stage)->ssids[i]);
+        }
+        free(((WifiMarauderScriptStageBeaconList*)current_stage->stage)->ssids);
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeBeaconAp:
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeExec:
+        if(((WifiMarauderScriptStageExec*)current_stage->stage)->command != NULL) {
+            free(((WifiMarauderScriptStageExec*)current_stage->stage)->command);
+        }
+        free(current_stage->stage);
+        break;
+    case WifiMarauderScriptStageTypeDelay:
+        free(current_stage->stage);
+        break;
+    }
+    free(current_stage);
+}
+
 void wifi_marauder_script_free(WifiMarauderScript* script) {
     if(script == NULL) {
         return;
@@ -904,66 +987,7 @@ void wifi_marauder_script_free(WifiMarauderScript* script) {
     WifiMarauderScriptStage* current_stage = script->first_stage;
     while(current_stage != NULL) {
         WifiMarauderScriptStage* next_stage = current_stage->next_stage;
-        switch(current_stage->type) {
-        case WifiMarauderScriptStageTypeScan:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeSelect:
-            if(((WifiMarauderScriptStageSelect*)current_stage->stage)->filter != NULL) {
-                free(((WifiMarauderScriptStageSelect*)current_stage->stage)->filter);
-            }
-            if(((WifiMarauderScriptStageSelect*)current_stage->stage)->indexes != NULL) {
-                free(((WifiMarauderScriptStageSelect*)current_stage->stage)->indexes);
-            }
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeDeauth:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeProbe:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeSniffRaw:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeSniffBeacon:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeSniffDeauth:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeSniffEsp:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeSniffPmkid:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeSniffPwn:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeBeaconList:
-            for(int i = 0;
-                i < ((WifiMarauderScriptStageBeaconList*)current_stage->stage)->ssid_count;
-                i++) {
-                free(((WifiMarauderScriptStageBeaconList*)current_stage->stage)->ssids[i]);
-            }
-            free(((WifiMarauderScriptStageBeaconList*)current_stage->stage)->ssids);
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeBeaconAp:
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeExec:
-            if(((WifiMarauderScriptStageExec*)current_stage->stage)->command != NULL) {
-                free(((WifiMarauderScriptStageExec*)current_stage->stage)->command);
-            }
-            free(current_stage->stage);
-            break;
-        case WifiMarauderScriptStageTypeDelay:
-            free(current_stage->stage);
-            break;
-        }
-        free(current_stage);
+        wifi_marauder_script_stage_free(current_stage);
         current_stage = next_stage;
     }
     free(script->name);

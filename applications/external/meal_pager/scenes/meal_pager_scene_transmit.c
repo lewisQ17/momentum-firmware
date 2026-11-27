@@ -49,6 +49,10 @@ void meal_pager_scene_transmit_on_enter(void* context) {
     if(!generated) {
         FURI_LOG_D(TAG, "Could not generate temp file");
         meal_pager_blink_stop(app);
+        // Generation failed (e.g. SD full/missing): the Transmit view swallows Back, so
+        // without this the screen is a dead end until a loader/RPC force-close.
+        view_dispatcher_send_custom_event(
+            app->view_dispatcher, Meal_PagerCustomEventViewTransmitterSendStop);
         return;
     }
     FURI_LOG_D(TAG, "Generated tmp.sub");

@@ -70,6 +70,15 @@ WifideautherApp* wifi_deauther_app_alloc() {
 void wifi_deauther_app_free(WifideautherApp* app) {
     furi_assert(app);
 
+    // Stop any running attack: loader/RPC close skips the console scene's on_exit, which is
+    // otherwise the only place "stopscan" gets sent, and the Stop menu item uses "stop all"
+    wifi_deauther_uart_tx(app->uart, (uint8_t*)"stop all\n", strlen("stop all\n"));
+
+    // Free the UART before the views: this stops the RX IRQ and joins the worker thread, so
+    // the RX callback (which may still be registered if loader/RPC close skipped the owning
+    // scene's on_exit) can no longer touch views/text_box_store freed below
+    wifi_deauther_uart_free(app->uart);
+
     // Views
     view_dispatcher_remove_view(app->view_dispatcher, WifideautherAppViewVarItemList);
     view_dispatcher_remove_view(app->view_dispatcher, WifideautherAppViewConsoleOutput);
@@ -81,8 +90,6 @@ void wifi_deauther_app_free(WifideautherApp* app) {
     // View dispatcher
     view_dispatcher_free(app->view_dispatcher);
     scene_manager_free(app->scene_manager);
-
-    wifi_deauther_uart_free(app->uart);
 
     // Close records
     furi_record_close(RECORD_GUI);
@@ -110,6 +117,9 @@ int32_t wifi_deauther_app(void* p) {
     wifi_deauther_app->uart = wifi_deauther_uart_init(wifi_deauther_app);
 
     view_dispatcher_run(wifi_deauther_app->view_dispatcher);
+    // ensure the active scene's on_exit runs (unregisters the RX callback, sends "stopscan")
+    // even on a loader/RPC close, which otherwise skips it
+    scene_manager_stop(wifi_deauther_app->scene_manager);
 
     wifi_deauther_app_free(wifi_deauther_app);
 

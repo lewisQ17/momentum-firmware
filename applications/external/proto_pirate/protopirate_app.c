@@ -406,6 +406,16 @@ void protopirate_radio_deinit(ProtoPirateApp* app) {
         }
     }
 
+    // Belt-and-suspenders: stop a still-armed async TX before sleeping the radio
+    // (normally handled by the emulate scene's on_exit, which may be skipped on force-close).
+    if(app->txrx->txrx_state == ProtoPirateTxRxStateTx && app->txrx->radio_device) {
+        FURI_LOG_D(TAG, "Stopping active TX, state=%d", app->txrx->txrx_state);
+        subghz_devices_stop_async_tx(app->txrx->radio_device);
+        furi_delay_ms(10);
+        subghz_devices_idle(app->txrx->radio_device);
+        app->txrx->txrx_state = ProtoPirateTxRxStateIDLE;
+    }
+
     if(app->txrx->radio_device) {
         FURI_LOG_D(TAG, "Putting radio device to sleep and ending: %p", app->txrx->radio_device);
         subghz_devices_sleep(app->txrx->radio_device);
@@ -641,6 +651,9 @@ int32_t protopirate_app(char* p) {
     }
 
     view_dispatcher_run(protopirate_app->view_dispatcher);
+
+    // Run the active scene's on_exit (e.g. emulate's TX stop) on loader/RPC close too.
+    scene_manager_stop(protopirate_app->scene_manager);
 
     protopirate_app_free(protopirate_app);
 

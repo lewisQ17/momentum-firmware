@@ -79,7 +79,10 @@ public:
         if(dir != NULL) {
             char fileName[MAX_FILENAME_LENGTH];
             while(dir->GetNextDir(fileName, MAX_FILENAME_LENGTH)) {
-                char* category = new char[strlen(fileName)];
+                // +1 for the NUL strcpy writes at category[strlen(fileName)]; without it,
+                // an 8/16-char name (heap blocks are 8-byte aligned) overflows into the
+                // next block's header.
+                char* category = new char[strlen(fileName) + 1];
                 strcpy(category, fileName);
                 categoryList->push_front(category);
                 categoriesLoaded++;
@@ -107,8 +110,18 @@ public:
             char fileName[MAX_FILENAME_LENGTH];
             while(dir->GetNextFile(fileName, MAX_FILENAME_LENGTH)) {
                 String* stationName = new String();
-                StoredPagerData pager =
-                    serializer.LoadPagerData(&fileManager, stationName, stationDirPath->cstr(), fileName, pdProvider);
+                bool valid = false;
+                StoredPagerData pager = serializer.LoadPagerData(
+                    &fileManager, stationName, stationDirPath->cstr(), fileName, pdProvider, &valid);
+
+                if(!valid) {
+                    // Stray non-.fff file (e.g. .DS_Store) or a hand-edited/unknown
+                    // Protocol/Decoder: skip it so the count returned below stays equal
+                    // to the number of entries actually pushed (the caller sizes its
+                    // StoredPagerData[]/KnownStationData[] arrays from that count).
+                    delete stationName;
+                    continue;
+                }
 
                 if(!loadNames) {
                     delete stationName;

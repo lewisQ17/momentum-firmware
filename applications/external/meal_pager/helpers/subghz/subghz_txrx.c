@@ -80,6 +80,11 @@ void subghz_txrx_free(SubGhzTxRx* instance) {
     furi_assert(instance);
     FURI_LOG_D(TAG, "freeing TXRX");
 
+    // Stop a still-active TX before releasing the transmitter/environment it depends on.
+    subghz_txrx_stop(instance);
+    // Idle before sleep: furi_hal_subghz_sleep requires the state to not be RX/TX.
+    subghz_devices_sleep(instance->radio_device);
+
     if(instance->radio_device_type != SubGhzRadioDeviceTypeInternal) {
         subghz_txrx_radio_device_power_off(instance);
         subghz_devices_end(instance->radio_device);
@@ -308,7 +313,12 @@ SubGhzTxRxStartTxState subghz_txrx_tx_start(SubGhzTxRx* instance, FlipperFormat*
         }
         if(ret != SubGhzTxRxStartTxStateOk) {
             FURI_LOG_D(TAG, "state not ok");
-            subghz_transmitter_free(instance->transmitter); // Crashes here
+            // Guard: transmitter may be NULL (alloc_init failed) or already freed by an
+            // earlier branch; freeing NULL or twice would crash/corrupt the heap.
+            if(instance->transmitter) {
+                subghz_transmitter_free(instance->transmitter);
+                instance->transmitter = NULL;
+            }
             if(instance->txrx_state != SubGhzTxRxStateIDLE) {
                 subghz_txrx_idle(instance);
             }
@@ -344,6 +354,7 @@ static void subghz_txrx_tx_stop(SubGhzTxRx* instance) {
     subghz_devices_stop_async_tx(instance->radio_device);
     subghz_transmitter_stop(instance->transmitter);
     subghz_transmitter_free(instance->transmitter);
+    instance->transmitter = NULL;
 
     //if protocol dynamic then we save the last upload
     /*if(instance->decoder_result->protocol->type == SubGhzProtocolTypeDynamic) {

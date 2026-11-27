@@ -220,6 +220,8 @@ static bool load_addrs_file(Stream* file_stream) {
 
             furi_string_left(line, comma);
             addrlen = (uint8_t)(furi_string_size(line) / 2);
+            // Reject malformed/oversized address fields; addr[] is fixed at 5 bytes
+            if(addrlen != sizeof(addr)) continue;
             i_addr_lo = strtoul(furi_string_get_cstr(line) + 2, NULL, 16);
 
             furi_string_left(line, 2);
@@ -227,6 +229,8 @@ static bool load_addrs_file(Stream* file_stream) {
 
             int32_to_bytes(i_addr_lo, &addr[1], true);
             addr[0] = (uint8_t)(i_addr_hi & 0xFF);
+            // Ignore extra lines past the fixed-size loaded_addrs array instead of overflowing it
+            if(counter >= MAX_ADDRS) break;
             memset(loaded_addrs[counter], rate, 1);
             memcpy(&loaded_addrs[counter++][1], addr, addrlen);
             addrs_count++;

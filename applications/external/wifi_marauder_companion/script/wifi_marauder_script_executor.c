@@ -67,19 +67,33 @@ void _wifi_marauder_script_execute_select(
 
         for(int i = 0; i < stage->index_count; i++) {
             int index = stage->indexes[i];
-            command_length += snprintf(
+            int n = snprintf(
                 command + command_length, sizeof(command) - command_length, "%d, ", index);
+            // A large index_count would otherwise push command_length past the
+            // buffer, underflowing sizeof(command)-command_length and writing OOB.
+            if(n < 0 || (size_t)n >= sizeof(command) - command_length) {
+                command_length = sizeof(command) - 1;
+                break;
+            }
+            command_length += n;
         }
 
-        // Remove the trailing comma and space
-        command_length -= 2;
-        command[command_length] = '\n';
-        command_length++;
+        // Remove the trailing comma and space (guard against truncation)
+        if(command_length >= 2 && command_length < sizeof(command)) {
+            command_length -= 2;
+            command[command_length] = '\n';
+            command_length++;
+        }
     } else if(stage->filter == NULL || strcmp(stage->filter, "all") == 0) {
         command_length = snprintf(command, sizeof(command), "select %s all\n", select_type);
     } else {
         command_length = snprintf(
             command, sizeof(command), "select %s -f \"%s\"\n", select_type, stage->filter);
+        // a long filter makes snprintf return the would-be (untruncated) length; clamp so the
+        // tx below never reads past what was actually written into command[256]
+        if(command_length >= sizeof(command)) {
+            command_length = sizeof(command) - 1;
+        }
     }
 
     wifi_marauder_uart_tx(worker->uart, (uint8_t*)command, command_length);

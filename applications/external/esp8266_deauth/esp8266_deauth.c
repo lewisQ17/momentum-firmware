@@ -295,13 +295,17 @@ static int32_t uart_worker(void* context) {
             } while(dataReceivedLength > 0);
 
 #if ENABLE_MODULE_POWER
-            if(!app->m_wifiDeauthModuleInitialized) {
+            // base on the local 'initialized' flag, not app->m_wifiDeauthModuleInitialized:
+            // the module can be detached (which clears the app flag) while this RX event was
+            // already pending, which would otherwise run the freed receivedString below
+            if(!initialized) {
                 if(furi_string_cmp_str(receivedString, MODULE_CONTEXT_INITIALIZATION) == 0) {
                     DEAUTH_APP_LOG_I("[UART] Initialized");
                     initialized = true;
                     app->m_wifiDeauthModuleInitialized = true;
                     app->m_context = ModuleActive;
                     furi_string_free(receivedString);
+                    receivedString = NULL;
                 } else {
                     DEAUTH_APP_LOG_I("[UART] Not an initialization command");
                     furi_string_reset(receivedString);
@@ -312,6 +316,14 @@ static int32_t uart_worker(void* context) {
             furi_mutex_release(app->mutex);
         }
     }
+
+#if ENABLE_MODULE_POWER
+    // freed above once init succeeds; on an early exit via WorkerEventStop (e.g. Back pressed
+    // on "Attach module"/"Initializing...") it is otherwise never freed
+    if(receivedString) {
+        furi_string_free(receivedString);
+    }
+#endif // ENABLE_MODULE_POWER
 
     return 0;
 }

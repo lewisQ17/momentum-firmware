@@ -73,6 +73,7 @@ static void meal_pager_retekess_t119_generate_pager(
     //flipper_format_write_string_cstr(ff, "RAW_Data", rawSignal);
     free(manchester);
     free(rawSignal);
+    free(fullId);
 }
 
 static void

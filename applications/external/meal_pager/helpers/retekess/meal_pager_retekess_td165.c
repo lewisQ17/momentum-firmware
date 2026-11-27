@@ -62,6 +62,7 @@ static void meal_pager_retekess_td165_generate_pager(
     }
     free(manchester);
     free(rawSignal);
+    free(fullId);
 }
 
 static void

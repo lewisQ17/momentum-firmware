@@ -85,6 +85,11 @@ void evil_portal_app_free(Evil_PortalApp* app) {
 
     furi_assert(app);
 
+    // Free the UART right after the TX above and before the views: this stops the RX IRQ and
+    // joins the worker thread, so the RX callback (which may still be registered if loader/RPC
+    // close skipped the console scene's on_exit) can no longer touch views freed below
+    evil_portal_uart_free(app->uart);
+
     // Views
     view_dispatcher_remove_view(app->view_dispatcher, Evil_PortalAppViewVarItemList);
     variable_item_list_free(app->var_item_list);
@@ -98,14 +103,13 @@ void evil_portal_app_free(Evil_PortalApp* app) {
     view_dispatcher_free(app->view_dispatcher);
     scene_manager_free(app->scene_manager);
 
-    evil_portal_uart_free(app->uart);
-
     // save latest logs
     furi_mutex_acquire(app->portal_logs_mutex, FuriWaitForever);
     if(furi_string_size(app->portal_logs) > 0) {
         write_logs(app->portal_logs);
-        furi_string_free(app->portal_logs);
     }
+    // always free, not just when non-empty, to avoid leaking the FuriString on every launch
+    furi_string_free(app->portal_logs);
     furi_mutex_release(app->portal_logs_mutex);
     furi_mutex_free(app->portal_logs_mutex);
 

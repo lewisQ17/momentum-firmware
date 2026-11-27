@@ -40,10 +40,15 @@ void blackhat_scene_rename_on_enter(void* context)
                 str_start = i+1;
             else {
                 app->script_text[i] = '\0';
+                // clamp to avoid underflow (i<=str_start) and overflow of text_input_ch[ENTER_NAME_LENGTH]
+                size_t copy_len = (i > str_start + 1) ? (i - str_start - 1) : 0;
+                if(copy_len > ENTER_NAME_LENGTH - 1) {
+                    copy_len = ENTER_NAME_LENGTH - 1;
+                }
                 memcpy(
                     app->text_input_ch,
                     &app->script_text[str_start],
-                    i - str_start - 1
+                    copy_len
                 );
                 break;
             }

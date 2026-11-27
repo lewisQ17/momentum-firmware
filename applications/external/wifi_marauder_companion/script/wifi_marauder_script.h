@@ -256,3 +256,6 @@ bool wifi_marauder_script_has_stage(
     WifiMarauderScript* script,
     WifiMarauderScriptStageType stage_type);
 void wifi_marauder_script_free(WifiMarauderScript* script);
+// Frees one already-unlinked stage (its per-type stage data and the node itself). Used by
+// wifi_marauder_script_free() and by the "delete stage" editor, which used to leak both.
+void wifi_marauder_script_stage_free(WifiMarauderScriptStage* stage);

@@ -143,7 +143,14 @@ void subbrute_free(SubBruteState* instance) {
     view_dispatcher_remove_view(instance->view_dispatcher, SubBruteViewAttack);
     subbrute_attack_view_free(instance->view_attack);
 
-    // TextInput
+    // TextInput: free a validator left attached if the Save-name scene's on_exit was
+    // skipped (loader/RPC close); NULL-guarded since the normal path already clears it.
+    void* text_input_validator =
+        text_input_get_validator_callback_context(instance->text_input);
+    if(text_input_validator) {
+        text_input_set_validator(instance->text_input, NULL, NULL);
+        validator_is_file_free(text_input_validator);
+    }
     view_dispatcher_remove_view(instance->view_dispatcher, SubBruteViewTextInput);
     text_input_free(instance->text_input);
 

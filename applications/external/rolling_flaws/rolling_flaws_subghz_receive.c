@@ -96,6 +96,9 @@ void start_listening(
     if(!subghz_devices_is_frequency_valid(device, frequency)) {
         FURI_LOG_E(TAG, "Frequency not in range. %lu\r\n", frequency);
         subghz_devices_deinit();
+        // No thread was started; leave status UNINITIALIZED so a later stop_listening
+        // (e.g. on exit) returns early instead of joining a thread that never existed.
+        context->status = SUBGHZ_RECEIVER_UNINITIALIZED;
         return;
     }
 
@@ -131,6 +134,9 @@ void stop_listening(RollingFlawsSubGhz* context) {
 
     const SubGhzDevice* device = subghz_devices_get_by_name(SUBGHZ_DEVICE_CC1101_INT_NAME);
     subghz_devices_stop_async_rx(device);
+    // stop_async_rx leaves the chip idle; sleep it so the crystal oscillator isn't left
+    // running (battery drain) until some other app happens to sleep it.
+    subghz_devices_sleep(device);
 
     subghz_receiver_free(context->receiver);
     subghz_devices_deinit();

@@ -64,6 +64,9 @@ typedef struct {
     uint32_t max_station;
     uint32_t max_pager;
     char text_store[6][36];
+    // Writable header buffer for the set_* int_input scenes (they used to snprintf
+    // into a string literal, which overflows and corrupts .rodata for large values).
+    char header[40];
 } Meal_Pager;
 
 typedef enum {

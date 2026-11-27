@@ -729,7 +729,8 @@ static bool combo_view_cracker_input_callback(InputEvent* event, void* context) 
                     if(model->selected == 0 && model->first_lock_index < 39) {
                         model->first_lock_index++;
                     }
-                    if(model->selected == 1 && model->first_lock_index < 39) {
+                    // Fix copy-paste bug: bound by second_lock_index, not first_lock_index
+                    if(model->selected == 1 && model->second_lock_index < 39) {
                         model->second_lock_index++;
                     }
                     if(model->selected == 2 && model->resistance_index < 79) {
