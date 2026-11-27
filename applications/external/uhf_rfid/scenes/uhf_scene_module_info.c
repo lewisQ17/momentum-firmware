@@ -1,6 +1,6 @@
 #include "../uhf_app_i.h"
 
-FuriString* temp_str;
+FuriString* temp_str = NULL;
 
 void uhf_scene_module_info_callback_event(UHFWorkerEvent event, void* ctx) {
     UNUSED(ctx);
@@ -24,7 +24,7 @@ void uhf_scene_module_info_on_enter(void* ctx) {
     uhf_app->device_verified = false; // reset device verified
     uhf_worker_start(
         uhf_app->worker, UHFWorkerStateVerify, uhf_scene_module_info_callback_event, uhf_app);
-    temp_str = furi_string_alloc();
+    if(temp_str == NULL) temp_str = furi_string_alloc();
     view_dispatcher_switch_to_view(uhf_app->view_dispatcher, UHFViewWidget);
 }
 
@@ -138,8 +138,11 @@ bool uhf_scene_module_info_on_event(void* ctx, SceneManagerEvent event) {
 
 void uhf_scene_module_info_on_exit(void* ctx) {
     UHFApp* uhf_app = ctx;
-    // Clear string
-    furi_string_free(temp_str);
+    // Clear string (idempotent: on_exit can run from both back and scene_manager_stop)
+    if(temp_str != NULL) {
+        furi_string_free(temp_str);
+        temp_str = NULL;
+    }
     // Stop worker
     uhf_worker_stop(uhf_app->worker);
     // clear widget

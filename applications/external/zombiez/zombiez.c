@@ -285,6 +285,18 @@ static void timer_callback(void* ctx) {
     furi_message_queue_put(event_queue, &event, 0);
 }
 
+// Loader close sends FuriSignalExit; without a handler the app stays up and its heap is never released
+static bool zombiez_signal_callback(uint32_t signal, void* arg, void* ctx) {
+    UNUSED(arg);
+    if(signal != FuriSignalExit) return false;
+    FuriMessageQueue* event_queue = ctx;
+    // same event as a long Back press, so the normal exit path runs
+    PluginEvent event = {
+        .type = EventTypeKey, .input = {.key = InputKeyBack, .type = InputTypeLong}};
+    furi_message_queue_put(event_queue, &event, 0);
+    return true;
+}
+
 // Free the zombies and projectiles still alive (call before re-init and before free(plugin_state))
 static void zombiez_free_entities(PluginState* const plugin_state) {
     for(int i = 0; i < PROJECTILES_MAX; i++) {
@@ -341,6 +353,9 @@ int32_t zombiez_game_app(void* p) {
 
     FuriTimer* timer = furi_timer_alloc(timer_callback, FuriTimerTypePeriodic, event_queue);
     furi_timer_start(timer, furi_kernel_get_tick_frequency() / 22);
+
+    furi_thread_set_signal_callback(
+        furi_thread_get_current(), zombiez_signal_callback, event_queue);
 
     // Open GUI and register view_port
     Gui* gui = furi_record_open(RECORD_GUI);
@@ -420,6 +435,8 @@ int32_t zombiez_game_app(void* p) {
         view_port_update(view_port);
     }
 
+    // detach before the queue is freed so a late signal cannot touch it
+    furi_thread_set_signal_callback(furi_thread_get_current(), NULL, NULL);
     furi_timer_free(timer);
     view_port_enabled_set(view_port, false);
     gui_remove_view_port(gui, view_port);

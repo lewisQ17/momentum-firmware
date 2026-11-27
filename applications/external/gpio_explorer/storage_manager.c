@@ -79,5 +79,9 @@ uint8_t configuration_file_write(struct gpio_explorer_configure_struct* configur
 }
 
 void free_storage_manager(){
-    furi_record_close(RECORD_STORAGE);
+    // idempotent: only close the record we opened in configuration_file_init
+    if(storage) {
+        furi_record_close(RECORD_STORAGE);
+        storage = NULL;
+    }
 }

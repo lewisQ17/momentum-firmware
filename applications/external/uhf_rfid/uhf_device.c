@@ -9,7 +9,8 @@ static const char* uhf_file_header = "Flipper UHF RFID device";
 static const uint32_t uhf_file_version = 1;
 
 UHFDevice* uhf_device_alloc() {
-    UHFDevice* uhf_device = malloc(sizeof(UHFDevice));
+    // calloc: loading_cb/uhf_tag_wrapper/dev_name are tested before ever being set
+    UHFDevice* uhf_device = calloc(1, sizeof(UHFDevice));
     uhf_device->storage = furi_record_open(RECORD_STORAGE);
     uhf_device->dialogs = furi_record_open(RECORD_DIALOGS);
     uhf_device->load_path = furi_string_alloc();

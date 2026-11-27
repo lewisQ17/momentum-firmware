@@ -34,6 +34,8 @@ void flipboard_keyboard_free(FlipboardKeyboard* keyboard) {
  * @param keyboard The keyboard to attach.
  */
 void flipboard_keyboard_attach(FlipboardKeyboard* keyboard) {
+    // leak guard: a second attach must not orphan the first HID instance (USB config / BLE profile)
+    flipboard_keyboard_detatch(keyboard);
     keyboard->interface = FlipboardKeyboardInterfaceUnknown;
     keyboard->use_ble = false;
     keyboard->hid = bad_usb_hid_get_interface(BadUsbHidInterfaceUsb);

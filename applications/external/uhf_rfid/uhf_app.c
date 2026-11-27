@@ -40,7 +40,8 @@ void uhf_tick_event_callback(void* ctx) {
 }
 
 UHFApp* uhf_alloc() {
-    UHFApp* uhf_app = (UHFApp*)malloc(sizeof(UHFApp));
+    // calloc: no field may hold garbage (also keeps uhf_free guards valid on partial setups)
+    UHFApp* uhf_app = (UHFApp*)calloc(1, sizeof(UHFApp));
     uhf_app->view_dispatcher = view_dispatcher_alloc();
     uhf_app->scene_manager = scene_manager_alloc(&uhf_scene_handlers, uhf_app);
     view_dispatcher_set_event_callback_context(uhf_app->view_dispatcher, uhf_app);
@@ -54,9 +55,6 @@ UHFApp* uhf_alloc() {
     uhf_app->gui = furi_record_open(RECORD_GUI);
     view_dispatcher_attach_to_gui(
         uhf_app->view_dispatcher, uhf_app->gui, ViewDispatcherTypeFullscreen);
-
-    // Variable Item List
-    uhf_app->variable_item_list = variable_item_list_alloc();
 
     //worker
     uhf_app->worker = uhf_worker_alloc();
@@ -135,11 +133,12 @@ void uhf_free(UHFApp* uhf_app) {
     view_dispatcher_remove_view(uhf_app->view_dispatcher, UHFViewVariableItemList);
     variable_item_list_free(uhf_app->variable_item_list);
 
+    // Worker: stop first, it still uses the tag wrapper
+    uhf_worker_stop(uhf_app->worker);
+
     // Tag
     uhf_tag_wrapper_free(uhf_app->worker->uhf_tag_wrapper);
 
-    // Worker
-    uhf_worker_stop(uhf_app->worker);
     uhf_worker_free(uhf_app->worker);
 
     // Device

@@ -105,6 +105,12 @@ void app_menu_free(AppMenu* menu) {
     ViewIdsArray_clear(menu->view_ids);
     view_dispatcher_remove_view(menu->view_dispatcher, FLIPBOARD_APP_MENU_VIEW_ID);
 
+    // closed within the 3 s splash: the popup view is still registered (view_dispatcher_free would crash)
+    if(menu->popup_view_added) {
+        menu->popup_view_added = false;
+        view_dispatcher_remove_view(menu->view_dispatcher, 42042);
+    }
+
     if(menu->submenu) {
         submenu_free(menu->submenu);
     }
@@ -152,7 +158,10 @@ void app_menu_set_callback(AppMenu* menu, AppMenuCallback callback, void* contex
 static void app_menu_popup_done(void* context) {
     AppMenu* menu = (AppMenu*)context;
     view_dispatcher_switch_to_view(menu->view_dispatcher, FLIPBOARD_APP_MENU_VIEW_ID);
-    view_dispatcher_remove_view(menu->view_dispatcher, 42042);
+    if(menu->popup_view_added) {
+        menu->popup_view_added = false;
+        view_dispatcher_remove_view(menu->view_dispatcher, 42042);
+    }
 }
 
 /**
@@ -171,6 +180,7 @@ void app_menu_show(AppMenu* menu) {
     popup_set_context(menu->popup, menu);
     popup_set_callback(menu->popup, app_menu_popup_done);
     view_dispatcher_add_view(menu->view_dispatcher, 42042, popup_get_view(menu->popup));
+    menu->popup_view_added = true;
     view_dispatcher_switch_to_view(menu->view_dispatcher, 42042);
     if(menu->callback) {
         menu->callback(menu->callback_context);

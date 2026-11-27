@@ -247,6 +247,9 @@ void uart_helper_send_string(UartHelper* helper, FuriString* string) {
 }
 
 void uart_helper_free(UartHelper* helper) {
+    // Stop RX first: the callback dereferences the worker thread and stream we free below
+    furi_hal_serial_async_rx_stop(helper->serial_handle);
+
     // Signal that we want the worker to exit.  It may be doing other work.
     furi_thread_flags_set(furi_thread_get_id(helper->worker_thread), WorkerEventExiting);
 

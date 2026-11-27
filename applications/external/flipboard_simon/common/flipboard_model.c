@@ -41,22 +41,27 @@ void flipboard_model_free(FlipboardModel* model) {
 
     if(model->speaker) {
         speaker_free(model->speaker);
+        model->speaker = NULL;
     }
 
     if(model->backlight) {
         backlight_free(model->backlight);
+        model->backlight = NULL;
     }
 
     if(model->button_monitor) {
         button_monitor_free(model->button_monitor);
+        model->button_monitor = NULL;
     }
 
     if(model->keyboard) {
         flipboard_keyboard_free(model->keyboard);
+        model->keyboard = NULL;
     }
 
     if(model->leds) {
         flipboard_leds_free(model->leds);
+        model->leds = NULL;
     }
 
     if(model->gui_refresh_timer) {

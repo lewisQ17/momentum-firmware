@@ -15,6 +15,7 @@ struct AppMenu {
     ViewDispatcher* view_dispatcher;
     Submenu* submenu;
     Popup* popup;
+    bool popup_view_added; // splash popup view is registered with the dispatcher
     ViewIdsArray_t view_ids; // List of view ids for each menu item
     AppMenuCallback callback;
     void* callback_context;

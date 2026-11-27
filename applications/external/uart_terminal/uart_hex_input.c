@@ -397,7 +397,8 @@ UART_TextInput* uart_hex_input_alloc() {
         { model->validator_text = furi_string_alloc(); },
         false);
 
-    uart_text_input_reset(uart_text_input);
+    // own reset (was the text-input one, same layout by luck)
+    uart_hex_input_reset(uart_text_input);
 
     return uart_text_input;
 }

@@ -81,6 +81,20 @@ void flip_library_app_free(FlipLibraryApp *app)
         text_input_free(app->uart_text_input_query);
     }
 
+    // free the text buffers (after the text inputs that point at the temp ones are gone)
+    free(app->uart_text_input_buffer_ssid);
+    app->uart_text_input_buffer_ssid = NULL;
+    free(app->uart_text_input_temp_buffer_ssid);
+    app->uart_text_input_temp_buffer_ssid = NULL;
+    free(app->uart_text_input_buffer_password);
+    app->uart_text_input_buffer_password = NULL;
+    free(app->uart_text_input_temp_buffer_password);
+    app->uart_text_input_temp_buffer_password = NULL;
+    free(app->uart_text_input_buffer_query);
+    app->uart_text_input_buffer_query = NULL;
+    free(app->uart_text_input_temp_buffer_query);
+    app->uart_text_input_temp_buffer_query = NULL;
+
     // deinitalize flipper http
     flipper_http_deinit();
 
@@ -93,10 +107,9 @@ void flip_library_app_free(FlipLibraryApp *app)
     // close the gui
     furi_record_close(RECORD_GUI);
 
-    if (app_instance)
+    // app_instance aliases app: clear it, never free it twice
+    if (app_instance == app)
     {
-        // free the app instance
-        free(app_instance);
         app_instance = NULL;
     }
     // free the app

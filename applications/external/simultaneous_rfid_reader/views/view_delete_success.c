@@ -157,5 +157,9 @@ void view_delete_success_alloc(UHFReaderApp* App) {
 */
 void view_delete_success_free(UHFReaderApp* App) {
     view_dispatcher_remove_view(App->ViewDispatcher, UHFReaderViewDeleteSuccess);
+    // view_free() only frees the model struct: release its FuriStrings
+    UHFReaderDeleteModel* Model = view_get_model(App->ViewDeleteSuccess);
+    UHF_STR_FREE(Model->SelectedTagName);
+    UHF_STR_FREE(Model->SelectedTagEpc);
     view_free(App->ViewDeleteSuccess);
 }

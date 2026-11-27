@@ -69,6 +69,8 @@ void uhf_uart_free(UHFUart* uart){
     // furi_thread_join(uart->thread);
     // furi_thread_free(uart->thread);
     // furi_stream_buffer_free(uart->rx_buff_stream);
+    // Stop RX first: the ISR callback uses uart->buffer, freed on the next line
+    furi_hal_serial_async_rx_stop(uart->handle);
     uhf_buffer_free(uart->buffer);
     if(uart->init_by_app){
         furi_hal_serial_deinit(uart->handle);

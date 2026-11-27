@@ -98,7 +98,12 @@ bool flipboard_model_load(FlipboardModel* model) {
         FLIPBOARD_SAVE_EXTENSION);
     FlipperFormat* format = flipper_format_file_alloc(storage);
 
+    // idempotent: release models of an earlier load instead of dropping their pointers
     for(size_t i = 0; i < 16; i++) {
+        ActionModel* previous = flipboard_model_get_action_model(model, i);
+        if(previous) {
+            action_model_free(previous);
+        }
         flipboard_model_set_action_model(model, i, NULL);
     }
 

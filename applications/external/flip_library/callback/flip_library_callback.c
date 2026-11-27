@@ -1471,6 +1471,9 @@ void flip_library_loader_free_model(View *view)
                 free(model->parser_context);
                 model->parser_context = NULL;
             }
+            // result parsed but never shown (Back pressed mid-flight)
+            free(model->fact_text);
+            model->fact_text = NULL;
         },
         false);
 }
@@ -1782,6 +1785,7 @@ void flip_library_generic_switch_to_view(FlipLibraryApp *app, char *title, FactL
             model->request_count = request_count;
             model->back_callback = back;
             model->fact_state = FactStateInitial;
+            free(model->fact_text); // leftover result from an earlier run (if any)
             model->fact_text = NULL;
         },
         true);

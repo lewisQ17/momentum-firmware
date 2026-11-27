@@ -590,6 +590,9 @@ ActionConfig* action_config_alloc(
     }
     submenu_set_header(action_config->menu_actions, "Configure Action");
 
+    // leak fix: the label scratch string (FuriString + its buffer) was never released
+    furi_string_free(action_name);
+
     return action_config;
 }
 

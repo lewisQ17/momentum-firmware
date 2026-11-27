@@ -460,9 +460,13 @@ int32_t flipboard_blinky_app(void* _p) {
     // loader/RPC close leaves the primary view current: leave it now so its exit callback runs while model, fbm and view are alive
     view_dispatcher_switch_to_view(flipboard_get_view_dispatcher(app), VIEW_NONE);
 
-    app_settings_free(settings);
+    // unregister + save settings while the dispatcher lives; the config list view is freed after
+    // flipboard_free() removed it (it used to be freed first, leaving a dangling registered view)
+    app_settings_detach(settings);
     flipboard_blinky_model_free(fbm);
+    flipboard_model_set_custom_data(model, NULL);
     flipboard_free(app);
+    app_settings_free(settings);
 
     return 0;
 }

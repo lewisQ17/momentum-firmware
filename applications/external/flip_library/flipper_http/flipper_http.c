@@ -510,6 +510,7 @@ void flipper_http_deinit()
         fhttp.last_response = NULL;
     }
 
+    fhttp.serial_handle = NULL; // idempotent: a second deinit hits the NULL guard above
     // FURI_LOG_I("FlipperHTTP", "UART deinitialized successfully.");
 }
 

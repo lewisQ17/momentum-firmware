@@ -34,8 +34,8 @@ void uhf_reader_fetch_selected_tag(void* context) {
         } else {
             //Grab the saved uhf tag info from the saved epcs file
             const char* InputString = furi_string_get_cstr(TempTag);
-            furi_string_set(App->EpcToWrite, extract_epc(InputString));
-            furi_string_set(App->EpcName, extract_name(InputString));
+            uhf_set_str_take(App->EpcToWrite, extract_epc(InputString));
+            uhf_set_str_take(App->EpcName, extract_name(InputString));
 
             //Set the write model uhf tag values accordingly
             bool redraw = true;
@@ -43,12 +43,12 @@ void uhf_reader_fetch_selected_tag(void* context) {
                 App->ViewWrite,
                 UHFReaderWriteModel * Model,
                 {
-                    furi_string_set(Model->EpcValue, extract_epc(InputString));
-                    furi_string_set(Model->TidValue, extract_tid(InputString));
-                    furi_string_set(Model->ResValue, extract_res(InputString));
-                    furi_string_set(Model->MemValue, extract_mem(InputString));
-                    furi_string_set(Model->Pc, extract_pc(InputString));
-                    furi_string_set(Model->Crc, extract_crc(InputString));
+                    uhf_set_str_take(Model->EpcValue, extract_epc(InputString));
+                    uhf_set_str_take(Model->TidValue, extract_tid(InputString));
+                    uhf_set_str_take(Model->ResValue, extract_res(InputString));
+                    uhf_set_str_take(Model->MemValue, extract_mem(InputString));
+                    uhf_set_str_take(Model->Pc, extract_pc(InputString));
+                    uhf_set_str_take(Model->Crc, extract_crc(InputString));
                 },
                 redraw);
             //Close the file

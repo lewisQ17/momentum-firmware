@@ -283,5 +283,13 @@ void view_epc_alloc(UHFReaderApp* App) {
 */
 void view_epc_free(UHFReaderApp* App) {
     view_dispatcher_remove_view(App->ViewDispatcher, UHFReaderViewEpcDump);
+    // view_free() only frees the model struct: release its FuriStrings
+    UHFRFIDTagModel* Model = view_get_model(App->ViewEpc);
+    UHF_STR_FREE(Model->User);
+    UHF_STR_FREE(Model->Epc);
+    UHF_STR_FREE(Model->Tid);
+    UHF_STR_FREE(Model->Reserved);
+    UHF_STR_FREE(Model->Crc);
+    UHF_STR_FREE(Model->Pc);
     view_free(App->ViewEpc);
 }

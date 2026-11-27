@@ -139,10 +139,13 @@ void uhf_reader_view_delete_enter_callback(void* context) {
             const char* InputString = furi_string_get_cstr(TempTag);
             char* ExtractedEpc = extract_epc(InputString);
             char* ExtractedName = extract_name(InputString);
-            furi_string_set_str(TempEpcName, ExtractedName);
-            furi_string_set_str(TempEpcStr, ExtractedEpc);
-            App->EpcDelete = TempEpcStr;
-            App->EpcNameDelete = TempEpcName;
+            uhf_set_str_nonnull(TempEpcName, ExtractedName);
+            uhf_set_str_nonnull(TempEpcStr, ExtractedEpc);
+            free(ExtractedName);
+            free(ExtractedEpc);
+            // Copy, don't alias: the temps are freed below and the App strings are freed at exit
+            furi_string_set(App->EpcDelete, TempEpcStr);
+            furi_string_set(App->EpcNameDelete, TempEpcName);
             
             //Set the view models for both this view and the delete success view
             bool Redraw = true;
@@ -221,5 +224,9 @@ void view_delete_alloc(UHFReaderApp* App) {
 */
 void view_delete_free(UHFReaderApp* App) {
     view_dispatcher_remove_view(App->ViewDispatcher, UHFReaderViewDelete);
+    // view_free() only frees the model struct: release its FuriStrings
+    UHFReaderDeleteModel* Model = view_get_model(App->ViewDelete);
+    UHF_STR_FREE(Model->SelectedTagName);
+    UHF_STR_FREE(Model->SelectedTagEpc);
     view_free(App->ViewDelete);
 }

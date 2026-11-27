@@ -68,6 +68,7 @@ void view_saved_menu_alloc(UHFReaderApp* App){
 
     //Close the index file
     flipper_format_file_close(App->EpcIndexFile);
+    furi_string_free(ExtractedNumTagsStr); // was never freed
     
     //Open the saved EPCs file
     if(!flipper_format_file_open_existing(App->EpcFile, APP_DATA_PATH("Saved_EPCs.txt"))) {

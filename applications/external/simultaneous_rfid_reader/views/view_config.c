@@ -492,50 +492,49 @@ void uhf_reader_module_setting_change(VariableItem* Item) {
     variable_item_set_current_value_text(Item, App->SettingModuleNames[Index]);
 
     if(Index == 1) {
-        //Mark the YRM100X as being used
-        App->UHFModuleType = YRM100X_MODULE;
+        // Re-selecting YRM100 must not allocate a second worker or free the helper twice
+        if(App->UHFModuleType != YRM100X_MODULE) {
+            //Mark the YRM100X as being used
+            App->UHFModuleType = YRM100X_MODULE;
 
-        //Free regular uart worker
-        uart_helper_free(App->UartHelper);
+            //Free regular uart worker
+            if(App->UartHelper != NULL) {
+                uart_helper_free(App->UartHelper);
+                App->UartHelper = NULL;
+            }
 
-        //Create a UART worker for the YRM100X module
-        App->YRM100XWorker = uhf_worker_alloc();
-        UHFTagWrapper* WorkerTagWrapper = uhf_tag_wrapper_alloc();
-        App->YRM100XWorker->uhf_tag_wrapper = WorkerTagWrapper;
-        m100_disable_write_mask(App->YRM100XWorker->module, WRITE_EPC);
-
-    } else if(Index == 2) {
-        //Freeing the YRM100X uart helper
-        if(App->UHFModuleType == YRM100X_MODULE) {
-            //Free Tag Wrapper
-            uhf_tag_wrapper_free(App->YRM100XWorker->uhf_tag_wrapper);
-
-            //Freeing yrm100x worker
-            uhf_worker_stop(App->YRM100XWorker);
-            uhf_worker_free(App->YRM100XWorker);
+            //Create a UART worker for the YRM100X module
+            App->YRM100XWorker = uhf_worker_alloc();
+            UHFTagWrapper* WorkerTagWrapper = uhf_tag_wrapper_alloc();
+            App->YRM100XWorker->uhf_tag_wrapper = WorkerTagWrapper;
+            m100_disable_write_mask(App->YRM100XWorker->module, WRITE_EPC);
         }
-        //Mark the M7E as being used
-        App->UartHelper = uart_helper_alloc();
-        uart_helper_set_delimiter(App->UartHelper, LINE_DELIMITER, INCLUDE_LINE_DELIMITER);
-        uart_helper_set_callback(App->UartHelper, uart_demo_process_line, App);
-        App->UHFModuleType = M7E_HECTO_MODULE;
     } else {
-        //Freeing the YRM100X uart helper
+        //Freeing the YRM100X worker (M6E/M7E share the same UartHelper, so M6E<->M7E needs no realloc)
         if(App->UHFModuleType == YRM100X_MODULE) {
-            //Free Tag Wrapper
-            uhf_tag_wrapper_free(App->YRM100XWorker->uhf_tag_wrapper);
-
-            //Freeing yrm100x worker
-            uhf_worker_stop(App->YRM100XWorker);
-            uhf_worker_free(App->YRM100XWorker);
+            uhf_reader_yrm_worker_free(App);
         }
-
-        //Mark the M6E as being used
-        App->UartHelper = uart_helper_alloc();
-        uart_helper_set_delimiter(App->UartHelper, LINE_DELIMITER, INCLUDE_LINE_DELIMITER);
-        uart_helper_set_callback(App->UartHelper, uart_demo_process_line, App);
-        App->UHFModuleType = M6E_NANO_MODULE;
+        if(App->UartHelper == NULL) {
+            App->UartHelper = uart_helper_alloc();
+            uart_helper_set_delimiter(App->UartHelper, LINE_DELIMITER, INCLUDE_LINE_DELIMITER);
+            uart_helper_set_callback(App->UartHelper, uart_demo_process_line, App);
+        }
+        App->UHFModuleType = (Index == 2) ? M7E_HECTO_MODULE : M6E_NANO_MODULE;
     }
+}
+
+/**
+ * @brief      Stops and frees the YRM100X worker and its tag wrapper.
+ * @details    Idempotent: safe from both the module switch and the app exit path.
+ * @param      App  The UHFReaderApp.
+*/
+void uhf_reader_yrm_worker_free(UHFReaderApp* App) {
+    if(App->YRM100XWorker == NULL) return;
+    //Stop first: the worker thread still uses the tag wrapper
+    uhf_worker_stop(App->YRM100XWorker);
+    uhf_tag_wrapper_free(App->YRM100XWorker->uhf_tag_wrapper);
+    uhf_worker_free(App->YRM100XWorker);
+    App->YRM100XWorker = NULL;
 }
 /**
  * @brief      Handles the App save settings
@@ -767,4 +766,7 @@ void view_config_free(UHFReaderApp* App) {
     free(App->item_locks);
     view_dispatcher_remove_view(App->ViewDispatcher, UHFReaderViewConfigure);
     variable_item_list_free(App->VariableItemListConfig);
+    // Read/write models only alias these two, and their views are freed before this point
+    UHF_STR_FREE(App->Setting2PowerStr);
+    UHF_STR_FREE(App->DefaultAccessPwdStr);
 }

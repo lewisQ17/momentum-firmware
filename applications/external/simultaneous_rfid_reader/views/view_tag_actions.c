@@ -59,6 +59,11 @@ void uhf_reader_rename_text_updated(void* context) {
 
             
             free(ExtractedEpc);
+            free(ExtractedTid);
+            free(ExtractedRes);
+            free(ExtractedMem);
+            free(ExtractedCrc);
+            free(ExtractedPc);
         }
     }
 

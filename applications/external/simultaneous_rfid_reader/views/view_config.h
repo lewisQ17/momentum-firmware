@@ -25,6 +25,8 @@ void view_config_alloc(UHFReaderApp* App);
 
 void view_config_free(UHFReaderApp* App);
 
+void uhf_reader_yrm_worker_free(UHFReaderApp* App);
+
 void power_menu_alloc(UHFReaderApp* App);
 
 void ap_menu_alloc(UHFReaderApp* App);

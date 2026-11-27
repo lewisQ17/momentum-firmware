@@ -18,6 +18,8 @@ struct AppSettings {
     VariableItemList* list;
     TextInput* text_input;
     char buffer[65];
+    char header[13]; // text_input keeps the pointer, so it must outlive the call
+    bool views_removed;
 };
 
 static char* display_source_values[] = {
@@ -68,10 +70,10 @@ static void app_settings_item_clicked(void* context, uint32_t index) {
     }
     index -= 2;
 
-    char* header = "Enter Line x";
-    header[11] = '1' + index;
-    text_input_set_header_text(settings->text_input, header);
-    text_input_get_view(settings->text_input);
+    // was a write into a string literal; use the per-settings buffer
+    strcpy(settings->header, "Enter Line x");
+    settings->header[11] = '1' + index;
+    text_input_set_header_text(settings->text_input, settings->header);
     settings->buffer[0] = index;
     strncpy(settings->buffer + 1, settings->fbm->render_model.line[index], 64);
 
@@ -154,12 +156,27 @@ AppSettings* app_settings_alloc(Flipboard* app) {
     return settings;
 }
 
-void app_settings_free(AppSettings* settings) {
+/**
+ * @brief Saves the settings and unregisters the text input view (needs the live dispatcher).
+ * @details The list view is the config view: flipboard_free() removes it from the dispatcher,
+ * so the list itself may only be freed afterwards (app_settings_free).  Idempotent.
+ */
+void app_settings_detach(AppSettings* settings) {
+    if(settings->views_removed) {
+        return;
+    }
+    settings->views_removed = true;
     app_settings_save(settings);
-    variable_item_list_free(settings->list);
     ViewDispatcher* vd = flipboard_get_view_dispatcher(settings->app);
     view_dispatcher_remove_view(vd, 5555);
     text_input_free(settings->text_input);
+    settings->text_input = NULL;
+}
+
+void app_settings_free(AppSettings* settings) {
+    app_settings_detach(settings);
+    // freed last: flipboard_free() removed this view from the dispatcher by pointer
+    variable_item_list_free(settings->list);
     free(settings);
 }
 

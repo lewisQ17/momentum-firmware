@@ -29,9 +29,25 @@
 #define UHF_RES_AT(App, idx) UHF_TABLE_AT((App)->ResValues, 17, 50 * 17, idx)
 #define UHF_MEM_AT(App, idx) UHF_TABLE_AT((App)->MemValues, 33, 50 * 33, idx)
 
+// Idempotent FuriString release: NULL-guarded and clears the pointer so a second call is a no-op
+#define UHF_STR_FREE(s) \
+    do { \
+        if((s) != NULL) { \
+            furi_string_free(s); \
+            (s) = NULL; \
+        } \
+    } while(0)
+
 // furi_string_set_str() crashes on NULL (empty table slot): keep the old text instead
 static inline void uhf_set_str_nonnull(FuriString* str, const char* value) {
     if(value != NULL) furi_string_set_str(str, value);
+}
+// Copies a malloc'd extract_*() result into a FuriString and frees it (NULL keeps the old text)
+static inline void uhf_set_str_take(FuriString* str, char* value) {
+    if(value != NULL) {
+        furi_string_set_str(str, value);
+        free(value);
+    }
 }
 #include <stdio.h>
 #include <stdlib.h>

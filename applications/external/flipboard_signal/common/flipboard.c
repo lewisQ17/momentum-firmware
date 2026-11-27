@@ -94,15 +94,37 @@ Flipboard* flipboard_alloc(
  * @param app The Flipboard application to free.
 */
 void flipboard_free(Flipboard* app) {
-    flipboard_model_free(app->model);
+    // a loader/RPC close leaves the primary view current: leave it here, outside the gui lock,
+    // so its exit callback (button monitor join, HID detach) runs while the model is still alive
+    view_dispatcher_switch_to_view(app->view_dispatcher, VIEW_NONE);
 
-    view_free(app->view_primary);
+    // remove all views before the model goes away (idempotent: guarded + NULLed)
+    if(app->app_menu) {
+        app_menu_free(app->app_menu);
+        app->app_menu = NULL;
+    }
+
+    if(app->view_primary) {
+        view_free(app->view_primary);
+        app->view_primary = NULL;
+    }
     if(app->action_config) {
         action_config_free(app->action_config);
+        app->action_config = NULL;
     }
-    widget_free(app->widget_about);
-    widget_free(app->widget_qr);
-    app_menu_free(app->app_menu);
+    if(app->widget_about) {
+        widget_free(app->widget_about);
+        app->widget_about = NULL;
+    }
+    if(app->widget_qr) {
+        widget_free(app->widget_qr);
+        app->widget_qr = NULL;
+    }
+
+    if(app->model) {
+        flipboard_model_free(app->model);
+        app->model = NULL;
+    }
 
     view_dispatcher_free(app->view_dispatcher);
     furi_record_close(RECORD_GUI);

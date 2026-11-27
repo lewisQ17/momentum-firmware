@@ -185,10 +185,10 @@ void uhf_reader_view_epc_info_enter_callback(void* context) {
                 App->ViewEpcInfo,
                 UHFRFIDTagModel * model,
                 {
-                    furi_string_set(model->Epc, extract_epc(InputString));
-                    furi_string_set(model->Tid, extract_tid(InputString));
-                    furi_string_set(model->Reserved, extract_res(InputString));
-                    furi_string_set(model->User, extract_mem(InputString));
+                    uhf_set_str_take(model->Epc, extract_epc(InputString));
+                    uhf_set_str_take(model->Tid, extract_tid(InputString));
+                    uhf_set_str_take(model->Reserved, extract_res(InputString));
+                    uhf_set_str_take(model->User, extract_mem(InputString));
                 },
                 Redraw);
             //Close the file
@@ -268,5 +268,11 @@ void view_epc_info_alloc(UHFReaderApp* App) {
 */
 void view_epc_info_free(UHFReaderApp* App) {
     view_dispatcher_remove_view(App->ViewDispatcher, UHFReaderViewEpcInfo);
+    // view_free() only frees the model struct: release its FuriStrings
+    UHFRFIDTagModel* Model = view_get_model(App->ViewEpcInfo);
+    UHF_STR_FREE(Model->User);
+    UHF_STR_FREE(Model->Epc);
+    UHF_STR_FREE(Model->Tid);
+    UHF_STR_FREE(Model->Reserved);
     view_free(App->ViewEpcInfo);
 }

@@ -703,6 +703,9 @@ void flip_trader_loader_free_model(View *view)
                 free(model->parser_context);
                 model->parser_context = NULL;
             }
+            // result parsed but never shown (Back pressed mid-flight)
+            free(model->asset_text);
+            model->asset_text = NULL;
         },
         false);
 }
@@ -755,6 +758,7 @@ void flip_trader_generic_switch_to_view(FlipTraderApp *app, char *title, AssetLo
             model->request_count = request_count;
             model->back_callback = back;
             model->asset_state = AssetStateInitial;
+            free(model->asset_text); // leftover result from an earlier run (if any)
             model->asset_text = NULL;
         },
         true);

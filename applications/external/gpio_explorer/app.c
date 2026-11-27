@@ -249,6 +249,8 @@ static void gpio_explorer_release_pins(struct gpio_explorer_app_struct * app) {
 
 static void gpio_explorer_app_free(struct gpio_explorer_app_struct * app) {
     gpio_explorer_release_pins(app);
+    // a timer still running here would fire into freed memory and leak its handle
+    gpio_explorer_view_gpio_reader_exit_callback(app);
 #ifdef BACKLIGHT_ON
     notification_message(app->notifications, &sequence_display_backlight_enforce_auto);
 #endif
@@ -614,7 +616,8 @@ static void gpio_explorer_view_gpio_reader_timer_callback(void* context) {
 static void gpio_explorer_view_gpio_reader_enter_callback(void* context) {
     uint32_t period = furi_ms_to_ticks(200);
     struct gpio_explorer_app_struct * app = context;
-    furi_assert(app->timer == NULL);
+    // never overwrite a live timer handle (would leak it)
+    if(app->timer) return;
     app->timer = furi_timer_alloc(
         gpio_explorer_view_gpio_reader_timer_callback, FuriTimerTypePeriodic, context);
     furi_timer_start(app->timer, period);
@@ -622,9 +625,12 @@ static void gpio_explorer_view_gpio_reader_enter_callback(void* context) {
 
 static void gpio_explorer_view_gpio_reader_exit_callback(void* context) {
     struct gpio_explorer_app_struct * app = context;
-    furi_timer_stop(app->timer);
-    furi_timer_free(app->timer);
-    app->timer = NULL;
+    // guarded: exit runs from Back, from remove_view on loader close, and from app_free
+    if(app->timer) {
+        furi_timer_stop(app->timer);
+        furi_timer_free(app->timer);
+        app->timer = NULL;
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

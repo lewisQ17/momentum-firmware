@@ -134,13 +134,27 @@ void flip_trader_app_free(FlipTraderApp *app)
         text_input_free(app->uart_text_input_password);
     }
 
+    // free the text buffers (after the text inputs that point at the temp ones are gone)
+    free(app->uart_text_input_buffer_ssid);
+    app->uart_text_input_buffer_ssid = NULL;
+    free(app->uart_text_input_temp_buffer_ssid);
+    app->uart_text_input_temp_buffer_ssid = NULL;
+    free(app->uart_text_input_buffer_password);
+    app->uart_text_input_buffer_password = NULL;
+    free(app->uart_text_input_temp_buffer_password);
+    app->uart_text_input_temp_buffer_password = NULL;
+
     asset_names_free(asset_names);
+    asset_names = NULL; // idempotent: a second free is a no-op
 
     // deinitalize flipper http
     flipper_http_deinit();
 
-    // free the view dispatcher
-    view_dispatcher_free(app->view_dispatcher);
+    // free the view dispatcher (NULL on a partial alloc)
+    if (app->view_dispatcher)
+    {
+        view_dispatcher_free(app->view_dispatcher);
+    }
 
     // close the gui
     furi_record_close(RECORD_GUI);

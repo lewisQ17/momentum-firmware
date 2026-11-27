@@ -68,8 +68,8 @@ void uhf_reader_view_write_enter_callback(void* context) {
         } else {
             //Grab the saved uhf tag info from the saved epcs file
             const char* InputString = furi_string_get_cstr(TempTag);
-            furi_string_set(App->EpcToWrite, extract_epc(InputString));
-            furi_string_set(App->EpcName, extract_name(InputString));
+            uhf_set_str_take(App->EpcToWrite, extract_epc(InputString));
+            uhf_set_str_take(App->EpcName, extract_name(InputString));
             
             //Set the write model uhf tag values accordingly
             bool redraw = true;
@@ -77,12 +77,12 @@ void uhf_reader_view_write_enter_callback(void* context) {
                 App->ViewWrite,
                 UHFReaderWriteModel * Model,
                 {
-                    furi_string_set(Model->EpcValue, extract_epc(InputString));
-                    furi_string_set(Model->TidValue, extract_tid(InputString));
-                    furi_string_set(Model->ResValue, extract_res(InputString));
-                    furi_string_set(Model->MemValue, extract_mem(InputString));
-                    furi_string_set(Model->Pc, extract_pc(InputString));
-                    furi_string_set(Model->Crc, extract_crc(InputString));
+                    uhf_set_str_take(Model->EpcValue, extract_epc(InputString));
+                    uhf_set_str_take(Model->TidValue, extract_tid(InputString));
+                    uhf_set_str_take(Model->ResValue, extract_res(InputString));
+                    uhf_set_str_take(Model->MemValue, extract_mem(InputString));
+                    uhf_set_str_take(Model->Pc, extract_pc(InputString));
+                    uhf_set_str_take(Model->Crc, extract_crc(InputString));
                 },
                 redraw);
             //Close the file
@@ -692,8 +692,6 @@ void view_write_alloc(UHFReaderApp* App) {
     ModelWrite->Setting3Value = furi_string_alloc_set(App->Setting3Names[App->Setting3Index]);
     ModelWrite->Pc = furi_string_alloc_set("XXXX");
     ModelWrite->Crc = furi_string_alloc_set("XXXX");
-    FuriString* EpcWriteDefault = furi_string_alloc();
-    furi_string_set_str(EpcWriteDefault, "Press Write");
     FuriString* EpcValueWriteDefault = furi_string_alloc();
     furi_string_set_str(EpcValueWriteDefault, "Press Write");
     ModelWrite->EpcValue = EpcValueWriteDefault;
@@ -747,5 +745,23 @@ void view_write_free(UHFReaderApp* App) {
     view_dispatcher_remove_view(App->ViewDispatcher, UHFReaderViewEpcWriteInput);
     text_input_free(App->EpcWrite);
     view_dispatcher_remove_view(App->ViewDispatcher, UHFReaderViewWrite);
+    // view_free() only frees the model struct: release its FuriStrings (Setting2Power is App-owned)
+    UHFReaderWriteModel* Model = view_get_model(App->ViewWrite);
+    UHF_STR_FREE(Model->SettingKillPwd);
+    UHF_STR_FREE(Model->EpcName);
+    UHF_STR_FREE(Model->WriteFunction);
+    UHF_STR_FREE(Model->EpcValue);
+    UHF_STR_FREE(Model->WriteStatus);
+    UHF_STR_FREE(Model->NewEpcValue);
+    UHF_STR_FREE(Model->TidValue);
+    UHF_STR_FREE(Model->NewTidValue);
+    UHF_STR_FREE(Model->ResValue);
+    UHF_STR_FREE(Model->NewResValue);
+    UHF_STR_FREE(Model->MemValue);
+    UHF_STR_FREE(Model->NewMemValue);
+    UHF_STR_FREE(Model->Setting1Value);
+    UHF_STR_FREE(Model->Setting3Value);
+    UHF_STR_FREE(Model->Crc);
+    UHF_STR_FREE(Model->Pc);
     view_free(App->ViewWrite);
 }

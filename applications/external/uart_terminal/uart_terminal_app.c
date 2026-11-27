@@ -26,6 +26,7 @@ UART_TerminalApp* uart_terminal_app_alloc() {
     UART_TerminalApp* app = malloc(sizeof(UART_TerminalApp));
 
     app->gui = furi_record_open(RECORD_GUI);
+    app->uart = NULL;
 
     app->view_dispatcher = view_dispatcher_alloc();
     app->scene_manager = scene_manager_alloc(&uart_terminal_scene_handlers, app);
@@ -107,7 +108,11 @@ void uart_terminal_app_free(UART_TerminalApp* app) {
     view_dispatcher_free(app->view_dispatcher);
     scene_manager_free(app->scene_manager);
 
-    uart_terminal_uart_free(app->uart);
+    // guarded: uart is NULL if the app is torn down before init
+    if(app->uart) {
+        uart_terminal_uart_free(app->uart);
+        app->uart = NULL;
+    }
 
     // Close records
     furi_record_close(RECORD_GUI);

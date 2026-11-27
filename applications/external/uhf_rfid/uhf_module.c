@@ -29,7 +29,8 @@ static M100ResponseType setup_and_send_rx(M100Module* module, uint8_t* cmd, size
 }
 
 M100ModuleInfo* m100_module_info_alloc() {
-    M100ModuleInfo* module_info = (M100ModuleInfo*)malloc(sizeof(M100ModuleInfo));
+    // calloc: _m100_info_helper()/free() read these pointers, they must start NULL
+    M100ModuleInfo* module_info = (M100ModuleInfo*)calloc(1, sizeof(M100ModuleInfo));
     return module_info;
 }
 

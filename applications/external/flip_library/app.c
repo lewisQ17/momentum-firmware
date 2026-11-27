@@ -18,6 +18,9 @@ int32_t flip_library_app(void *p)
     if (!flipper_http_ping())
     {
         FURI_LOG_E(TAG, "Failed to ping the device");
+        // App is fully allocated here: free it (also deinits flipper http)
+        flip_library_app_free(app_instance);
+        app_instance = NULL;
         return -1;
     }
 
@@ -56,6 +59,7 @@ int32_t flip_library_app(void *p)
 
     // Free the resources used by the FlipLibrary application
     flip_library_app_free(app_instance);
+    app_instance = NULL;
 
     // Return 0 to indicate success
     return 0;

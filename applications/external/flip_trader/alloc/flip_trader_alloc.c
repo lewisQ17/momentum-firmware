@@ -1,9 +1,17 @@
 #include "alloc/flip_trader_alloc.h"
 
+// Release a partially built app and report failure (no leak on the error paths)
+static FlipTraderApp *flip_trader_app_alloc_fail(FlipTraderApp *app)
+{
+    flip_trader_app_free(app);
+    return NULL;
+}
+
 // Function to allocate resources for the FlipTraderApp
 FlipTraderApp *flip_trader_app_alloc()
 {
-    FlipTraderApp *app = (FlipTraderApp *)malloc(sizeof(FlipTraderApp));
+    // zeroed so a partial alloc can be released safely by flip_trader_app_free
+    FlipTraderApp *app = (FlipTraderApp *)calloc(1, sizeof(FlipTraderApp));
 
     Gui *gui = furi_record_open(RECORD_GUI);
 
@@ -11,7 +19,7 @@ FlipTraderApp *flip_trader_app_alloc()
     if (!flipper_http_init(flipper_http_rx_callback, app))
     {
         FURI_LOG_E(TAG, "Failed to initialize flipper http");
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
 
     // Allocate the text input buffer
@@ -19,64 +27,64 @@ FlipTraderApp *flip_trader_app_alloc()
     app->uart_text_input_buffer_size_password = 64;
     if (!easy_flipper_set_buffer(&app->uart_text_input_buffer_ssid, app->uart_text_input_buffer_size_ssid))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     if (!easy_flipper_set_buffer(&app->uart_text_input_temp_buffer_ssid, app->uart_text_input_buffer_size_ssid))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     if (!easy_flipper_set_buffer(&app->uart_text_input_buffer_password, app->uart_text_input_buffer_size_password))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     if (!easy_flipper_set_buffer(&app->uart_text_input_temp_buffer_password, app->uart_text_input_buffer_size_password))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
 
     asset_names = asset_names_alloc();
     if (!asset_names)
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
 
     // Allocate ViewDispatcher
     if (!easy_flipper_set_view_dispatcher(&app->view_dispatcher, gui, app))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     view_dispatcher_set_custom_event_callback(app->view_dispatcher, flip_trader_custom_event_callback);
     // Main view
     if (!easy_flipper_set_view(&app->view_loader, FlipTraderViewLoader, flip_trader_loader_draw_callback, NULL, callback_to_assets_submenu, &app->view_dispatcher, app))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     flip_trader_loader_init(app->view_loader);
 
     // Widget
     if (!easy_flipper_set_widget(&app->widget_about, FlipTraderViewAbout, "FlipTrader v1.2\n-----\nUse WiFi to get the price of\nstocks and currency pairs.\n-----\nwww.github.com/jblanked", callback_to_submenu, &app->view_dispatcher))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     if (!easy_flipper_set_widget(&app->widget_result, FlipTraderViewWidgetResult, "Error, try again.", callback_to_assets_submenu, &app->view_dispatcher))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
 
     // Text Input
     if (!easy_flipper_set_uart_text_input(&app->uart_text_input_ssid, FlipTraderViewTextInputSSID, "Enter SSID", app->uart_text_input_temp_buffer_ssid, app->uart_text_input_buffer_size_ssid, text_updated_ssid, callback_to_wifi_settings, &app->view_dispatcher, app))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     if (!easy_flipper_set_uart_text_input(&app->uart_text_input_password, FlipTraderViewTextInputPassword, "Enter password", app->uart_text_input_temp_buffer_password, app->uart_text_input_buffer_size_password, text_updated_password, callback_to_wifi_settings, &app->view_dispatcher, app))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
 
     // Variable Item List
     if (!easy_flipper_set_variable_item_list(&app->variable_item_list_wifi, FlipTraderViewWiFiSettings, settings_item_selected, callback_to_submenu, &app->view_dispatcher, app))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     app->variable_item_ssid = variable_item_list_add(app->variable_item_list_wifi, "SSID", 0, NULL, NULL);
     app->variable_item_password = variable_item_list_add(app->variable_item_list_wifi, "Password", 0, NULL, NULL);
@@ -86,11 +94,11 @@ FlipTraderApp *flip_trader_app_alloc()
     // Submenu
     if (!easy_flipper_set_submenu(&app->submenu_main, FlipTraderViewMainSubmenu, "FlipTrader v1.2", easy_flipper_callback_exit_app, &app->view_dispatcher))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     if (!easy_flipper_set_submenu(&app->submenu_assets, FlipTraderViewAssetsSubmenu, "Assets", callback_to_submenu, &app->view_dispatcher))
     {
-        return NULL;
+        return flip_trader_app_alloc_fail(app);
     }
     submenu_add_item(app->submenu_main, "Assets", FlipTradeSubmenuIndexAssets, callback_submenu_choices, app);
     submenu_add_item(app->submenu_main, "About", FlipTraderSubmenuIndexAbout, callback_submenu_choices, app);

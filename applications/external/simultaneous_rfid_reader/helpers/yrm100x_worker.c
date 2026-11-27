@@ -228,8 +228,8 @@ void uhf_worker_start(
 }
 
 void uhf_worker_stop(UHFWorker* uhf_worker) {
-    furi_assert(uhf_worker);
-    furi_assert(uhf_worker->thread);
+    // M6E/M7E have no worker: callers stop it unconditionally, so NULL is a no-op
+    if(uhf_worker == NULL || uhf_worker->thread == NULL) return;
 
     if(furi_thread_get_state(uhf_worker->thread) != FuriThreadStateStopped) {
         uhf_worker_change_state(uhf_worker, UHFWorkerStateStop);

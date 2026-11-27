@@ -422,4 +422,6 @@ void view_lock_free(UHFReaderApp* App) {
     free(App->SetPwdTempBuffer);
     view_dispatcher_remove_view(App->ViewDispatcher, UHFReaderViewLock);
     variable_item_list_free(App->VariableItemListLock);
+    UHF_STR_FREE(App->DefaultLockAccessPwdStr);
+    UHF_STR_FREE(App->DefaultLockResultStr);
 }

@@ -165,7 +165,12 @@ void uhf_reader_save_text_updated(void* context) {
         UHFReaderConfigModel * model,
         {
             furi_string_set(model->EpcName, App->TempSaveBuffer);
-            model->EpcName = App->EpcName;
+            // Alias App->EpcName; free the model's own copy so it is not orphaned
+            if(model->EpcName != App->EpcName) {
+                FuriString* OwnName = model->EpcName;
+                model->EpcName = App->EpcName;
+                furi_string_free(OwnName);
+            }
             App->EpcToSave = (char*)furi_string_get_cstr(model->EpcValue);
         },
         Redraw);
@@ -726,5 +731,16 @@ void view_read_free(UHFReaderApp* App) {
     text_input_free(App->SaveInput);
     free(App->TempSaveBuffer);
     view_dispatcher_remove_view(App->ViewDispatcher, UHFReaderViewRead);
+    // view_free() only frees the model struct: release its FuriStrings (power/AP are App-owned)
+    UHFReaderConfigModel* Model = view_get_model(App->ViewRead);
+    UHF_STR_FREE(Model->Setting1Value);
+    UHF_STR_FREE(Model->Setting3Value);
+    UHF_STR_FREE(Model->Pc);
+    UHF_STR_FREE(Model->Crc);
+    UHF_STR_FREE(Model->EpcValue);
+    if(Model->EpcName == App->EpcName) {
+        Model->EpcName = NULL; // aliased: App->EpcName is freed by the app
+    }
+    UHF_STR_FREE(Model->EpcName);
     view_free(App->ViewRead);
 }

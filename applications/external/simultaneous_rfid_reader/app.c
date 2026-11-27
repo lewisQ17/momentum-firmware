@@ -69,7 +69,8 @@ void main_menu_alloc(UHFReaderApp* App) {
 */
 static UHFReaderApp* uhf_reader_app_alloc() {
     //Allocating storage for the saved_epcs and index file
-    UHFReaderApp* App = (UHFReaderApp*)malloc(sizeof(UHFReaderApp));
+    // calloc: Timer/YRM100XWorker/pointers must start NULL so guards and furi_assert(Timer == NULL) hold
+    UHFReaderApp* App = (UHFReaderApp*)calloc(1, sizeof(UHFReaderApp));
     Storage* Storage = furi_record_open(RECORD_STORAGE);
     FlipperFormat* File = flipper_format_file_alloc(Storage);
     FlipperFormat* IndexFile = flipper_format_file_alloc(Storage);
@@ -87,7 +88,8 @@ static UHFReaderApp* uhf_reader_app_alloc() {
     memset(App->TidValues, 0, 50 * 41);
     memset(App->ResValues, 0, 50 * 17);
     memset(App->MemValues, 0, 50 * 33);
-    App->EpcToSave = (char*)malloc(25);
+    // Only ever an alias into the read model's EpcValue (set on save); never owned, never freed
+    App->EpcToSave = (char*)"";
     App->NumberOfEpcsToRead = 0;
 
     //Initializing the indices for each array and the file name 
@@ -148,17 +150,12 @@ static void uhf_reader_app_free(UHFReaderApp* App) {
     furi_record_close(RECORD_STORAGE);
     furi_record_close(RECORD_GUI);
     
-    //Freeing the UART helper
-    if(App->UHFModuleType != YRM100X_MODULE){
+    //Freeing the UART helper or the YRM100X worker (guarded: both paths are idempotent)
+    if(App->UHFModuleType == YRM100X_MODULE) {
+        uhf_reader_yrm_worker_free(App);
+    } else if(App->UartHelper != NULL) {
         uart_helper_free(App->UartHelper);
-    }
-    else{
-        //Free Tag Wrapper
-        uhf_tag_wrapper_free(App->YRM100XWorker->uhf_tag_wrapper);
-
-        //Freeing yrm100x worker 
-        uhf_worker_stop(App->YRM100XWorker);
-        uhf_worker_free(App->YRM100XWorker);
+        App->UartHelper = NULL;
     }
     
     
@@ -183,10 +180,10 @@ static void uhf_reader_app_free(UHFReaderApp* App) {
     view_dispatcher_free(App->ViewDispatcher);
 
     //Freeing variables used in app
-    furi_string_free(App->EpcName);
-    furi_string_free(App->EpcDelete);
-    furi_string_free(App->EpcNameDelete);
-    furi_string_free(App->EpcToWrite);
+    UHF_STR_FREE(App->EpcName);
+    UHF_STR_FREE(App->EpcDelete);
+    UHF_STR_FREE(App->EpcNameDelete);
+    UHF_STR_FREE(App->EpcToWrite);
     uhf_reader_free_tag_tables(App);
     flipper_format_free(App->EpcFile);
     flipper_format_free(App->EpcIndexFile);
@@ -194,7 +191,6 @@ static void uhf_reader_app_free(UHFReaderApp* App) {
     free(App->TidValues);
     free(App->ResValues);
     free(App->MemValues);
-    free(App->EpcToSave);
     // Leak fix: FileName and strdup'd labels/placeholders (views using them are freed above)
     free(App->FileName);
     free(App->ReadAccessPasswordLabel);
